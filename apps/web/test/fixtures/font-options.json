@@ -1,0 +1,47 @@
+{
+    "schemaVersion":  1,
+    "defaultFontId":  "system",
+    "options":  [
+                    {
+                        "id":  "system",
+                        "label":  "システム",
+                        "cssFamilies":  [
+                                            "system-ui",
+                                            "sans-serif"
+                                        ]
+                    },
+                    {
+                        "id":  "noto-sans-jp",
+                        "label":  "Noto Sans JP",
+                        "cssFamilies":  [
+                                            "Noto Sans JP"
+                                        ]
+                    },
+                    {
+                        "id":  "line-seed-jp",
+                        "label":  "LINE Seed JP",
+                        "cssFamilies":  [
+                                            "LINE Seed JP"
+                                        ]
+                    },
+                    {
+                        "id":  "noto-serif-jp",
+                        "label":  "Noto Serif JP",
+                        "cssFamilies":  [
+                                            "Noto Serif JP"
+                                        ]
+                    },
+                    {
+                        "id":  "monospace",
+                        "label":  "等幅",
+                        "cssFamilies":  [
+                                            "ui-monospace",
+                                            "SFMono-Regular",
+                                            "Cascadia Code",
+                                            "Menlo",
+                                            "Consolas",
+                                            "monospace"
+                                        ]
+                    }
+                ]
+}

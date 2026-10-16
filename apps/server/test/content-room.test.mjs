@@ -1,0 +1,53 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { once } from 'node:events';
+import {randomUUID} from 'node:crypto';
+import {DatabaseSync} from 'node:sqlite';
+import { mkdtemp, realpath, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join, dirname, basename } from 'node:path';
+import { getMigrations } from 'better-auth/db/migration';
+import { createNodeIdentityService } from '../identity.mjs';
+import { createAppServer } from '../server.mjs';
+import { Y,fromBase64,toBase64,loadRoomDocument } from '@yumunio/collaboration';
+
+test('Node HTTP persists convergent Yjs edits and durable acknowledgements across service restart, then fences manual replacement',async t=>{
+  const directory=await mkdtemp(join(tmpdir(),'yumunio-room-http-')),database=join(directory,'account.sqlite'),mail=[],realFetch=globalThis.fetch;
+  let service;
+  globalThis.fetch=async(url,options)=>{if(String(url)!=='https://room-mail.example.invalid/send')return realFetch(url,options);mail.push(JSON.parse(options.body));return new Response(null,{status:202});};
+  const server=createAppServer({identity:{handle:(...args)=>service.handle(...args),content:(...args)=>service.content(...args)}});
+  server.listen(0,'127.0.0.1');await once(server,'listening');const origin='http://127.0.0.1:'+server.address().port;
+  const env={YUMUNIO_ACCOUNTS_ENABLED:'true',YUMUNIO_PUBLIC_ORIGIN:origin,YUMUNIO_AUTH_SECRET:'room-http-secret-'.repeat(4),YUMUNIO_REGISTRATION_MODE:'open',
+    YUMUNIO_MAIL_DRIVER:'http',YUMUNIO_SMTP_FROM:'no-reply@example.invalid',YUMUNIO_MAIL_HTTP_ENDPOINT:'https://room-mail.example.invalid/send',YUMUNIO_MAIL_HTTP_TOKEN:'fixture-only'};
+  t.after(async()=>{globalThis.fetch=realFetch;await new Promise(resolve=>server.close(resolve));await service?.close();const target=await realpath(directory);assert.equal(dirname(target).toLowerCase(),(await realpath(tmpdir())).toLowerCase());assert.match(basename(target),/^yumunio-room-http-/);await rm(target,{recursive:true,force:true});});
+  const open=verifySchema=>createNodeIdentityService(env,{storage:'sqlite',database},{verifySchema});service=await open(false);
+  await(await getMigrations(service.auth.options)).runMigrations();await service.migrateContentSchema();
+  let account=null;
+  const request=(path,{method='GET',body,headers={}}={})=>realFetch(origin+path,{method,redirect:'manual',headers:{...(body===undefined?{}:{Origin:origin,'Content-Type':'application/json'}),...(account?{Cookie:account.cookie,'X-Yumunio-Expected-Account':account.user.id}:{}),...headers},...(body===undefined?{}:{body:JSON.stringify(body)})});
+  const email='room-http@example.invalid',password='room-http-password-fixture';
+  assert.equal((await request('/api/auth/sign-up/email',{method:'POST',body:{email,password,name:'Room HTTP fixture'}})).status,202);await service.collaboration.runJobs();
+  const token=new URL(mail[0].text.split('\n').at(-1)).searchParams.get('verify');assert.equal((await request('/api/auth/verify-email?token='+encodeURIComponent(token)+'&callbackURL='+encodeURIComponent(origin+'/account.html'))).status,200);
+  const login=await request('/api/auth/sign-in/email',{method:'POST',body:{email,password}});assert.equal(login.status,200);account={user:(await login.json()).user,cookie:login.headers.getSetCookie().map(row=>row.split(';')[0]).join('; ')};
+  const workspace=await(await request('/api/auth/organization/create',{method:'POST',body:{name:'HTTP room',slug:'http-room'}})).json();
+  const created=await(await request('/api/content/workspaces/'+workspace.id+'/pages',{method:'POST',body:{expectedRevision:0,title:'Shared',blocks:[{id:'shared',type:'paragraph',data:{text:'Hello'}}]}})).json();
+  const path='/api/content/workspaces/'+workspace.id+'/pages/'+created.page.id;
+  const openedResponse=await request(path+'/room/open',{method:'POST',body:{expectedRevision:1}});assert.equal(openedResponse.status,201);const opened=await openedResponse.json();
+  const presenceClientId=randomUUID(),presenceBody={epoch:opened.epoch,ticket:opened.ticket,clientId:presenceClientId,sequence:opened.sequence,documentVersion:opened.documentVersion,cursor:{blockId:'shared',start:0,end:5,direction:'forward'}};
+  const presenceResponse=await request(path+'/room/presence',{method:'POST',body:presenceBody});assert.equal(presenceResponse.status,200);const presence=await presenceResponse.json();assert.equal(presence.participants.length,1);assert.equal(presence.participants[0].displayName,'Room HTTP fixture');assert.deepEqual(presence.participants[0].cursor,presenceBody.cursor);assert.equal(presenceResponse.headers.get('cache-control'),'no-store');assert.equal((await(await request(path)).json()).revision,2);
+  assert.equal((await realFetch(origin+path+'/room/presence',{headers:{'X-Yumunio-Room-Ticket':opened.ticket,'X-Yumunio-Presence-Client':presenceClientId}})).status,401);
+  assert.equal((await request(path+'/room/presence',{method:'POST',body:{...presenceBody,displayName:'Spoofed'}})).status,400);
+  const nameDatabase=new DatabaseSync(database);try{for(const name of ['', '   ', account.user.id]){nameDatabase.prepare('UPDATE yumunio_users SET name=? WHERE id=?').run(name,account.user.id);const response=await request(path+'/room/presence',{headers:{'X-Yumunio-Room-Ticket':opened.ticket,'X-Yumunio-Presence-Client':presenceClientId}});assert.equal(response.status,200);assert.equal((await response.json()).participants[0].displayName,'Participant');}nameDatabase.prepare('UPDATE yumunio_users SET name=? WHERE id=?').run('Room HTTP fixture',account.user.id);}finally{nameDatabase.close();}
+  assert.equal((await request(path+'/room/presence',{headers:{'X-Yumunio-Room-Ticket':opened.ticket,'X-Yumunio-Presence-Client':presenceClientId}})).status,200);
+  const left=await request(path+'/room/presence',{method:'DELETE',body:{epoch:opened.epoch,ticket:opened.ticket,clientId:presenceClientId}});assert.equal(left.status,200);assert.deepEqual(await left.json(),{left:true});
+  const baseline={title:created.page.title,blocks:created.document.blocks},a=loadRoomDocument(fromBase64(opened.update),baseline),b=loadRoomDocument(fromBase64(opened.update),baseline),vector=Y.encodeStateVector(a);
+  a.getText('block:shared').insert(5,' A');b.getText('block:shared').insert(5,' B');
+  const body=doc=>({epoch:opened.epoch,ticket:opened.ticket,update:toBase64(Y.encodeStateAsUpdate(doc,vector))}),first=body(a),second=body(b);a.destroy();b.destroy();
+  const responses=await Promise.all([request(path+'/room/updates',{method:'POST',body:first}),request(path+'/room/updates',{method:'POST',body:second})]);assert.deepEqual(responses.map(row=>row.status),[200,200]);for(const response of responses)assert.equal((await response.json()).acknowledged,true);
+  const duplicate=await(await request(path+'/room/updates',{method:'POST',body:first})).json();assert.equal(duplicate.revision,4);assert.equal(duplicate.sequence,3);
+  await service.close();service=await open(true);await service.collaboration.runJobs();
+  const saved=await(await request(path)).json();assert.equal(saved.revision,4);assert.equal(saved.document.version,3);assert.match(saved.document.blocks[0].data.text,/ A/);assert.match(saved.document.blocks[0].data.text,/ B/);
+  const room=await(await request(path+'/room',{headers:{'X-Yumunio-Room-Ticket':opened.ticket}})).json();assert.equal(room.sequence,3);assert.equal(room.epoch,opened.epoch);
+  const patched=await request(path,{method:'PATCH',body:{expectedRevision:4,expectedVersion:3,title:'Manual current title'}});assert.equal(patched.status,200);
+  assert.equal((await request(path+'/room/updates',{method:'POST',body:second})).status,409);
+  assert.equal((await(await request(path)).json()).page.title,'Manual current title');
+});

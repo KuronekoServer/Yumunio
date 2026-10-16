@@ -1,0 +1,50 @@
+{
+  "schemaVersion": 1,
+  "artifactKind": "runtime",
+  "messageFormat": "named-parameters-v1",
+  "sourceLocale": "ja",
+  "defaultLocale": "ja",
+  "fallbackLocale": "en",
+  "namespaces": {
+    "app": "locales",
+    "account": "account-locales",
+    "admin": "admin-locales",
+    "attachments": "attachments-locales",
+    "backlinks": "backlinks-locales",
+    "backups": "backups-locales",
+    "collections": "collections-locales",
+    "comments": "comments-locales",
+    "forms": "forms-locales",
+    "groups": "groups-locales",
+    "history": "history-locales",
+    "import": "import-locales",
+    "install": "install-locales",
+    "integrations": "integrations-locales",
+    "preferences": "prefs-locales",
+    "publication": "publication-locales",
+    "share": "share-locales",
+    "teamspace": "teamspace-locales",
+    "templates": "templates-locales",
+    "webhooks": "webhooks-locales",
+    "workspace": "workspace-locales",
+    "workspace-settings": "workspace-settings-locales"
+  },
+  "locales": [
+    {
+      "code": "ja",
+      "endonym": "日本語",
+      "dir": "ltr",
+      "fallbacks": [
+        "en"
+      ],
+      "stage": "complete"
+    },
+    {
+      "code": "en",
+      "endonym": "English",
+      "dir": "ltr",
+      "fallbacks": [],
+      "stage": "complete"
+    }
+  ]
+}

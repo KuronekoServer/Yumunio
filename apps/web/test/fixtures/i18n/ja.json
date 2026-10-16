@@ -1,0 +1,5 @@
+{
+  "greeting": "原文 {name}",
+  "details": "詳細",
+  "localeFallbackNotice": "一部は英語です。"
+}

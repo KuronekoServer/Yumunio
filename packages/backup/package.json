@@ -1,0 +1,31 @@
+{
+  "name": "@yumunio/backup",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "exports": {
+    ".": "./src/index.js",
+    "./model": "./src/model.js",
+    "./archive": "./src/archive.js",
+    "./sqlite": "./src/sqlite.js",
+    "./d1": "./src/d1.js",
+    "./restore": "./src/restore.js",
+    "./jobs": "./src/jobs.js",
+    "./config": "./src/config.js",
+    "./schema/sqlite": "./schema/backup.sqlite.sql",
+    "./schema/mysql": "./schema/backup.mysql.sql",
+    "./schema/postgres": "./schema/backup.postgres.sql",
+    "./pool": "./src/pool.js",
+    "./operations": "./src/operations.js",
+    "./operations-api": "./src/operations-api.js"
+  },
+  "engines": {
+    "node": ">=24.16.0"
+  },
+  "dependencies": {
+    "@yumunio/domain": "0.1.0",
+    "@yumunio/identity": "0.1.0",
+    "@yumunio/prototype": "0.1.0"
+  }
+}

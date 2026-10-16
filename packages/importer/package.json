@@ -1,0 +1,14 @@
+{
+  "name": "@yumunio/importer",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "exports": {
+    ".": "./src/index.js",
+    "./apply-plan": "./src/apply-plan.js"
+  },
+  "engines": {
+    "node": ">=24.16.0"
+  }
+}

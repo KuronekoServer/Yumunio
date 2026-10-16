@@ -1,0 +1,44 @@
+{
+  "name": "@yumunio/identity",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "exports": {
+    ".": "./src/index.js",
+    "./mail": "./src/mail.js",
+    "./content": "./src/content.js",
+    "./content-store": "./src/content-store.js",
+    "./content-codec": "./src/content-codec.js",
+    "./room-presence-store": "./src/room-presence-store.js",
+    "./collaboration": "./src/collaboration.js",
+    "./collaboration-store": "./src/collaboration-store.js",
+    "./jobs": "./src/jobs.js",
+    "./instance": "./src/instance.js",
+    "./pwa": "./src/pwa.js",
+    "./preferences": "./src/preferences.js",
+    "./preferences-store": "./src/preferences-store.js",
+    "./admin": "./src/admin.js",
+    "./admin-store": "./src/admin-store.js",
+    "./preferences-model": "./src/preferences-model.js",
+    "./api-tokens": "./src/api-tokens.js",
+    "./external-page-actions": "./src/external-page-actions.js",
+    "./mcp": "./src/mcp.js",
+    "./api-token-store": "./src/api-token-store.js",
+    "./webhooks": "./src/webhooks.js",
+    "./webhooks-model": "./src/webhooks-model.js",
+    "./webhooks-store": "./src/webhooks-store.js"
+  },
+  "engines": {
+    "node": ">=24.16.0"
+  },
+  "dependencies": {
+    "@cfworker/json-schema": "4.1.1",
+    "@modelcontextprotocol/sdk": "1.32.1",
+    "@yumunio/collaboration": "0.1.0",
+    "@yumunio/domain": "0.1.0",
+    "better-auth": "1.7.9",
+    "nodemailer": "10.1.1",
+    "zod": "4.6.7"
+  }
+}

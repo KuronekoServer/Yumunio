@@ -1,0 +1,11 @@
+services:
+  yumunio:
+    environment:
+      YUMUNIO_STORAGE: sqlite
+      YUMUNIO_ACCESS_KEY: "${YUMUNIO_ACCESS_KEY:?Set a random access key of at least 32 characters}"
+      YUMUNIO_PUBLIC_ORIGIN: "${YUMUNIO_PUBLIC_ORIGIN:-http://127.0.0.1:8788}"
+      YUMUNIO_DATABASE: /app/.data/yumunio.sqlite
+    volumes:
+      - yumunio-data:/app/.data
+volumes:
+  yumunio-data:

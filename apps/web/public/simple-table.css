@@ -1,0 +1,19 @@
+.simple-table-block{min-width:0;max-width:100%;color:var(--text)}
+.simple-table-toolbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:4px 0 8px;min-height:30px;font-size:12px}
+.simple-table-toolbar label{display:flex;gap:6px;align-items:center}
+.simple-table-action,.simple-table-column-actions select{font:inherit;font-size:12px;background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:4px 7px;min-height:28px}
+.simple-table-action:disabled,.simple-table-column-actions select:disabled{opacity:.5;cursor:default}
+.simple-table-scroll{max-width:100%;min-width:0;overflow:auto;overscroll-behavior:contain;border:1px solid var(--border);border-radius:4px}
+.simple-table{border-collapse:collapse;table-layout:fixed;width:max-content;min-width:100%;background:var(--surface);font:inherit;color:var(--text)}
+.simple-table th,.simple-table td{border:1px solid var(--border);padding:0;min-width:160px;width:160px;vertical-align:top;text-align:start;font-weight:400;white-space:pre-wrap;overflow-wrap:anywhere}
+.simple-table tr:first-child th,.simple-table tr:first-child td{border-top:0}
+.simple-table th:first-child,.simple-table td:first-child{border-inline-start:0}
+.simple-table-cell{display:block;width:100%;min-height:44px;resize:vertical;border:0!important;border-radius:0!important;background:transparent!important;padding:10px!important;color:inherit!important;font:inherit!important;font-weight:inherit!important;text-align:inherit;box-sizing:border-box;white-space:pre-wrap;overflow-wrap:anywhere}
+.simple-table-cell:focus{outline:2px solid var(--accent);outline-offset:-2px}
+.simple-table tbody tr:first-child th[scope=col]{background:var(--nav);font-weight:600}
+.simple-table .simple-table-row-actions{min-width:38px;width:38px;text-align:center;background:var(--nav);padding:4px}
+.simple-table-row-actions .simple-table-action{font-size:11px;max-width:90px;padding:3px}
+.simple-table-column-actions{background:var(--nav);padding:4px!important}
+.simple-table-column-actions select{max-width:90px;margin-inline-end:3px}
+.simple-table-readonly th,.simple-table-readonly td{padding:10px;min-width:120px}
+@media(max-width:760px){.simple-table th,.simple-table td{min-width:140px;width:140px}.simple-table .simple-table-row-actions{min-width:38px;width:38px}.simple-table-toolbar{gap:6px}.simple-table-column-actions select{max-width:82px}}

@@ -1,0 +1,46 @@
+{
+  "name": "yumunio",
+  "description": "A self-hostable workspace for notes, pages, and databases, running on Node.js and Cloudflare Workers.",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/KuronekoServer/Yumunio.git"
+  },
+  "homepage": "https://github.com/KuronekoServer/Yumunio#readme",
+  "bugs": {
+    "url": "https://github.com/KuronekoServer/Yumunio/issues"
+  },
+  "engines": {
+    "node": ">=24.16.0"
+  },
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "node --env-file-if-exists=.env apps/server/server.mjs",
+    "start": "node --env-file-if-exists=.env apps/server/server.mjs",
+    "test": "node packages/tooling/run-tests.mjs",
+    "check": "node packages/tooling/check-syntax.mjs",
+    "test:worker": "node packages/tooling/test-worker.mjs",
+    "build": "node packages/tooling/build-web.mjs",
+    "predev": "npm run build",
+    "prestart": "npm run build",
+    "pretest": "npm run build",
+    "dev:worker": "wrangler dev --local --config apps/worker/wrangler.jsonc",
+    "db:migrate": "node --env-file-if-exists=.env apps/server/cli/migrate-database.mjs",
+    "test:databases": "node packages/tooling/test-databases.mjs",
+    "auth:migrate": "node --env-file-if-exists=.env apps/server/cli/migrate-identity.mjs",
+    "auth:schema:d1": "node apps/worker/generate-auth-schema.mjs",
+    "backup:migrate": "node --env-file-if-exists=.env apps/server/cli/migrate-backup.mjs",
+    "backup": "node --env-file-if-exists=.env apps/server/cli/backup.mjs"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.1",
+    "wrangler": "4.148.0",
+    "yaml": "2.9.1"
+  }
+}

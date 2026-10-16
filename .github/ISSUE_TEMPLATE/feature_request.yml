@@ -1,0 +1,35 @@
+name: 機能の提案
+description: 解決したい問題と、使い方の例を共有します。
+title: "[Feature] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        解決したい問題から教えてください。既存のIssueに同じ提案があれば、そちらへ補足することもできます。
+        使用例には架空のデータを使い、個人情報や非公開のノートを含めないでください。
+  - type: textarea
+    id: problem
+    attributes:
+      label: 解決したい問題
+      description: どの作業で、何に困っていますか？
+    validations:
+      required: true
+  - type: textarea
+    id: use_case
+    attributes:
+      label: 想定する使い方
+      description: 操作の流れと、実現したい結果を具体的に書いてください。
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: 提案する変更の範囲
+      description: 必要な機能や画面を記入してください。代替手段や、今回は含めなくてよいことがあれば添えてください。
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: 参考資料・補足（任意）
+      description: 関連するIssueや、公開されている資料へのリンクを記入できます。

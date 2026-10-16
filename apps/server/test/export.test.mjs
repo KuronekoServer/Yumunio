@@ -1,0 +1,26 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+import { createAppServer } from '../server.mjs';
+import { SqliteSnapshotStore } from '../snapshot-store.mjs';
+import { createDemoWorkspace } from '../../web/public/store.js';
+test('Node serves canonical shared modules and exports the committed SQLite revision', async t => {
+  const snapshotStore = new SqliteSnapshotStore(':memory:');
+  const server = createAppServer({ snapshotStore, allowAnonymous: true });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  t.after(async () => { await new Promise(resolve => server.close(resolve)); snapshotStore.close(); });
+  const origin = 'http://127.0.0.1:' + server.address().port;
+  const shared = await fetch(origin + '/shared/export.js');
+  assert.equal(shared.status, 200);
+  assert.equal(await shared.text(), await readFile(new URL('../../../packages/prototype/src/export.js', import.meta.url), 'utf8'));
+  assert.match(shared.headers.get('content-security-policy'), /script-src 'self'/);
+  assert.equal((await fetch(origin + '/.env')).status, 404);
+  const snapshot = createDemoWorkspace();
+  const saved = await fetch(origin + '/api/workspace/snapshot', { method: 'PUT', headers: { Origin: origin, 'Content-Type': 'application/json' }, body: JSON.stringify({ expectedRevision: 0, snapshot }) });
+  assert.equal(saved.status, 200);
+  const result = await fetch(origin + '/api/workspace/export?format=native-json&includeTrash=true');
+  assert.equal(result.status, 200);
+  assert.equal(result.headers.get('x-yumunio-revision'), '1');
+  assert.deepEqual(await result.json(), snapshot);
+  assert.deepEqual(await snapshotStore.read(), { revision: 1, snapshot });
+});

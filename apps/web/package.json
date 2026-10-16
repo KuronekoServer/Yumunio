@@ -1,0 +1,10 @@
+{
+  "name": "@yumunio/web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Yumunio browser-local workspace prototype",
+  "dependencies": {
+    "@dnd-kit/dom": "0.5.1"
+  }
+}

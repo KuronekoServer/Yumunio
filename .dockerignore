@@ -1,0 +1,22 @@
+.git
+node_modules
+.wrangler
+design
+fonts
+images
+*.pen
+screenshot-*.png
+.npm-cache
+
+.env
+.env.*
+**/.env
+**/.env.*
+**/.dev.vars*
+apps/worker/wrangler.deploy.jsonc
+# Keep regression tests and their fixtures in source, outside production images.
+**/test/**
+**/tests/**
+**/integration/**
+.data
+.build

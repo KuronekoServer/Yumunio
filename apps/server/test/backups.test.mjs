@@ -1,0 +1,44 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { once } from 'node:events';
+import { readFile, mkdir, mkdtemp, rm } from 'node:fs/promises';
+import { join, resolve, dirname, basename } from 'node:path';
+import { getMigrations } from 'better-auth/db/migration';
+import { createIdentity } from '@yumunio/identity';
+import { base64, verifyRecoveryArchive } from '@yumunio/backup/archive';
+import { createAppServer } from '../server.mjs';
+import { SqliteSnapshotStore } from '../snapshot-store.mjs';
+import { createNodeBackupService } from '../backup.mjs';
+
+test('Node HTTP backup admin route uses ordinary verified account login and queues only after scope and destination review', async t => {
+  const parent = resolve('.build/test-fixtures'); await mkdir(parent, { recursive: true }); const path = await mkdtemp(join(parent, 'backup-http-'));
+  const legacy = new SqliteSnapshotStore(':memory:'), mail = [], instanceEnvironment = {}, secret = 'synthetic-http-backup-secret-not-real-123456'; let identity, server, backup;
+  t.after(async () => { try { if (server?.listening) await new Promise(done => server.close(done)); await backup?.close(); await identity?.flushBackgroundTasks(); } finally { legacy.close(); if (dirname(path) !== parent || !basename(path).startsWith('backup-http-')) throw new Error('Invalid test cleanup.'); await rm(path, { recursive: true, force: true }); } });
+  legacy.database.exec(await readFile(new URL('../../../packages/backup/schema/backup.sqlite.sql', import.meta.url), 'utf8'));
+  const env = { YUMUNIO_BACKUP_DRIVER: 'local', YUMUNIO_BACKUP_LOCAL_DIR: join(path, 'archives'), YUMUNIO_BACKUP_ENCRYPTION_KEY: base64(crypto.getRandomValues(new Uint8Array(32))), YUMUNIO_AUTH_SECRET: secret };
+  backup = await createNodeBackupService(env, { storage: 'sqlite', database: ':memory:' }, { snapshotStore: legacy });
+  server = createAppServer({ snapshotStore: legacy, accessKey: 'fixture-only-backup-api-'.repeat(3), instanceEnvironment, backupOperations: backup.operations, identity: { get auth() { return identity?.auth; }, handle: (...args) => identity.handle(...args) } });
+  server.listen(0, '127.0.0.1'); await once(server, 'listening'); const origin = 'http://127.0.0.1:' + server.address().port;
+  identity = createIdentity({ database: legacy.database, origin, secret, registrationMode: 'open', sendMail: async message => { mail.push(message); return { status: 'accepted' }; } });
+  await (await getMigrations(identity.auth.options)).runMigrations();
+  for (const name of ['content','collaboration','preferences']) legacy.database.exec(await readFile(new URL('../../../packages/identity/schema/' + name + '.sqlite.sql', import.meta.url), 'utf8'));
+  let cookie, accountId;
+  const request = (path, { method = 'GET', body, headers = {} } = {}) => fetch(origin + path, { method, redirect: 'manual', headers: { ...(body === undefined ? {} : { Origin: origin, 'Content-Type': 'application/json' }), ...(cookie ? { Cookie: cookie, 'X-Yumunio-Expected-Account': accountId } : {}), ...headers }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
+  const ok = async (response, expected = 200) => { assert.equal(response.status, expected, await response.clone().text()); return response.json(); };
+  assert.equal((await request('/api/admin/backups')).status, 404);
+  const email = 'backup-http@example.invalid', password = 'Synthetic-backup-password-123!';
+  await ok(await request('/api/auth/sign-up/email', { method: 'POST', body: { name: 'Synthetic backup admin', email, password } }), 202); await identity.flushBackgroundTasks();
+  const token = new URL(mail.at(-1).text.split('\n').at(-1)).searchParams.get('verify'); await ok(await request('/api/auth/verify-email?token=' + encodeURIComponent(token) + '&callbackURL=' + encodeURIComponent(origin + '/account.html')));
+  const signIn = await request('/api/auth/sign-in/email', { method: 'POST', body: { email, password } }); accountId = (await ok(signIn)).user.id; cookie = signIn.headers.getSetCookie().map(value => value.split(';')[0]).join('; ');
+  assert.equal((await request('/api/admin/backups')).status, 404); instanceEnvironment.YUMUNIO_SERVER_ADMIN_IDS = accountId;
+  const status = await ok(await request('/api/admin/backups')); assert.equal(status.configuration.enabled, true); assert.equal(status.destination.driver, 'local');
+  assert.equal((await request('/api/admin/backups', { headers: { 'X-Yumunio-Expected-Account': 'other' } })).status, 404);
+  assert.equal((await request('/api/admin/backups', { method: 'POST', body: { requestId: 'synthetic-http', destinationProfileId: status.destination.profileId } })).status, 400);
+  const body = { requestId: 'synthetic-http', confirmScope: 'database-and-private-files', destinationProfileId: status.destination.profileId };
+  assert.equal((await request('/api/admin/backups', { method: 'POST', body: { ...body, destinationProfileId: 'changed' } })).status, 409);
+  const queued = await ok(await request('/api/admin/backups', { method: 'POST', body }), 202), replay = await ok(await request('/api/admin/backups', { method: 'POST', body }), 202); assert.equal(replay.job.id, queued.job.id); assert.equal(queued.job.status, 'queued');
+  let last; for (let index = 0; index < 20; index++) { const result = await backup.operations.tick({ steps: 2, schedule: false }); if (result) last = result; if (!result || ['complete','failed','cancelled'].includes(result.status)) break; }
+  assert.equal(last?.status, 'complete', JSON.stringify(last)); assert.equal((await verifyRecoveryArchive({ source: backup.destination, key: backup.config.key, authSecret: secret, backupId: queued.job.id })).objectCount, 0);
+  const summary = await ok(await request('/api/admin/backups')); assert.equal(summary.jobs[0].status, 'complete'); for (const value of [secret, env.YUMUNIO_BACKUP_ENCRYPTION_KEY, password, email, 'ciphertext', 'state_json']) assert.equal(JSON.stringify(summary).includes(value), false);
+  await ok(await request('/api/auth/sign-out', { method: 'POST', body: {} })); assert.equal((await request('/api/admin/backups')).status, 404);
+});

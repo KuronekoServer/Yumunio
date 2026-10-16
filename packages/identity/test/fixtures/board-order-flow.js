@@ -1,0 +1,27 @@
+import assert from 'node:assert/strict';
+/** The same production-route scenario runs against real Node HTTP and workerd/D1. */
+export async function exerciseBoardOrder({request,owner,member,workspaceId,restart}){
+ const base='/api/content/workspaces/'+workspaceId;let revision=0;
+ const ok=async(response,status=200)=>{assert.equal(response.status,status,await response.clone().text());assert.equal(response.headers.get('cache-control'),'no-store');return response.json();};
+ const get=(path,account=owner)=>request(path,{account});
+ const save=async(path,fields,account=owner,method='POST',status=200)=>{const value=await ok(await request(path,{account,method,body:{expectedRevision:revision,...fields}}),status);assert.equal(value.revision,revision+1);revision=value.revision;return value;};
+ const group=await save(base+'/groups',{name:'Synthetic board collaborators'});await save(base+'/groups/'+group.group.id+'/members',{accountId:member.id,confirmAccessChange:true});
+ const collection=await save(base+'/collections',{title:'Synthetic ordered board',parentId:null,properties:[{id:'status',name:'Status',type:'select',options:['Todo','Done']},{id:'note',name:'Note',type:'text'}]},owner,'POST',201),path=base+'/collections/'+collection.collectionId,rows=[];
+ for(const [title,status]of [['A','Todo'],['Hidden','Todo'],['B','Todo'],['C','Done']])rows.push((await save(path+'/records',{title,values:{status,note:'Preserve '+title}},owner,'POST',201)).record);
+ const config={name:'Board',type:'board',filters:[],sorts:[],groupBy:'status',datePropertyId:null,endDatePropertyId:null},view=await save(path+'/views',{view:config},owner,'POST',201),board=path+'/views/'+view.viewId;
+ const groupGrant=pageId=>save(base+'/pages/'+pageId+'/group-grants',{groupId:group.group.id,permission:'full',includeDescendants:false,confirmAccessChange:true});
+ for(const pageId of [collection.pageId,...rows.map(row=>row.pageId)])await groupGrant(pageId);
+ await save(base+'/pages/'+rows[1].pageId+'/grants',{accountId:member.id,permission:'deny'});
+ let visible=await ok(await get(board,member));assert.deepEqual(visible.collection.records.map(row=>row.id),[rows[0].id,rows[2].id,rows[3].id]);assert.doesNotMatch(JSON.stringify(visible),new RegExp(rows[1].id));assert.ok(visible.capabilities.includes('manage'));
+ const move={recordId:rows[2].id,targetValue:'Todo',beforeRecordId:rows[0].id,visibleRecordIds:visible.collection.records.map(row=>row.id)},moved=await save(board,{boardMove:move},member,'PATCH');assert.equal(moved.record.id,rows[2].id);assert.equal(moved.record.pageId,rows[2].pageId);assert.equal(moved.record.values.note,'Preserve B');assert.deepEqual(moved.record.sourceValues,rows[2].sourceValues);assert.deepEqual(moved.boardOrder.recordIds,[rows[2].id,rows[0].id,rows[3].id]);
+ const ownerView=await ok(await get(board));assert.deepEqual(ownerView.view.boardOrder.recordIds,[rows[2].id,rows[1].id,rows[0].id,rows[3].id]);
+ visible=await ok(await get(board,member));assert.deepEqual(visible.collection.records.map(row=>row.id),[rows[2].id,rows[0].id,rows[3].id]);assert.doesNotMatch(JSON.stringify(visible),new RegExp(rows[1].id));
+ const cross={recordId:rows[2].id,targetValue:'Done',beforeRecordId:rows[3].id,visibleRecordIds:visible.collection.records.map(row=>row.id)},crossed=await save(board,{boardMove:cross},member,'PATCH');assert.equal(crossed.record.values.status,'Done');assert.deepEqual(crossed.boardOrder.recordIds,[rows[0].id,rows[2].id,rows[3].id]);
+ const checkpoint=await ok(await get(board,member));const stale=await request(board,{account:member,method:'PATCH',body:{expectedRevision:revision-1,boardMove:cross}});assert.equal(stale.status,409);assert.equal((await stale.json()).error.code,'CONTENT_CONFLICT');assert.deepEqual(await ok(await get(board,member)),checkpoint);
+ const invalid=await request(board,{account:member,method:'PATCH',body:{expectedRevision:revision,boardMove:{...cross,recordId:rows[0].id,beforeRecordId:rows[1].id,visibleRecordIds:checkpoint.collection.records.map(row=>row.id)}}});assert.equal(invalid.status,400);assert.deepEqual(await ok(await get(board,member)),checkpoint);
+ const exported=await ok(await get(base+'/export?format=json',member));assert.doesNotMatch(JSON.stringify(exported.collections),new RegExp(rows[1].id));
+ await restart();assert.deepEqual(await ok(await get(board,member)),checkpoint);
+ await save(board,{view:{...config,sorts:[{propertyId:'note',direction:'asc'}]}},owner,'PATCH');const sorted=await ok(await get(board,member)),sortedBefore=revision;const refused=await request(board,{account:member,method:'PATCH',body:{expectedRevision:revision,boardMove:{...move,visibleRecordIds:sorted.collection.records.map(row=>row.id)}}});assert.equal(refused.status,409);assert.equal((await refused.json()).error.code,'BOARD_SORTED');assert.equal((await ok(await get(board,member))).revision,sortedBefore);
+ await save(board,{view:config},owner,'PATCH');const restored=await ok(await get(board,member));assert.deepEqual(restored.collection.records.map(row=>row.id),checkpoint.collection.records.map(row=>row.id));assert.equal(restored.collection.records.find(row=>row.id===rows[2].id).values.status,'Done');
+ const currentGroup=await ok(await get(base+'/groups/'+group.group.id));const membership=currentGroup.members.find(row=>row.accountId===member.id);await save(base+'/groups/'+group.group.id+'/members',{memberId:membership.id,confirmAccessChange:true},owner,'DELETE');assert.equal((await get(board,member)).status,404);
+}

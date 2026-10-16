@@ -1,0 +1,16 @@
+{
+  "name": "@yumunio/collaboration",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "exports": {
+    ".": "./src/index.js",
+    "./client": "./src/client.js",
+    "./presence": "./src/presence.js"
+  },
+  "dependencies": {
+    "@yumunio/domain": "0.1.0",
+    "yjs": "13.6.33"
+  }
+}

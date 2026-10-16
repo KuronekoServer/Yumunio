@@ -1,0 +1,120 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {once} from 'node:events';
+import {mkdtemp,readFile,realpath,rm} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {basename,dirname,join} from 'node:path';
+import {getMigrations} from 'better-auth/db/migration';
+import {createIdentity} from '@yumunio/identity';
+import {createAccountContentApi} from '@yumunio/identity/content';
+import {createSqliteContentStore} from '@yumunio/identity/content-store';
+import {previewNotionImport,extractNotionAttachments} from '../../../packages/importer/src/index.js';
+import {prepareNotionImportBundle,buildNotionImportBundle} from '../../../packages/importer/src/apply-plan.js';
+import {validateBlocks,validateInlineMarks} from '../../../packages/domain/src/index.js';
+import {sha256} from '../../../packages/adapters/src/blob.js';
+import {createLocalBlobStore} from '../blob-store.mjs';
+import {createAppServer} from '../server.mjs';
+import {SqliteSnapshotStore} from '../snapshot-store.mjs';
+import {archive} from './fixtures/notion-zip.mjs';
+
+const blocksOf=blocks=>blocks.flatMap(block=>[block,...blocksOf(block.children??[])]);
+const originalMarkdown=blocks=>blocks.filter(block=>block.data.purpose==='import-source'&&block.data.language==='markdown').map(block=>block.data.text).join('');
+async function ok(response,status=200){assert.equal(response.status,status,await response.clone().text());return response.json();}
+
+test('synthetic Notion rich Markdown retains nested editable blocks marks mapped rows and private links through real HTTP SQLite and export',async t=>{
+ const directory=await mkdtemp(join(tmpdir(),'yumunio-notion-markdown-')),legacy=new SqliteSnapshotStore(':memory:'),mail=[];let identity,server;
+ t.after(async()=>{
+  if(server?.listening)await new Promise(resolve=>server.close(resolve));
+  await identity?.flushBackgroundTasks();legacy.close();
+  const target=await realpath(directory);assert.equal(dirname(target).toLowerCase(),(await realpath(tmpdir())).toLowerCase());assert.match(basename(target),/^yumunio-notion-markdown-/);
+  await rm(target,{recursive:true,force:true,maxRetries:10,retryDelay:100});
+ });
+ const blobStore=await createLocalBlobStore({driver:'local',directory:join(directory,'blobs')});
+ server=createAppServer({snapshotStore:legacy,accessKey:'Synthetic-Notion-Markdown-legacy-'.repeat(2),identity:{handle:(...args)=>identity.handle(...args),content:(...args)=>identity.content(...args)}});
+ server.listen(0,'127.0.0.1');await once(server,'listening');const origin='http://127.0.0.1:'+server.address().port;
+ identity=createIdentity({database:legacy.database,origin,workspaceContent:true,secret:'Synthetic-Notion-Markdown-identity-secret-2026!',registrationMode:'open',sendMail:async message=>{mail.push(message);return{status:'accepted'};}});
+ await(await getMigrations(identity.auth.options)).runMigrations();
+ legacy.database.exec(await readFile(new URL('../../../packages/identity/schema/content.sqlite.sql',import.meta.url),'utf8'));
+ const store=createSqliteContentStore(legacy.database),connect=()=>{identity.content=createAccountContentApi({store,origin,blobStore,resolveSession:request=>identity.auth.api.getSession({headers:request.headers})});};connect();
+ const request=(path,{method='GET',body,account,binary=false,revision}={})=>fetch(origin+path,{method,redirect:'manual',headers:{
+  ...(method==='GET'?{}:{Origin:origin}),...(body===undefined?{}:{'Content-Type':binary?'application/octet-stream':'application/json'}),
+  ...(account?{Cookie:account.cookie,'X-Yumunio-Expected-Account':account.id}:{}),...(revision===undefined?{}:{'X-Yumunio-Expected-Revision':String(revision)})
+ },...(body===undefined?{}:{body:binary?body:JSON.stringify(body)})});
+ async function account(name){
+  const email=name+'@example.invalid',password='Synthetic-Notion-Markdown-password-2026!';
+  await ok(await request('/api/auth/sign-up/email',{method:'POST',body:{name,email,password}}),202);await identity.flushBackgroundTasks();
+  const token=new URL(mail.at(-1).text.split('\n').at(-1)).searchParams.get('verify');
+  await ok(await request('/api/auth/verify-email?token='+encodeURIComponent(token)+'&callbackURL='+encodeURIComponent(origin+'/account.html')));
+  const response=await request('/api/auth/sign-in/email',{method:'POST',body:{email,password}}),result=await ok(response);
+  return{id:result.user.id,cookie:response.headers.getSetCookie().map(value=>value.split(';')[0]).join('; ')};
+ }
+ const owner=await account('notion-markdown-owner'),member=await account('notion-markdown-member');
+ const workspace=await ok(await request('/api/auth/organization/create',{method:'POST',account:owner,body:{name:'Notion Markdown fixture',slug:'notion-markdown-fixture'}}));
+ const base='/api/content/workspaces/'+workspace.id;
+ legacy.database.prepare('INSERT INTO yumunio_memberships(id,organizationId,userId,role,createdAt) VALUES(?,?,?,?,?)').run('notion-markdown-member-generation',workspace.id,member.id,'member',Date.now());
+ const existing=await ok(await request(base+'/pages',{method:'POST',account:owner,body:{expectedRevision:0,title:'Existing note',blocks:[{id:'existing',type:'paragraph',data:{text:'Existing text remains unchanged'}}]}}),201);
+ const source='# **Mapped row**\n\n### Third level\n\n- **Parent \u{1F600}**\n  4. _Numbered child_\n     - [x] ~~Done~~\n     - [ ] **[Guide](Guide.md)**\n\n> **Quoted [Table](Rows.csv)**\n> > Nested \u0060literal [No link](Guide.md)\u0060\n\n\u0060\u0060\u0060js\nconst sample = "[Not a link](Guide.md)";\n\u0060\u0060\u0060\n\n**[Manual](manual.txt)**';
+ const guideSource='# Guide\n\n_**[Mapped](Mapped.md)**_',fileBytes=new TextEncoder().encode('SYNTHETIC-PRIVATE-MARKDOWN-ATTACHMENT');
+ const zip=archive([['Mapped.md',source],['Guide.md',guideSource],['Rows.csv','Name,Note\r\nMapped row,PRIVATE-MAPPED-ROW-CELL\r\n'],['manual.txt',fileBytes]]);
+ const plan=await previewNotionImport(zip),files=await extractNotionAttachments(zip);
+ assert.equal(plan.summary.pages,2);assert.equal(plan.summary.collections,1);assert.equal(plan.summary.records,1);assert.equal(plan.links.length,4);assert.equal(files.size,1);
+ const asset=plan.entries.find(entry=>entry.path==='manual.txt'),importId='notion-markdown-http-fixture',stagePath=base+'/imports/'+importId+'/assets';
+ assert.deepEqual(files.get(asset.id),fileBytes);
+ const reserved=await ok(await request(stagePath,{method:'POST',account:owner,body:{expectedRevision:existing.revision,sourceId:asset.id,name:'manual.txt',mediaType:'application/octet-stream',size:fileBytes.length,checksum:await sha256(fileBytes)}}),201);
+ const ready=await ok(await request(stagePath+'/'+reserved.assetId,{method:'PUT',body:fileBytes,binary:true,revision:reserved.revision,account:owner}));
+ const options={expectedRevision:ready.revision,importId,rootTitle:'Private Markdown import',csvMode:'native',assets:[{sourceId:asset.id,assetId:ready.assetId}],rowPageMappings:[{collectionId:'collection-1',rowId:'collection-1-row-1',pageId:'page-1'}]};
+ const reviewed=prepareNotionImportBundle(plan,options);
+ assert.equal(reviewed.summary.convertedLinks,4);assert.equal(reviewed.summary.unconvertedLinks,0);assert.equal(reviewed.summary.mappedRows,1);
+ const bundle=buildNotionImportBundle(plan,{...options,acknowledgements:Object.fromEntries(reviewed.requiredAcknowledgements.map(key=>[key,true]))});
+ assert.deepEqual(bundle.body,reviewed.body);
+ const committed=await ok(await request(base+'/imports',{method:'POST',body:bundle.body,account:owner}),201);
+ assert.equal(committed.pageCount,4);assert.equal(committed.revision,ready.revision+1);
+ connect();
+ const listing=await ok(await request(base+'/pages',{account:owner}));assert.equal(listing.pages.length,5);
+ const mapped=listing.pages.find(page=>page.title==='Mapped row'),guide=listing.pages.find(page=>page.title==='Guide'),container=listing.pages.find(page=>page.collectionId&&!page.recordId);
+ assert.ok(mapped);assert.ok(guide);assert.ok(container);assert.equal(mapped.parentId,container.id);
+ const envelope=await ok(await request(base+'/pages/'+mapped.id,{account:owner})),blocks=envelope.document.blocks,all=blocksOf(blocks);
+ assert.doesNotThrow(()=>validateBlocks(blocks));
+ assert.equal(blocks[0].type,'heading');assert.equal(blocks[0].data.level,1);assert.equal(blocks[0].data.text,'Mapped row');assert.deepEqual(blocks[0].data.marks,[{start:0,end:10,styles:['bold']}]);
+ assert.equal(blocks[1].type,'heading');assert.equal(blocks[1].data.level,3);
+ const parent=blocks.find(block=>block.type==='bulleted-list');assert.equal(parent.data.text,'Parent \u{1F600}');assert.equal(parent.data.marks[0].end,parent.data.text.length);
+ const numbered=parent.children[0];assert.equal(numbered.type,'numbered-list');assert.equal(numbered.data.start,4);assert.deepEqual(numbered.data.marks[0].styles,['italic']);
+ assert.equal(numbered.children[0].type,'checklist');assert.equal(numbered.children[0].data.checked,true);assert.equal(numbered.children[0].data.text,'Done');assert.deepEqual(numbered.children[0].data.marks[0].styles,['strike']);
+ const nestedLink=numbered.children[1];assert.equal(nestedLink.data.checked,false);assert.equal(nestedLink.data.text,'Guide');assert.equal(nestedLink.data.links[0].pageId,guide.id);assert.deepEqual(nestedLink.data.marks[0].styles,['bold']);
+ const quote=blocks.find(block=>block.type==='quote');assert.equal(quote.data.text,'Quoted Table');assert.equal(quote.data.links[0].pageId,container.id);
+ assert.equal(quote.children[0].type,'quote');assert.equal(quote.children[0].data.text,'Nested literal [No link](Guide.md)');assert.equal(quote.children[0].data.links,undefined);assert.deepEqual(quote.children[0].data.marks[0].styles,['code']);
+ const code=all.find(block=>block.type==='code'&&block.data.purpose!=='import-source');assert.equal(code.data.language,'js');assert.equal(code.data.text,'const sample = "[Not a link](Guide.md)";');assert.equal(code.data.links,undefined);
+ assert.equal(originalMarkdown(blocks),source);
+ const rowSource=blocks.find(block=>block.data.purpose==='import-source'&&block.data.language==='json');
+ assert.deepEqual(JSON.parse(rowSource.data.text),{format:'notion-csv-row-v1',columns:['Name','Note'],cells:['Mapped row','PRIVATE-MAPPED-ROW-CELL']});
+ assert.equal(new Set(all.map(block=>block.id)).size,all.length);
+ for(const block of all){if(block.data.marks)assert.doesNotThrow(()=>validateInlineMarks(block.data.text,block.data.marks));for(const link of block.data.links??[])assert.equal(block.data.text.slice(link.start,link.end),link.label);}
+ const guideEnvelope=await ok(await request(base+'/pages/'+guide.id,{account:owner})),guideLink=guideEnvelope.document.blocks[1];
+ assert.equal(guideLink.data.text,'Mapped');assert.equal(guideLink.data.links[0].pageId,mapped.id);assert.deepEqual(guideLink.data.marks,[{start:0,end:6,styles:['bold','italic']}]);assert.equal(originalMarkdown(guideEnvelope.document.blocks),guideSource);
+ const collectionEnvelope=await ok(await request(base+'/collections/'+container.collectionId,{account:owner})),collection=collectionEnvelope.collection,record=collection.records[0];
+ assert.equal(record.pageId,mapped.id);assert.ok(collection.properties.every(property=>property.type==='text'));
+ const note=collection.properties.find(property=>property.name==='Note');assert.equal(record.values[note.id],'PRIVATE-MAPPED-ROW-CELL');assert.equal(record.sourceValues[note.id],'PRIVATE-MAPPED-ROW-CELL');
+ assert.equal(envelope.attachments.length,1);const attachment=envelope.attachments[0],assetLink=all.flatMap(block=>block.data.links??[]).find(link=>link.attachmentId===attachment.id);
+ assert.equal(assetLink.pageId,mapped.id);assert.equal(assetLink.label,'Manual');
+ const downloadPath=base+'/pages/'+mapped.id+'/attachments/'+attachment.id,download=await request(downloadPath,{account:owner});
+ assert.equal(download.status,200);assert.match(download.headers.get('content-security-policy'),/sandbox/);assert.deepEqual(new Uint8Array(await download.arrayBuffer()),fileBytes);
+ const exported=await ok(await request(base+'/export?format=json',{account:owner}));
+ assert.deepEqual(exported.pages.find(item=>item.page.id===mapped.id).document,envelope.document);
+ assert.deepEqual(exported.pages.find(item=>item.page.id===guide.id).document,guideEnvelope.document);
+ const zipResponse=await request(base+'/export?format=zip',{account:owner});assert.equal(zipResponse.status,200);const output=new Uint8Array(await zipResponse.arrayBuffer());
+ const exportedPlan=await previewNotionImport(output),exportedFiles=await extractNotionAttachments(output),contentEntry=exportedPlan.entries.find(entry=>entry.path==='content.json');assert.ok(contentEntry);
+ const json=JSON.parse(new TextDecoder().decode(exportedFiles.get(contentEntry.id)));
+ assert.deepEqual(json.pages.find(item=>item.page.id===mapped.id).document,envelope.document);
+ assert.equal(exportedPlan.entries.some(entry=>entry.path==='manual.txt'),false);
+ assert.deepEqual((await ok(await request(base+'/pages/'+existing.page.id,{account:owner}))).document,existing.document);
+ const replay=await ok(await request(base+'/imports',{method:'POST',body:bundle.body,account:owner}));assert.equal(replay.replayed,true);assert.equal(replay.rootPageId,committed.rootPageId);
+ assert.equal((await ok(await request(base+'/pages',{account:owner}))).pages.length,5);
+ await ok(await request(base+'/pages/'+container.id+'/grants',{method:'POST',account:owner,body:{expectedRevision:committed.revision,accountId:member.id,permission:'viewer'}}));
+ const memberCollection=await ok(await request(base+'/collections/'+collection.id,{account:member}));assert.deepEqual(memberCollection.collection.records,[]);
+ const memberExport=await ok(await request(base+'/export?format=json',{account:member}));assert.doesNotMatch(JSON.stringify(memberExport),/PRIVATE-MAPPED-ROW-CELL|Parent|SYNTHETIC-PRIVATE-MARKDOWN-ATTACHMENT/);
+ const containerEnvelope=await ok(await request(base+'/pages/'+container.id,{account:member}));assert.doesNotMatch(JSON.stringify(containerEnvelope.document),/PRIVATE-MAPPED-ROW-CELL/);
+ assert.equal((await request(base+'/pages/'+mapped.id,{account:member})).status,404);assert.equal((await request(base+'/pages/'+guide.id,{account:member})).status,404);assert.equal((await request(downloadPath,{account:member})).status,404);
+ assert.equal((await request(downloadPath)).status,401);
+ const persisted=await store.read(workspace.id,owner.id);assert.equal(persisted.payload.imports.length,1);assert.equal(persisted.payload.pendingBlobs.length,0);assert.equal(persisted.payload.attachments.length,1);
+ assert.equal((await legacy.read()).snapshot,null);
+});

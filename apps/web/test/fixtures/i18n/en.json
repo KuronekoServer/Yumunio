@@ -1,0 +1,5 @@
+{
+  "greeting": "Hello {name}",
+  "details": "Details",
+  "localeFallbackNotice": "Some labels use English."
+}

@@ -1,0 +1,40 @@
+name: 翻訳の修正・追加
+description: 表示文言の改善や、新しい言語への対応を提案します。
+title: "[Translation] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        翻訳への協力を歓迎します。言語コードや翻訳キーが分からなくても、画面と文言で報告できます。
+        例文や画像には個人情報・実際のノート内容を含めないでください。
+  - type: input
+    id: locale
+    attributes:
+      label: 対象の言語
+      placeholder: "例: 日本語（ja） / English（en）"
+    validations:
+      required: true
+  - type: input
+    id: location
+    attributes:
+      label: 翻訳キー・ファイル・表示箇所
+      description: 分かる範囲で記入してください。キーが不明なら、画面名と操作手順だけでも大丈夫です。
+      placeholder: "例: ワークスペース設定 → 外観 の保存ボタン"
+    validations:
+      required: true
+  - type: textarea
+    id: sample
+    attributes:
+      label: 現在の文言と提案する文言
+      description: 新しい言語の追加なら、翻訳したい範囲や例文を記入してください。
+      placeholder: |
+        現在:
+        提案:
+        理由や、文言が使われる場面:
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: 補足（任意）
+      description: 用語の使い分け、複数形、画面での文字切れなども記入できます。

@@ -1,0 +1,23 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {Miniflare,convertV4MiniflareOptions} from 'miniflare';
+import {build} from 'esbuild';
+import {mkdtemp,readFile,rm} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {resolve,relative,isAbsolute,sep,join} from 'node:path';
+import {fileURLToPath} from 'node:url';
+import {exerciseTeamspaces} from '../../../packages/identity/test/fixtures/teamspace-flow.js';
+const root=fileURLToPath(new URL('../../../',import.meta.url)),prefix='yumunio-worker-teamspace-',origin='https://teamspaces.fixture.invalid';
+test('actual workerd preserves workspace ownership and teamspace D1 ACL across review, scoped integrations, restart and current membership generations',{timeout:180000},async t=>{
+ const directory=await mkdtemp(join(tmpdir(),prefix)),bundle=join(directory,'fixture-worker.mjs');let worker,db;
+ t.after(async()=>{await worker?.dispose();const absolute=resolve(directory),rel=relative(resolve(tmpdir()),absolute);assert.ok(!isAbsolute(rel)&&!rel.includes(sep)&&rel.startsWith(prefix));await rm(absolute,{recursive:true,force:true,maxRetries:10,retryDelay:100});});
+ await build({entryPoints:[join(root,'apps/worker/integration/teamspaces-fixture.js')],outfile:bundle,bundle:true,format:'esm',platform:'browser',target:'es2022',external:['node:*'],logLevel:'silent'});
+ const bindings={YUMUNIO_PUBLIC_ORIGIN:origin,YUMUNIO_ACCESS_KEY:'Synthetic-worker-teamspace-legacy-key-2026!',YUMUNIO_ACCOUNTS_ENABLED:'true',YUMUNIO_AUTH_SECRET:'Synthetic-worker-teamspace-authentication-secret-2026!',YUMUNIO_REGISTRATION_MODE:'closed',YUMUNIO_MAIL_DRIVER:'disabled',YUMUNIO_API_TOKENS_ENABLED:'true',YUMUNIO_WEBHOOK_ENABLED:'true',YUMUNIO_WEBHOOK_ENDPOINT:'https://receiver.teamspace-fixture.invalid/events',YUMUNIO_WEBHOOK_SIGNING_KEY:Buffer.alloc(32,84).toString('base64')};
+ const start=()=>new Miniflare(convertV4MiniflareOptions({modules:true,scriptPath:bundle,compatibilityDate:'2026-10-01',compatibilityFlags:['nodejs_compat'],d1Databases:{DB:'teamspace-runtime'},resourcePersistencePath:join(directory,'state'),telemetry:{enabled:false},bindings}));
+ const restart=async()=>{if(worker)assert.equal((await(await worker.dispatchFetch(origin+'/__fixture/metrics')).json()).externalAttempts,0);await worker?.dispose();worker=start();await worker.ready;db=await worker.getD1Database('DB');};await restart();
+ const schema=(await readFile(join(root,'apps/worker/auth-schema.sql'),'utf8')).replace(/^\s*--.*$/gm,'');await db.batch(schema.split(';').map(sql=>sql.trim()).filter(Boolean).map(sql=>db.prepare(sql)));
+ const request=(path,{method='GET',body,account,headers={}}={})=>worker.dispatchFetch(origin+path,{method,redirect:'manual',headers:{...(body===undefined?{}:{Origin:origin,'Content-Type':'application/json'}),...(account?{Cookie:account.cookie,'X-Yumunio-Expected-Account':account.id}:{}),...headers},...(body===undefined?{}:{body:JSON.stringify(body)})});assert.equal((await request('/__fixture/seed')).status,200);
+ const login=async id=>{const response=await request('/api/auth/sign-in/email',{method:'POST',body:{email:id+'@example.invalid',password:'Synthetic-Teamspace-Host-Fixture-2026!'}});assert.equal(response.status,200,await response.clone().text());const value=await response.json();return{id:value.user.id,cookie:response.headers.getSetCookie().map(item=>item.split(';')[0]).join('; ')};};
+ await exerciseTeamspaces({request,owner:await login('team-owner'),member:await login('team-member'),peer:await login('team-peer'),outsider:await login('team-outsider'),workspaceId:'teamspace-workspace',async inspect(){const row=await db.prepare('SELECT revision,payload_json FROM yumunio_account_content WHERE workspace_id=?').bind('teamspace-workspace').first();return row?{revision:row.revision,payload:JSON.parse(row.payload_json)}:{revision:0,payload:null};},async countWorkspaces(){return(await db.prepare('SELECT COUNT(*) AS n FROM yumunio_workspaces').first()).n;},async organizationMembers(id){return(await db.prepare('SELECT userId AS accountId,role FROM yumunio_memberships WHERE organizationId=? ORDER BY userId').bind(id).all()).results;},restart,async replaceMembership(id){await db.prepare('UPDATE yumunio_memberships SET id=? WHERE userId=? AND organizationId=?').bind('replacement-'+id,id,'teamspace-workspace').run();}});
+ assert.equal((await(await request('/__fixture/metrics')).json()).externalAttempts,0);
+});

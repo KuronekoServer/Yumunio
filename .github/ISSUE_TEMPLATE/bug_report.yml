@@ -1,0 +1,65 @@
+name: 不具合の報告
+description: 再現手順と実行環境を添えて、不具合を報告します。
+title: "[Bug] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        報告ありがとうございます。再現には架空のページやデータを使ってください。
+        `.env`、パスワード、トークン、Cookie、実際のノート内容、データベース、エクスポートZIPは添付しないでください。ログや画像も公開前に機密情報を取り除いてください。
+        セキュリティ上の問題は、公開Issueへ詳細を書く前に [SECURITY.md](https://github.com/KuronekoServer/Yumunio/blob/master/SECURITY.md) を確認してください。
+  - type: input
+    id: version
+    attributes:
+      label: バージョンまたはコミット
+      description: 使用中のリリース名、コミットID、または確認できない旨を記入してください。
+      placeholder: "例: v0.1.0 / コミットID / 不明"
+    validations:
+      required: true
+  - type: dropdown
+    id: runtime
+    attributes:
+      label: 実行環境
+      options:
+        - Node.jsでセルフホスト
+        - Cloudflare Workers
+        - 不明・その他
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: OS・ブラウザー・サーバー構成
+      description: ブラウザーとOSの名前・バージョンを記入してください。分かればNode.jsのバージョンやDBの種類も添えてください。ホスト名や接続情報は不要です。
+      placeholder: "例: Windows 11 / Chrome 141 / Node.js 24 / MariaDB。入力に関する不具合ならIMEの種類と入力方法も記入。"
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: 再現手順
+      description: 架空のデータで同じ現象を起こすための手順を書いてください。
+      placeholder: |
+        1. 新しいページを作成する
+        2. 本文に……を入力する
+        3. ……を操作する
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期待した動作
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: 実際の動作
+      description: エラー表示や、発生頻度が分かれば添えてください。
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: 補足・機密情報を除いたログや画像（任意）
+      description: 必要な範囲だけ共有してください。本文・メールアドレス・認証情報などが写っていないか確認してください。

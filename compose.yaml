@@ -1,0 +1,17 @@
+services:
+  yumunio:
+    build: .
+    # Compose >= 2.24: inject application settings at runtime; never copy .env into the image.
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      # The container listener must match the published/internal port even if the host .env uses loopback.
+      YUMUNIO_HOST: 0.0.0.0
+      YUMUNIO_PORT: "8788"
+      # Database bootstrap credentials belong only to the database service.
+      YUMUNIO_DB_PASSWORD: ""
+      YUMUNIO_DB_ADMIN_PASSWORD: ""
+    ports:
+      - "127.0.0.1:8788:8788"
+    restart: unless-stopped

@@ -1,0 +1,12 @@
+.groups-settings{max-width:800px;margin-inline:auto;padding:24px;color:var(--text);min-width:0;overflow-wrap:anywhere}
+.groups-settings .groups-panel{min-width:0;outline:none}.groups-settings .groups-panel>button{margin:8px 8px 8px 0}
+.groups-settings .group-list{list-style:none;padding:0;margin:16px 0}.groups-settings .group-list li{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 0;border-bottom:1px solid var(--border)}
+.groups-settings .group-list li>span,.groups-settings .group-list li>button{min-width:0;overflow-wrap:anywhere;white-space:normal}.groups-settings .group-list li>button{max-width:100%}
+.groups-settings .group-field{display:grid;gap:8px;margin:16px 0;max-width:620px}.groups-settings input,.groups-settings select{padding:10px;border:1px solid var(--border);border-radius:6px;background:var(--canvas);color:var(--text);min-width:0;width:100%;box-sizing:border-box}
+.groups-settings .group-form{margin:20px 0}.groups-settings .group-hint,.groups-settings .group-intro{color:var(--muted);font-size:14px;line-height:1.7}.groups-settings [hidden]{display:none}.groups-settings .group-message{padding:12px;border:1px solid var(--border);border-radius:6px}
+.groups-settings .group-confirm{width:min(520px,calc(100vw - 48px));max-width:calc(100vw - 24px);max-height:calc(100dvh - 32px);box-sizing:border-box;background:var(--canvas);color:var(--text);border:1px solid var(--border);border-radius:10px;padding:24px;overflow:auto}
+.groups-settings .group-confirm::backdrop{background:#0008}.groups-settings .group-actions{display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap}.groups-settings .group-footer{margin-top:32px}
+.settings-dialog .groups-settings{padding:0}
+@media(max-width:600px){.groups-settings{padding:16px}.groups-settings .group-list li{align-items:flex-start;flex-wrap:wrap}.groups-settings .group-confirm{padding:18px}}
+.groups-settings .group-field.group-scope {display:flex;align-items:center;gap:10px;}
+.groups-settings .group-scope input[type=checkbox] {width:18px;height:18px;min-height:18px;flex:none;padding:0;accent-color:var(--accent);}

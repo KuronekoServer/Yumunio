@@ -1,0 +1,10 @@
+import worker from '../worker.js';
+import {drainWorkerMail} from '../identity.js';
+import {hashPassword} from 'better-auth/crypto';
+const nativeFetch=globalThis.fetch;let relay,attempts=0,externalAttempts=0;
+globalThis.fetch=(input,options)=>{const url=typeof input==='string'||input instanceof URL?String(input):input.url;if(url!=='https://receiver.webhook-fixture.invalid/events'||!relay){externalAttempts++;throw Error('External requests are forbidden in the synthetic webhook fixture.');}attempts++;return nativeFetch(relay,options);};
+export default{async fetch(request,env,context){
+ if(!/^http:\/\/127\.0\.0\.1:\d{1,5}\/events$/.test(env.YUMUNIO_FIXTURE_WEBHOOK_RELAY??''))throw Error('Invalid synthetic webhook relay.');relay=env.YUMUNIO_FIXTURE_WEBHOOK_RELAY;
+ const path=new URL(request.url).pathname;if(path==='/__fixture/metrics')return Response.json({attempts,externalAttempts});if(path==='/__fixture/drain'){await drainWorkerMail(env);return Response.json({drained:true});}if(path!=='/__fixture/seed')return worker.fetch(request,env,context);
+ const password=await hashPassword('Synthetic-Worker-Webhook-Fixture-2026!'),date=Date.now(),statements=[];for(const id of ['webhook-owner','webhook-admin'])statements.push(env.DB.prepare('INSERT INTO yumunio_users(id,name,email,emailVerified,createdAt,updatedAt)VALUES(?,?,?,1,?,?)').bind(id,'Synthetic '+id,id+'@example.invalid',date,date),env.DB.prepare('INSERT INTO yumunio_auth_accounts(id,accountId,providerId,userId,password,createdAt,updatedAt)VALUES(?,?,?,?,?,?,?)').bind('credential-'+id,id,'credential',id,password,date,date));statements.push(env.DB.prepare('INSERT INTO yumunio_workspaces(id,name,slug,createdAt)VALUES(?,?,?,?)').bind('webhook-workspace','Synthetic webhook workspace','synthetic-webhook',date),env.DB.prepare('INSERT INTO yumunio_memberships(id,organizationId,userId,role,createdAt)VALUES(?,?,?,?,?)').bind('webhook-membership','webhook-workspace','webhook-owner','owner',date));await env.DB.batch(statements);return Response.json({seeded:true});
+}};

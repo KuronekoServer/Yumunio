@@ -1,0 +1,25 @@
+# Dependencies and generated files
+node_modules/
+.wrangler/
+.npm-cache/
+/.build/
+*.log
+
+# Local configuration and credentials
+.dev.vars*
+.env
+.env.*
+!.env.example
+.ssh/
+/apps/worker/wrangler.deploy.jsonc
+
+# User content and design originals
+.data/
+*.pen
+*.zip
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+*.db
+*.db-shm
+*.db-wal

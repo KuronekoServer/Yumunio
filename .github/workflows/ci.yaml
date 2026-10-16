@@ -1,0 +1,83 @@
+name: Check
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: check-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  check:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24.16.0'
+          package-manager-cache: false
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - run: npm run check
+      - run: npm test
+      - run: npm run test:worker
+      - run: node --test packages/backup/integration/workerd.mjs
+  container-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: docker build --tag yumunio-ci .
+  database-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      mariadb:
+        image: mariadb:11.8
+        env:
+          MARIADB_DATABASE: yumunio_test_ci
+          MARIADB_USER: yumunio_test
+          MARIADB_PASSWORD: fixture-${{ github.run_id }}-${{ github.run_attempt }}
+          MARIADB_RANDOM_ROOT_PASSWORD: '1'
+        ports:
+          - 3306/tcp
+        options: >-
+          --health-cmd "healthcheck.sh --connect --innodb_initialized"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: yumunio_test_ci
+          POSTGRES_USER: yumunio_test
+          POSTGRES_PASSWORD: fixture-${{ github.run_id }}-${{ github.run_attempt }}
+        ports:
+          - 5432/tcp
+        options: >-
+          --health-cmd "pg_isready -U yumunio_test -d yumunio_test_ci"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24.16.0'
+          package-manager-cache: false
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - run: npm run test:databases
+        env:
+          YUMUNIO_TEST_MYSQL_URL: mysql://yumunio_test:fixture-${{ github.run_id }}-${{ github.run_attempt }}@127.0.0.1:${{ job.services.mariadb.ports[3306] }}/yumunio_test_ci
+          YUMUNIO_TEST_POSTGRES_URL: postgres://yumunio_test:fixture-${{ github.run_id }}-${{ github.run_attempt }}@127.0.0.1:${{ job.services.postgres.ports[5432] }}/yumunio_test_ci

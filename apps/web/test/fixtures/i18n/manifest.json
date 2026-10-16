@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 1,
+  "artifactKind": "runtime",
+  "messageFormat": "named-parameters-v1",
+  "sourceLocale": "ja",
+  "defaultLocale": "ja",
+  "fallbackLocale": "en",
+  "namespaces": {
+    "app": "fixture-locales"
+  },
+  "locales": [
+    {
+      "code": "ja",
+      "endonym": "日本語",
+      "dir": "ltr",
+      "fallbacks": [
+        "en"
+      ],
+      "stage": "complete"
+    },
+    {
+      "code": "en",
+      "endonym": "English",
+      "dir": "ltr",
+      "fallbacks": [],
+      "stage": "complete"
+    },
+    {
+      "code": "qaa",
+      "endonym": "Fixture A",
+      "dir": "rtl",
+      "fallbacks": [
+        "en"
+      ],
+      "stage": "partial"
+    },
+    {
+      "code": "qab",
+      "endonym": "Fixture B",
+      "dir": "ltr",
+      "fallbacks": [
+        "en"
+      ],
+      "stage": "partial"
+    }
+  ]
+}

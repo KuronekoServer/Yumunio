@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: 開発・貢献の案内
+    url: https://github.com/KuronekoServer/Yumunio/blob/master/CONTRIBUTING.md
+    about: ローカルでの開発、テスト、変更の提案について確認できます。
+  - name: セキュリティ上の問題について
+    url: https://github.com/KuronekoServer/Yumunio/blob/master/SECURITY.md
+    about: 公開Issueへ詳細を投稿する前に、報告方法を確認してください。

@@ -1,0 +1,27 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {once} from 'node:events';
+import {readFile} from 'node:fs/promises';
+import {getMigrations} from 'better-auth/db/migration';
+import {createIdentity} from '@yumunio/identity';
+import {createAccountContentApi} from '@yumunio/identity/content';
+import {createSqliteContentStore} from '@yumunio/identity/content-store';
+import {createAppServer} from '../server.mjs';
+import {SqliteSnapshotStore} from '../snapshot-store.mjs';
+test('real Node HTTP creates edits and removes canonical body page references with version CAS and backlink persistence',async t=>{
+ const legacy=new SqliteSnapshotStore(':memory:'),mail=[];let identity;
+ const server=createAppServer({snapshotStore:legacy,accessKey:'backlinks-legacy-fixture-'.repeat(3),identity:{handle:(...args)=>identity.handle(...args),content:(...args)=>identity.content(...args)}});server.listen(0,'127.0.0.1');await once(server,'listening');const origin='http://127.0.0.1:'+server.address().port;
+ t.after(async()=>{await new Promise(resolve=>server.close(resolve));await identity?.flushBackgroundTasks();legacy.close();});
+ identity=createIdentity({database:legacy.database,origin,workspaceContent:true,secret:'backlinks-http-fixture-not-a-real-secret-123456',registrationMode:'open',sendMail:async message=>{mail.push(message);return{status:'accepted'};}});await(await getMigrations(identity.auth.options)).runMigrations();legacy.database.exec(await readFile(new URL('../../../packages/identity/schema/content.sqlite.sql',import.meta.url),'utf8'));
+ const raw=createSqliteContentStore(legacy.database);let reads=0,writes=0;const store={async read(...args){reads++;return raw.read(...args);},async write(...args){writes++;return raw.write(...args);}};identity.content=createAccountContentApi({store,origin,resolveSession:request=>identity.auth.api.getSession({headers:request.headers})});
+ const request=(path,{method='GET',body,account,headers={}}={})=>fetch(origin+path,{method,redirect:'manual',headers:{...(body===undefined?{}:{Origin:origin,'Content-Type':'application/json'}),...(account?{Cookie:account.cookie,'X-Yumunio-Expected-Account':account.user.id}:{}),...headers},...(body===undefined?{}:{body:JSON.stringify(body)})});
+ async function ok(response,status=200){assert.equal(response.status,status,await response.clone().text());return response.json();}
+ async function account(name){const email=name+'@example.invalid',password='backlinks-http-fictional-password';await ok(await request('/api/auth/sign-up/email',{method:'POST',body:{name:'Synthetic '+name,email,password}}),202);await identity.flushBackgroundTasks();const token=new URL(mail.at(-1).text.split('\n').at(-1)).searchParams.get('verify');await ok(await request('/api/auth/verify-email?token='+encodeURIComponent(token)+'&callbackURL='+encodeURIComponent(origin+'/account.html')));const signed=await request('/api/auth/sign-in/email',{method:'POST',body:{email,password}}),result=await ok(signed);return{user:result.user,cookie:signed.headers.getSetCookie().map(value=>value.split(';')[0]).join('; ')};}
+ const owner=await account('page-reference-owner'),workspace=await ok(await request('/api/auth/organization/create',{method:'POST',account:owner,body:{name:'Page refs HTTP fixture',slug:'page-refs-http-fixture'}})),base='/api/content/workspaces/'+workspace.id;
+ const target=await ok(await request(base+'/pages',{method:'POST',account:owner,body:{expectedRevision:0,title:'Target'}}),201),source=await ok(await request(base+'/pages',{method:'POST',account:owner,body:{expectedRevision:1,title:'Source',blocks:[{id:'body',type:'paragraph',data:{text:'Read Target now'}}]}}),201),path=base+'/pages/'+source.page.id;
+ const linked=await ok(await request(path,{method:'PATCH',account:owner,body:{expectedRevision:2,expectedVersion:1,blocks:[{id:'body',type:'paragraph',data:{text:'Read Target now',marks:[{start:5,end:11,styles:['bold']}],links:[{start:5,end:11,label:'Target',pageId:target.page.id}]}}]}}));assert.equal(linked.document.version,2);
+ const prefixed=await ok(await request(path,{method:'PATCH',account:owner,body:{expectedRevision:3,expectedVersion:2,blocks:[{id:'body',type:'paragraph',data:{text:'New Read Target now',marks:[{start:9,end:15,styles:['bold']}],links:[{start:9,end:15,label:'Target',pageId:target.page.id}]}}]}}));assert.equal(prefixed.document.version,3);
+ const readback=await ok(await request(path,{account:owner}));assert.equal(readback.document.blocks[0].data.links[0].start,9);assert.equal((await ok(await request(base+'/pages/'+target.page.id+'/backlinks',{account:owner}))).sources[0].references[0].snippet,'New Read Target now');
+ assert.equal((await request(path,{method:'PATCH',account:owner,body:{expectedRevision:3,expectedVersion:2,title:'Stale'}})).status,409);
+ const removed=await ok(await request(path,{method:'PATCH',account:owner,body:{expectedRevision:4,expectedVersion:3,blocks:[{id:'body',type:'paragraph',data:{text:'New Read Target now',marks:[{start:9,end:15,styles:['bold']}]}}]}}));assert.equal(removed.document.blocks[0].data.links,undefined);assert.equal(removed.document.blocks[0].data.marks[0].styles[0],'bold');assert.deepEqual((await ok(await request(base+'/pages/'+target.page.id+'/backlinks',{account:owner}))).sources,[]);assert.equal((await legacy.read()).snapshot,null);await ok(await request('/api/auth/sign-out',{method:'POST',account:owner,body:{}}));assert.equal((await request(path,{account:owner})).status,401);
+});

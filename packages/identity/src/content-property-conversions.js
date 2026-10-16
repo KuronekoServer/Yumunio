@@ -1,0 +1,21 @@
+import {assertId,assertJsonSerializable,assertPlainObject,planTextPropertyConversion,PROPERTY_CONVERSION_TYPES} from '@yumunio/domain';
+
+/** Called only through the verified, same-origin collections handler. */
+export async function handlePropertyConversion({context,entry,previewOnly,manageRows,commit,freezeSource,mintFactory,fail}){
+ const {request,saved,payload,collectionId,workspaceId,accountId,actor}=context;if(request.method!=='POST')fail('METHOD_NOT_ALLOWED',405);
+ const input=await context.readJson(request),base=['expectedRevision','sourcePropertyId','targetType','name'],allowed=previewOnly?base:[...base,'previewDigest','confirm','confirmFormRepublish'];
+ assertJsonSerializable(input);assertPlainObject(input);if(Object.keys(input).some(key=>!allowed.includes(key))||base.some(key=>!Object.hasOwn(input,key)))fail('INVALID_PROPERTY_CONVERSION');
+ if(!Number.isSafeInteger(input.expectedRevision)||input.expectedRevision<0||input.expectedRevision>=Number.MAX_SAFE_INTEGER)fail('INVALID_REVISION');if(input.expectedRevision!==saved.revision)fail('CONTENT_CONFLICT',409);
+ assertId(input.sourcePropertyId);if(!PROPERTY_CONVERSION_TYPES.includes(input.targetType)||typeof input.name!=='string'||!input.name.trim()||input.name.trim().length>128||/[\u0000-\u001f\u007f-\u009f]/u.test(input.name))fail('INVALID_PROPERTY_CONVERSION');
+ const name=input.name.trim(),source=entry.collection.properties.find(property=>property.id===input.sourcePropertyId);if(source?.type!=='text')fail('PROPERTY_CONVERSION_SOURCE_UNSUPPORTED',409);
+ manageRows(context,entry);if(entry.collection.properties.length>=128||entry.collection.records.length>1000)fail('CONTENT_TOO_LARGE',413);
+ const plan=planTextPropertyConversion(entry.collection.records,source.id,input.targetType),pages=new Map(payload.pages.map(item=>[item.page.id,item.page])),bindings=new Map(entry.recordPages.map(binding=>[binding.recordId,binding])),rows=plan.rows.map(row=>{const binding=bindings.get(row.recordId);return{...row,pageId:binding.pageId,trashed:pages.get(binding.pageId).trashedAt!==null};});
+ const requiresFormRepublish=(payload.forms??[]).some(form=>form.collectionId===collectionId&&form.activeVersion!==null),basis={workspaceId,accountId,membershipId:actor.id,role:actor.role,revision:saved.revision,collectionId,sourcePropertyId:source.id,targetType:input.targetType,name,rows,requiresFormRepublish};
+ const bytes=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(JSON.stringify(basis))),previewDigest=Array.from(new Uint8Array(bytes),byte=>byte.toString(16).padStart(2,'0')).join('');
+ const preview={revision:saved.revision,collectionId,sourcePropertyId:source.id,targetType:input.targetType,name,valid:plan.valid,rows,blankCount:plan.blankCount,invalidCount:plan.invalidCount,previewDigest,requiresFormRepublish};
+ if(previewOnly)return Response.json(preview,{headers:{'Cache-Control':'no-store','Referrer-Policy':'no-referrer','X-Content-Type-Options':'nosniff'}});
+ if(input.confirm!==true||typeof input.previewDigest!=='string'||!/^[a-f0-9]{64}$/.test(input.previewDigest)||Object.hasOwn(input,'confirmFormRepublish')&&typeof input.confirmFormRepublish!=='boolean')fail('PROPERTY_CONVERSION_CONFIRMATION_REQUIRED',409);
+ if(input.previewDigest!==previewDigest)fail('CONTENT_CONFLICT',409);if(requiresFormRepublish&&input.confirmFormRepublish!==true)fail('PROPERTY_CONVERSION_FORM_CONFIRMATION_REQUIRED',409);if(!plan.valid)fail('PROPERTY_CONVERSION_INVALID_VALUES',409);
+ const propertyId=mintFactory(payload,context.createId)();freezeSource(entry);entry.collection.properties.push({id:propertyId,name,type:input.targetType});const converted=new Map(plan.rows.map(row=>[row.recordId,row.value]));for(const row of entry.collection.records)Object.defineProperty(row.values,propertyId,{value:converted.get(row.id),enumerable:true,writable:true,configurable:true});entry.collection.updatedAt=context.now();
+ return commit(context,{result:{collectionId,propertyId,sourcePropertyId:source.id,targetType:input.targetType,convertedCount:rows.length},authorizeFresh:fresh=>{const current=fresh.payload.collections?.find(item=>item.collection.id===collectionId);if(!current)fail('CONTENT_NOT_FOUND',404);manageRows(fresh,current);}});
+}

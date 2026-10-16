@@ -1,0 +1,26 @@
+-- Explicit migration. Plaintext bearer tokens are never stored. SDK identity tables are joined, not altered.
+CREATE TABLE IF NOT EXISTS yumunio_api_tokens (
+  id CHAR(32) NOT NULL PRIMARY KEY,
+  account_id VARCHAR(128) NOT NULL,
+  workspace_id VARCHAR(128) NOT NULL,
+  page_id VARCHAR(128) NOT NULL,
+  membership_id VARCHAR(128) NOT NULL,
+  actor_role VARCHAR(16) NOT NULL CHECK (actor_role IN ('owner','admin','member','guest')),
+  name VARCHAR(80) NOT NULL,
+  scopes_json VARCHAR(64) NOT NULL,
+  token_hash CHAR(64) NOT NULL,
+  expires_at CHAR(24) NOT NULL,
+  created_at CHAR(24) NOT NULL,
+  revoked_at CHAR(24),
+  version BIGINT NOT NULL CHECK (version >= 1 AND version <= 9007199254740991),
+  request_id CHAR(36) NOT NULL,
+  request_digest CHAR(64) NOT NULL,
+  active_slot INTEGER CHECK (active_slot >= 1 AND active_slot <= 20),
+  metadata_slot INTEGER NOT NULL CHECK (metadata_slot >= 1 AND metadata_slot <= 50),
+  UNIQUE (account_id,request_id),
+  UNIQUE (account_id,active_slot),
+  UNIQUE (account_id,metadata_slot),
+  CHECK (expires_at > created_at),
+  CHECK (revoked_at IS NULL OR active_slot IS NULL),
+  CONSTRAINT yumunio_api_token_scopes CHECK (scopes_json IN ('["page:read"]','["page:read","document:read"]','["page:read","document:read","document:write"]','["page:read","mcp:connect"]','["page:read","document:read","mcp:connect"]','["page:read","document:read","document:write","mcp:connect"]'))
+) ENGINE=InnoDB DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_bin;

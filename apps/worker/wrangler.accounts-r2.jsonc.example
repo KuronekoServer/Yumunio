@@ -1,0 +1,36 @@
+{
+  "name": "yumunio-test",
+  "main": "worker.js",
+  "compatibility_date": "2026-10-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  "preview_urls": false,
+  "minify": true,
+  "build": {
+    "command": "node packages/tooling/build-web.mjs",
+    "cwd": "../.."
+  },
+  "assets": {
+    "directory": "../../.build/web",
+    "binding": "ASSETS",
+    "html_handling": "none",
+    "run_worker_first": ["/", "/api", "/api/*", "/health", "/manifest.webmanifest"]
+  },
+  "vars": {
+    "YUMUNIO_PUBLIC_ORIGIN": "https://yumunio-test.REPLACE_WITH_YOUR_SUBDOMAIN.workers.dev",
+    "YUMUNIO_ACCOUNTS_ENABLED": "true",
+    "YUMUNIO_REGISTRATION_MODE": "closed",
+    "YUMUNIO_MAIL_DRIVER": "disabled",
+    "YUMUNIO_BLOB_DRIVER": "r2",
+    "YUMUNIO_API_TOKENS_ENABLED": "false",
+    "YUMUNIO_MCP_ENABLED": "false",
+    "YUMUNIO_WEBHOOK_ENABLED": "false",
+    "YUMUNIO_BACKUP_DRIVER": "disabled"
+  },
+  "d1_databases": [{
+    "binding": "DB",
+    "database_name": "yumunio-test",
+    "database_id": "REPLACE_WITH_YOUR_DATABASE_ID"
+  }],
+  "r2_buckets": [{"binding": "BLOBS", "bucket_name": "yumunio-test"}]
+}

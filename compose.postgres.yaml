@@ -1,0 +1,33 @@
+# PostgreSQL self-host database example. Combine with compose.yaml.
+services:
+  yumunio:
+    environment:
+      YUMUNIO_STORAGE: postgres
+      YUMUNIO_ACCESS_KEY: "${YUMUNIO_ACCESS_KEY:?Set a random access key of at least 32 characters}"
+      YUMUNIO_PUBLIC_ORIGIN: "${YUMUNIO_PUBLIC_ORIGIN:-http://127.0.0.1:8788}"
+      YUMUNIO_DATABASE_URL: "${YUMUNIO_DATABASE_URL:?Set postgres://yumunio:encoded-password@database:5432/yumunio}"
+      YUMUNIO_DATABASE_TLS: "${YUMUNIO_DATABASE_TLS:-verify-full}"
+      YUMUNIO_DATABASE_CA: "${YUMUNIO_DATABASE_CA:-}"
+    depends_on:
+      database:
+        condition: service_healthy
+  database:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: yumunio
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: "${YUMUNIO_DB_ADMIN_PASSWORD:?Set a separate PostgreSQL administrator password}"
+      YUMUNIO_DB_PASSWORD: "${YUMUNIO_DB_PASSWORD:?Set the application database password matching the URL}"
+    volumes:
+      - yumunio-postgres:/var/lib/postgresql/data
+      - ./deploy/postgres/init.sh:/docker-entrypoint-initdb.d/01-yumunio.sh:ro
+      - ./packages/adapters/prototype.postgres.sql:/opt/yumunio-prototype.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U postgres -d yumunio"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    restart: unless-stopped
+volumes:
+  yumunio-postgres:

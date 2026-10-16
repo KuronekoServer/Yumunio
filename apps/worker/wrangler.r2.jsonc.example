@@ -1,0 +1,50 @@
+{
+  "name": "yumunio",
+  "main": "worker.js",
+  "compatibility_date": "2026-10-01",
+  "build": {
+    "command": "node packages/tooling/build-web.mjs",
+    "cwd": "../..",
+    "watch_dir": [
+      "../web/public",
+      "../../packages/prototype/src"
+    ]
+  },
+  "assets": {
+    "directory": "../../.build/web",
+    "binding": "ASSETS",
+    "html_handling": "none",
+    "run_worker_first": [
+      "/",
+      "/api",
+      "/api/*",
+      "/health"
+    ]
+  },
+  "vars": {
+    "YUMUNIO_PUBLIC_ORIGIN": "https://workspace.example.invalid",
+    "YUMUNIO_BLOB_DRIVER": "r2",
+    "YUMUNIO_R2_BINDING": "BLOBS"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "yumunio",
+      "database_id": "REPLACE_WITH_YOUR_DATABASE_ID"
+    }
+  ],
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
+  "r2_buckets": [
+    {
+      "binding": "BLOBS",
+      "bucket_name": "REPLACE_WITH_YOUR_PRIVATE_BUCKET"
+    }
+  ],
+  "triggers": {
+    "crons": [
+      "*/1 * * * *"
+    ]
+  }
+}

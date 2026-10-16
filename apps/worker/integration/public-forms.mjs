@@ -1,0 +1,20 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {Miniflare,convertV4MiniflareOptions} from 'miniflare';
+import {build} from 'esbuild';
+import {mkdtemp,readFile,rm} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {resolve,relative,isAbsolute,sep,join} from 'node:path';
+import {fileURLToPath} from 'node:url';
+import {exercisePublicForms} from '../../../packages/identity/test/fixtures/public-forms-flow.js';
+const root=fileURLToPath(new URL('../../../',import.meta.url)),prefix='yumunio-worker-public-forms-',origin='https://public-forms.fixture.invalid';
+test('actual workerd/D1 anonymous forms retain typed private answers and invalid counters across restart and revoke stale links',{timeout:90000},async t=>{
+ const directory=await mkdtemp(join(tmpdir(),prefix)),bundle=join(directory,'fixture-worker.mjs');let worker;
+ t.after(async()=>{await worker?.dispose();const absolute=resolve(directory),rel=relative(resolve(tmpdir()),absolute);assert.ok(!isAbsolute(rel)&&!rel.includes(sep)&&rel.startsWith(prefix));await rm(absolute,{recursive:true,force:true,maxRetries:10,retryDelay:100});});
+ await build({entryPoints:[join(root,'apps/worker/integration/public-forms-fixture.js')],outfile:bundle,bundle:true,format:'esm',platform:'browser',target:'es2022',external:['node:*'],logLevel:'silent'});
+ const options=convertV4MiniflareOptions({modules:true,scriptPath:bundle,compatibilityDate:'2026-10-01',compatibilityFlags:['nodejs_compat'],d1Databases:{DB:'public-forms-runtime-source'},resourcePersistencePath:join(directory,'state'),telemetry:{enabled:false},bindings:{YUMUNIO_PUBLIC_ORIGIN:origin,YUMUNIO_ACCESS_KEY:'synthetic-public-forms-fixture-legacy-key-2026',YUMUNIO_ACCOUNTS_ENABLED:'true',YUMUNIO_AUTH_SECRET:'synthetic-worker-public-forms-authentication-secret-2026',YUMUNIO_REGISTRATION_MODE:'closed',YUMUNIO_MAIL_DRIVER:'disabled'}}),start=async()=>{worker=new Miniflare(options);await worker.ready;};await start();let database=await worker.getD1Database('DB');const schema=(await readFile(join(root,'apps/worker/auth-schema.sql'),'utf8')).replace(/^\s*--.*$/gm,'');await database.batch(schema.split(';').map(sql=>sql.trim()).filter(Boolean).map(sql=>database.prepare(sql)));
+ const request=(path,{method='GET',body,account,headers={}}={})=>worker.dispatchFetch(origin+path,{method,redirect:'manual',headers:{...(body===undefined?{}:{'Content-Type':'application/json',Origin:origin}),...(account?{Cookie:account.cookie,'X-Yumunio-Expected-Account':account.id}:{}),...headers},...(body===undefined?{}:{body:JSON.stringify(body)})});
+ const seeded=await request('/__fixture/seed');assert.equal(seeded.status,200);await seeded.arrayBuffer();
+ const login=async id=>{const response=await request('/api/auth/sign-in/email',{method:'POST',body:{email:id+'@example.invalid',password:'Synthetic-public-forms-password-2026!'}});assert.equal(response.status,200,await response.clone().text());const value=await response.json();return{id:value.user.id,cookie:response.headers.getSetCookie().map(item=>item.split(';')[0]).join('; ')};};
+ await exercisePublicForms({request,owner:await login('forms-owner'),member:await login('forms-member'),workspaceId:'forms-workspace',async inspect(){const row=await database.prepare('SELECT revision,payload_json FROM yumunio_account_content WHERE workspace_id=?').bind('forms-workspace').first();return{revision:row.revision,payload:JSON.parse(row.payload_json)};},async restart(){await worker.dispose();await start();database=await worker.getD1Database('DB');},async replacePublisherMembership(){await database.prepare('UPDATE yumunio_memberships SET id=? WHERE userId=?').bind('replacement-owner-generation','forms-owner').run();}});
+});
