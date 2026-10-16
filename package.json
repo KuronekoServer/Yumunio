@@ -39,8 +39,8 @@
     "backup": "node --env-file-if-exists=.env apps/server/cli/backup.mjs"
   },
   "devDependencies": {
-    "esbuild": "0.28.1",
-    "wrangler": "4.148.0",
+    "esbuild": "0.28.2",
+    "wrangler": "4.150.0",
     "yaml": "2.9.1"
   }
 }
