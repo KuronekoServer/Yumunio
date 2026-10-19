@@ -103,6 +103,8 @@ docker compose -f compose.yaml -f compose.https.yaml logs yumunio
 
 ## 保存先と設定
 
+共同編集はNode.js内のWebSocketサーバーがYjsの差分を即時配信します。追加のポートや認証情報は不要で、HTTPと同じ8788番を使います。Caddy・EasyPanelなどの前段プロキシではWebSocketのアップグレードを通してください。標準構成はアプリ1インスタンスです。複数レプリカ間のWebSocket配信は未対応です。
+
 標準の `yumunio-data` ボリュームは、DB・添付・内部の認証情報を保存します。`.env` とボリュームは、再起動・コンテナー更新でも保持してください。通常の更新で `docker compose down -v` を使うと保存データが削除されます。
 
 サイト名・言語・テーマ・登録方針・メールは、管理者でログインしてサイト設定から変更できます。DB・S3互換保存先・APIなどの設定は[詳細設定](../../deploy/advanced.env.example)を参照してください。[初期設定後のメール](../mail-setup.md)、[更新前のバックアップ](maintenance.md)も確認してください。

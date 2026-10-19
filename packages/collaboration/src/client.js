@@ -28,9 +28,10 @@ export class HttpRoomClient {
     this.request=request;this.doc=null;this.epoch=null;this.ticket=null;this.status='closed';this.pending=false;this.generation=0;this.busy=false;this.sequence=0;
     this.path='/api/content/workspaces/'+encodeURIComponent(workspaceId)+'/pages/'+encodeURIComponent(pageId)+'/room';
   }
+  requestHeaders(extra={}){return{'X-Yumunio-Expected-Account':this.accountId,...(this.protocol===2?{'X-Yumunio-Room-Protocol':'2'}:{}),...(this.features.includes('check-state')?{'X-Yumunio-Room-Features':'check-state'}:{}),...(this.features.includes('block-transforms')?{'X-Yumunio-Room-Extensions':'block-transforms'}:{}),...extra};}
   async #request(suffix,method,body,extra={}) {
     const lifecycle=this.#lifecycle;
-    try{return await this.request({path:this.path+suffix,method,headers:{'X-Yumunio-Expected-Account':this.accountId,...(this.protocol===2?{'X-Yumunio-Room-Protocol':'2'}:{}),...(this.features.includes('check-state')?{'X-Yumunio-Room-Features':'check-state'}:{}),...(this.features.includes('block-transforms')?{'X-Yumunio-Room-Extensions':'block-transforms'}:{}),...extra},...(body===undefined?{}:{body})});}
+    try{return await this.request({path:this.path+suffix,method,headers:this.requestHeaders(extra),...(body===undefined?{}:{body})});}
     catch(error){if(lifecycle===this.#lifecycle&&(error?.status===401||error?.status===403||error?.status===404||['ROOM_EPOCH_CHANGED','ROOM_PROTOCOL_UNSUPPORTED'].includes(error?.code))){this.status='stale';this.#clearPresence();}throw error;}
   }
   #prepare(value,{opening=false}={}) {
@@ -223,3 +224,4 @@ export class HttpRoomClient {
   destroy(){this.#lifecycle++;this.#clearPresence();this.undoManager?.destroy();this.undoManager=null;this.doc?.destroy();this.doc=null;this.status='closed';}
 }
 export { ROOM_LIMITS, PRESENCE_LIMITS };
+export {RoomSocketTransport} from './socket-client.js';

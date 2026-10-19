@@ -17,8 +17,10 @@ import { createPwaManifestApi } from '@yumunio/identity/pwa';
 import { createD1RecoveryStore, assertRecoveryReady } from '@yumunio/backup';
 import { createInstanceSetup } from '../../packages/identity/src/setup.js';
 import { createD1SetupStore } from '../../packages/identity/src/setup-store.js';
+import {roomSocketRoute} from '../../packages/identity/src/room-socket.js';
+export {PageRoom} from './room.js';
 
-const policy = {
+const basePolicy = {
   'X-Content-Type-Options': 'nosniff',
   'Referrer-Policy': 'strict-origin-when-cross-origin',
   'Content-Security-Policy': "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
@@ -39,6 +41,7 @@ export default {
   },
   async fetch(request, env, context) {
     const url = new URL(request.url);
+    const policy={...basePolicy,'Content-Security-Policy':basePolicy['Content-Security-Policy'].replace("connect-src 'self'","connect-src 'self' "+url.origin.replace(/^http/,'ws'))};
     const pageRoute=webPageRoute(url.pathname);
     if(pageRoute?.redirectPath)return new Response(null,{status:['GET','HEAD'].includes(request.method)?308:405,headers:{...policy,'Cache-Control':'no-store',...(['GET','HEAD'].includes(request.method)?{Location:pageRoute.redirectPath+url.search}:{Allow:'GET, HEAD'})}});
     if ((env.YUMUNIO_SETUP_TOKEN || env.YUMUNIO_INSTANCE_SECRET) && env.YUMUNIO_PUBLIC_ORIGIN && ['/', '/setup'].includes(url.pathname) && ['GET', 'HEAD'].includes(request.method)) {
@@ -108,6 +111,12 @@ export default {
         if (!valid) throw new Error('Invalid deployment configuration');
         try { if (env.DB) await assertRecoveryReady(createD1RecoveryStore(env.DB)); }
         catch (error) { return Response.json({ error: { code: error?.code === 'RECOVERY_IN_PROGRESS' ? 'RECOVERY_IN_PROGRESS' : 'RECOVERY_UNAVAILABLE' } }, { status: 503, headers: { 'Cache-Control': 'no-store', ...policy } }); }
+        if(roomSocketRoute(url.pathname)&&env.ROOMS){
+          const match=/\/workspaces\/([^/]+)\/pages\/([^/]+)/.exec(url.pathname);
+          const incoming=await env.ROOMS.get(env.ROOMS.idFromName(match[1]+':'+match[2])).fetch(request);
+          if(incoming.status===101)return incoming;
+          const result=new Response(incoming.body,incoming);for(const[name,value]of Object.entries(policy))result.headers.set(name,value);return result;
+        }
         const accountPath = /^\/api\/(?:auth|content|collaboration|preferences|admin|public|integrations|v1|webhooks|mcp)(?:\/|$)/.test(url.pathname);
         const services = identityConfig.enabled && accountPath ? await createWorkerAccountServices(env, identityConfig, context) : null;
         const identity = services?.identity;
@@ -150,6 +159,10 @@ export default {
           const jobs=[services.webhookJobs.runJobs()];if(mailConfig.driver!=='disabled')jobs.push(services.collaboration.runJobs());
           const drain = Promise.allSettled(jobs);
           if (context?.waitUntil) context.waitUntil(drain); else await drain;
+        }
+        if(result.ok&&!['GET','HEAD'].includes(request.method)&&env.ROOMS){
+          const page=/^\/api\/content\/workspaces\/([^/]+)\/pages\/([^/]+)(?:\/|$)/.exec(url.pathname);
+          if(page){const notify=env.ROOMS.get(env.ROOMS.idFromName(page[1]+':'+page[2])).fetch(new Request('https://room.internal/changed',{method:'POST'})).catch(()=>{});if(context?.waitUntil)context.waitUntil(notify);else await notify;}
         }
         for (const [name, value] of Object.entries(policy)) if (!result.headers.has(name)) result.headers.set(name, value);
         return result;

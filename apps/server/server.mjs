@@ -13,6 +13,7 @@ import { readServerConfig } from './config.mjs';
 import { createInstanceApi } from '@yumunio/identity/instance';
 import { createPwaManifestApi } from '@yumunio/identity/pwa';
 import { createSqliteRecoveryStore, assertRecoveryReady } from '@yumunio/backup';
+import {attachRoomSockets} from './room-socket.mjs';
 
 const defaultRoot = fileURLToPath(new URL('../../.build/web/', import.meta.url));
 const contentTypes = new Map([
@@ -47,7 +48,8 @@ export function createAppServer({ root = defaultRoot, snapshotStore = null, acce
   const baseRuntime = { accessKey, publicOrigin, identity, instanceEnvironment };
   const server = createServer(async (request, response) => {
     const send = (status, body, type = 'text/plain; charset=utf-8', extraHeaders = {}) => {
-      response.writeHead(status, mergeHeaders(headers,{'Content-Type':type},extraHeaders));
+      const socketOrigin=(runtime?.publicOrigin||'http://127.0.0.1:'+server.address().port).replace(/^http/,'ws');
+      response.writeHead(status, mergeHeaders({...headers,'Content-Security-Policy':headers['Content-Security-Policy'].replace("connect-src 'self'","connect-src 'self' "+socketOrigin)},{'Content-Type':type},extraHeaders));
       response.end(request.method === 'HEAD' ? undefined : body);
     };
     let runtime;
@@ -127,6 +129,7 @@ export function createAppServer({ root = defaultRoot, snapshotStore = null, acce
           result = await api(apiRequest);
         }
         const outgoing = mergeHeaders(headers,Object.fromEntries(result.headers));
+        if(result.ok&&!['GET','HEAD'].includes(request.method)&&pathname.startsWith('/api/content/'))await roomSockets.notify(pathname,pathname.endsWith('/presence')?'presence':'content');
         const cookies = result.headers.getSetCookie();
         if (cookies.length) outgoing['set-cookie'] = cookies;
         response.writeHead(result.status, outgoing);
@@ -162,6 +165,7 @@ export function createAppServer({ root = defaultRoot, snapshotStore = null, acce
       return send(500, 'Unable to read the requested asset');
     }
   });
+  const roomSockets=attachRoomSockets(server,{acquire:()=>runtimeProvider?runtimeProvider():baseRuntime,assertReady:async()=>{if(recoveryStore)await assertRecoveryReady(recoveryStore);}});
   server.requestTimeout = 15000;
   server.headersTimeout = 10000;
   return server;

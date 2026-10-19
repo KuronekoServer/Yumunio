@@ -2476,6 +2476,51 @@ paths:
           $ref: "#/components/responses/PayloadTooLarge"
         "503":
           $ref: "#/components/responses/Unavailable"
+  /api/content/workspaces/{workspaceId}/pages/{pageId}/room/ws:
+    parameters:
+      - $ref: "#/components/parameters/WorkspaceId"
+      - $ref: "#/components/parameters/PageId"
+    get:
+      operationId: streamPageRoom
+      summary: Upgrade a same-origin account connection for real-time Yjs collaboration
+      tags:
+        - Account room collaboration
+      security:
+        - SessionCookie: []
+        - SecureSessionCookie: []
+      x-audience: same-origin-account
+      x-reject-query: true
+      x-required-page-capability: read
+      parameters:
+        - $ref: "#/components/parameters/MutationOrigin"
+      description: >-
+        Requires a WebSocket Upgrade and a current verified session with page access.
+        After HTTP room/open, send JSON request frames containing type=request, a strictly
+        increasing integer id, suffix, method, headers and an optional body. Suffixes are
+        empty (GET state), /updates (POST), /renew (POST), and /presence (GET/POST/DELETE).
+        The first frame must read state using the expected account, protocol 2 and room
+        ticket headers. Cookies, origin and page scope cannot be supplied in a frame.
+        Frame bodies and returned DTOs use the corresponding HTTP room schemas.
+        Response frames contain type=response, id, status and body. Authorized peers
+        receive type=changed with kind=content or presence and fetch the current delta
+        through the same WebSocket. Every request and notification rechecks current
+        authorization; updates are acknowledged only after durable commit. Mutations
+        are not automatically replayed by the transport after a disconnect. Input frames
+        are bounded to 100000 UTF-8 bytes. No credentials or tickets belong in the URL.
+        Workers use one hibernating Durable Object per page; Node uses one app process.
+      responses:
+        "101":
+          description: WebSocket connection established; a valid state frame must authenticate the room.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          description: Page connection limit (64) or account connection limit (8) reached.
+        "503":
+          $ref: "#/components/responses/Unavailable"
   /api/content/workspaces/{workspaceId}/pages/{pageId}/room/open:
     parameters:
       - $ref: "#/components/parameters/WorkspaceId"

@@ -18,6 +18,10 @@ test('root Workers template binds fresh D1/R2, generates credentials on deploy a
   for(const path of ['/','/index.html','/api/*'])assert.ok(config.assets.run_worker_first.includes(path));
   assert.equal(config.vars.YUMUNIO_WEB_SETUP,'true');assert.equal(config.secrets,undefined);
   assert.equal(config.d1_databases[0].binding,'DB');assert.equal(config.r2_buckets[0].binding,'BLOBS');
+  assert.deepEqual(config.durable_objects.bindings,[{name:'ROOMS',class_name:'PageRoom'}]);
+  assert.deepEqual(config.migrations,[{tag:'v1',new_sqlite_classes:['PageRoom']}]);
+  const local=JSON.parse(await read('apps/worker/wrangler.jsonc'));assert.deepEqual(local.durable_objects,config.durable_objects);assert.deepEqual(local.migrations,config.migrations);
+  assert.ok(JSON.parse(await read('package.json')).cloudflare.bindings.ROOMS.description);
   assert.deepEqual(config.triggers.crons,['* * * * *']);
   const schema=await read(config.d1_databases[0].migrations_dir+'/0001_install.sql');
   for(const path of ['apps/worker/auth-schema.sql','apps/worker/snapshot-schema.sql'])assert.ok(schema.replace(/\r/g,'').includes((await read(path)).replace(/\r/g,'')));

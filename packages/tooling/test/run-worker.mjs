@@ -11,6 +11,7 @@ const run = file => new Promise((resolveRun, reject) => {
 try {
   await run([resolve(root, 'packages/tooling/build-web.mjs')]);
   await run(['--test', resolve(root, 'apps/worker/integration/setup.mjs')]);
+  await run(['--test', resolve(root, 'apps/worker/integration/realtime-room.mjs')]);
   await run(['--test', resolve(root, 'apps/worker/integration/clipboard.mjs')]);
   await run(['--test', resolve(root, 'apps/worker/integration/mail.mjs')]);
   await run(['--test', '--test-concurrency=1', ...process.argv.slice(2), resolve(root, 'apps/worker/integration/public-forms.mjs'), resolve(root, 'apps/worker/integration/webhook-lifecycle.mjs')]);

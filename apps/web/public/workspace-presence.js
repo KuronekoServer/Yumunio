@@ -20,10 +20,10 @@ export function createWorkspacePresence({app,getRoom,getCurrent,isComposing,isMo
   const range=document.getSelection(),bound=range?.rangeCount?range.getRangeAt(0):null;
   return{blockId:input.dataset.blockId,...selection,direction:bound&&!range.isCollapsed&&range.anchorNode===bound.endContainer&&range.anchorOffset===bound.endOffset?'backward':'forward'};
  }
- async function publish(active,{force=false}={}){
+ async function publish(active,{force=false,readOnly=false}={}){
   if(getRoom()!==active||active.phase!=='ready'||!active.client||active.presenceBusy||active.client.busy||document.hidden)return;
   const selection=active.client.pending?null:cursor(),key=JSON.stringify(selection),now=Date.now();
-  const reading=!force&&active.lastPresenceKey===key&&now-(active.lastPresenceAt||0)<9000;
+  const reading=readOnly||!force&&active.lastPresenceKey===key&&now-(active.lastPresenceAt||0)<9000;
   active.presenceBusy=true;
   try{const response=reading?await active.client.readPresence():await active.client.publishPresence({cursor:selection});if(getRoom()!==active)return;if(!response?.deferred){if(!reading){active.lastPresenceAt=Date.now();active.lastPresenceKey=key;}active.presenceError=null;}}
   catch(error){if(getRoom()!==active)return;if(active.client.status==='stale'||[401,403,404].includes(error.status)||error.code==='ROOM_EPOCH_CHANGED'){onAuthorizationFailure(active);return;}active.presenceError=error.code==='ROOM_PRESENCE_UNAVAILABLE'?'roomPresence.schema':'roomPresence.unavailable';}

@@ -118,6 +118,7 @@ function updateDirty(historyGroup=null) {
   if(signature!==observedDraft){observedDraft=signature;draftGeneration++;autosave.notify();}else autosave.refresh();
   refreshSaveStatus();
   refreshRoomStatus();
+  if(room?.client?.pending||room?.needsSync)queueRoomSync(room);
 }
 function refreshSaveStatus() {
   if(signal.aborted)return;
@@ -181,6 +182,7 @@ function roomStatusKey() {
  if(room.phase==='syncing')return 'roomSyncing';
  if(room.phase==='paused')return 'roomPaused';
  if(room.phase==='stopped')return 'roomStopped';
+ if(room.phase==='ready'&&!room.transport?.ready&&!room.syncError)return 'roomOpening';
  if(room.renewing)return 'roomRenewing';
  if(room.renewalError)return 'roomRenewRetry';
  if(room.syncing)return 'roomSyncing';
@@ -194,10 +196,10 @@ function refreshRoomStatus() {
  if(room)refreshSaveStatus();
  if(room && ['ready','paused'].includes(room.phase))for(const control of app.querySelectorAll('.room-controls button'))control.disabled=state.busy || room.client?.busy || room.renewing || room.syncing;
 }
-function destroyRoom() {if(!room)return;presence.leave(room);clearTimeout(room.timer);room.client?.destroy();room=null;roomCompositions.clear();}
+function destroyRoom() {if(!room)return;presence.leave(room);clearTimeout(room.timer);clearTimeout(room.flushTimer);room.transport?.close();room.client?.destroy();room=null;roomCompositions.clear();}
 function stopRoomInput(active) {
  if(room!==active)return;
- presence.leave(active);active.phase='stopped';active.client?.stop();clearTimeout(active.timer);state.notice='roomInputStopped';
+ presence.leave(active);active.phase='stopped';active.client?.stop();clearTimeout(active.timer);clearTimeout(active.flushTimer);active.transport?.close();state.notice='roomInputStopped';
  if(roomCompositions.size)active.renderAfterComposition=true;else render();
 }
 async function renewRoom(active) {
@@ -220,16 +222,35 @@ async function renewRoom(active) {
  })();
  return active.renewPromise;
 }
-function scheduleRoomPoll() {
+function queueRoomSync(active,delay=60){
+ if(room!==active||active.phase!=='ready')return;active.needsSync=true;
+ if(active.flushTimer||active.syncing||active.renewing||!active.transport?.ready||document.hidden||modalOpen()||state.busy||state.loading||state.listLoading||roomCompositions.size)return;
+ active.flushTimer=setTimeout(()=>{active.flushTimer=null;if(room===active&&active.phase==='ready')void syncRoom(false);},delay);
+}
+async function connectRoomSocket(active){
+ active.client.request=call=>active.transport?active.transport.request(call):Promise.reject(new ApiError(0,'ROOM_SOCKET_CLOSED'));
+ const {RoomSocketTransport}=await import('./shared/collaboration-client.js');if(room!==active||active.phase!=='ready')return;
+ const url=new URL(active.client.path+'/ws',location.href);url.protocol=url.protocol==='https:'?'wss:':'ws:';
+ active.transport=new RoomSocketTransport({url:url.href,headers:()=>active.client.requestHeaders({'X-Yumunio-Room-Ticket':active.client.ticket}),
+  onReady:()=>{if(room!==active)return;active.syncError=false;queueRoomSync(active,0);void presence.publish(active,{force:true});refreshRoomStatus();},
+  onChange:kind=>{if(room!==active)return;if(kind==='content')queueRoomSync(active,0);else void presence.publish(active,{readOnly:true});},
+  onDisconnect:({permanent})=>{if(room!==active||active.phase!=='ready')return;if(permanent)stopRoomInput(active);else{active.syncError=true;refreshRoomStatus();void verifyRoomAfterDisconnect(active);}}
+ });await active.transport.connect().catch(()=>{if(room===active){active.syncError=true;refreshRoomStatus();}});
+}
+async function verifyRoomAfterDisconnect(active){
+ try{const value=await request(active.client.path,{headers:active.client.requestHeaders({'X-Yumunio-Room-Ticket':active.client.ticket})});if(room===active&&(value.epoch!==active.client.epoch||value.editable!==active.client.editable))stopRoomInput(active);}
+ catch(error){if(room===active&&([401,403,404].includes(error.status)||['ROOM_EPOCH_CHANGED','ROOM_PROTOCOL_UNSUPPORTED'].includes(error.code)))stopRoomInput(active);}
+}
+function scheduleRoomHeartbeat() {
  if(!room)return;clearTimeout(room.timer);const active=room;
  if(active.phase!=='ready')return;
  active.timer=setTimeout(async()=> {
   if(room!==active || active.phase!=='ready')return;
   if(!document.hidden && !state.loading && !active.client.busy && active.client.ticketRenewalDue())await renewRoom(active);
   if(room!==active || active.phase!=='ready')return;
-  if(!document.hidden && !modalOpen() && !state.busy && !state.loading && !state.listLoading && !roomCompositions.size)await syncRoom(false);
-  if(room===active){await presence.publish(active);scheduleRoomPoll();}
- },3000);
+  if(active.needsSync||active.client.pending)queueRoomSync(active);
+  if(room===active){await presence.publish(active);scheduleRoomHeartbeat();}
+ },10000);
 }
 function recordRoomText(key,value,change) {
  if(!room || room.phase!=='ready')return;
@@ -251,7 +272,7 @@ function applyRoomDraft(active,draft,{focus=false}={}) {
   else if(selection.blockId)focusBlock(selection.blockId,selection.start,selection.end);
  });
 }
-function activateRoom(active) {if(room!==active)return;active.phase='ready';applyRoomDraft(active,active.client.snapshot());scheduleRoomPoll();void presence.publish(active,{force:true});}
+function activateRoom(active) {if(room!==active)return;active.phase='ready';applyRoomDraft(active,active.client.snapshot());scheduleRoomHeartbeat();void connectRoomSocket(active);}
 function showRoomStart() {
  if(!state.current || room || state.busy)return;
  const blocked=state.dirty || state.conflict;
@@ -355,7 +376,7 @@ async function syncRoom(manual=true,stopAfter=false) {
  if(room!==active || !['ready','paused'].includes(active.phase) || active.client.busy || state.busy || roomCompositions.size)return;
  if(!state.draft.title.trim()){if(manual){state.error='titleRequired';render();}return;}
  if(active.phase==='paused'){active.phase='ready';render();}
- clearTimeout(active.timer);active.syncing=true;active.syncError=false;active.deferred=false;refreshRoomStatus();
+ clearTimeout(active.timer);clearTimeout(active.flushTimer);active.flushTimer=null;active.needsSync=false;active.syncing=true;active.syncError=false;active.deferred=false;refreshRoomStatus();
  try {
   let prepared=null;
   const result=await active.client.sync({
@@ -371,7 +392,7 @@ async function syncRoom(manual=true,stopAfter=false) {
   else active.syncError=true;
  } finally {
   active.syncing=false;
-  if(room===active){refreshRoomStatus();scheduleRoomPoll();}
+  if(room===active){refreshRoomStatus();scheduleRoomHeartbeat();if(active.needsSync||active.client.pending||active.deferred)queueRoomSync(active,active.deferred?500:60);}
  }
 }
 async function finishRoomStop(active) {
@@ -388,7 +409,7 @@ function stopRoom() {
  const active=room;
  if(!active.client?.pending && !bodyDirty()) {void finishRoomStop(active);return;}
  showModal('roomStopTitle',[node('p',{},t('roomStopPending')),node('div',{class:'dialog-actions'},[
-  button('cancel',()=>modal.close()),button('roomKeepAndStop',()=>{presence.leave(active);active.client?.stop();active.phase='stopped';clearTimeout(active.timer);modal.close();render();}),
+  button('cancel',()=>modal.close()),button('roomKeepAndStop',()=>{presence.leave(active);active.client?.stop();active.phase='stopped';clearTimeout(active.timer);clearTimeout(active.flushTimer);active.transport?.close();modal.close();render();}),
   button('roomSyncAndStop',async()=>{await closeModalFully();await syncRoom(true,true);},{primary:true,disabled:active.client?.status!=='ready'})
  ])]);
 }
@@ -1860,10 +1881,13 @@ function openSettings(section='appearance',teamspaceId=null,resource=null){
  autosave.refresh();presence.paint();if(room)void presence.publish(room,{force:true});
 }
 signal.addEventListener('abort',()=>{autosave.stop();state.selection++;pageController?.abort();searchController?.abort();exportController?.abort();destroyRoom();blockDnd?.destroy();collectionView?.destroy();presence.destroy();stopAppearance();},{once:true});
-listen(modal,'close',()=>{if(room?.phase==='review' && modal.dataset.view==='roomReviewTitle'){destroyRoom();render();}autosave.refresh();});
+listen(modal,'close',()=>{if(room?.phase==='review' && modal.dataset.view==='roomReviewTitle'){destroyRoom();render();}autosave.refresh();if(room?.needsSync)queueRoomSync(room);});
+listen(document,'visibilitychange',()=>{if(!document.hidden&&room?.phase==='ready')queueRoomSync(room,0);});
+listen(document,'focusin',()=>{if(room?.needsSync)queueRoomSync(room);});
 listen(document,'compositionend',()=>queueMicrotask(()=>{
  if(room?.renderAfterComposition && !roomCompositions.size){room.renderAfterComposition=false;render();}
  autosave.refresh();
+ if(room?.needsSync||room?.client?.pending)queueRoomSync(room,0);
 }));
 listen(modal,'toggle',presence.paint);
 listen(modal,'cancel',event=> { if(state.busy || operation?.pending)event.preventDefault(); });

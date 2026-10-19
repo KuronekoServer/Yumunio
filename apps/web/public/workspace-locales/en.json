@@ -216,7 +216,7 @@
   "roomOff": "Not connected",
   "roomOffHint": "Start coediting explicitly from a saved page.",
   "roomIntro": "Sync the title and text, block additions, removal and movement, text formatting and undo of your own actions. Supporting servers also sync checklist values, paragraph splits and merges, and ordinary block types. Stop coediting to edit table values, column layouts or the types of original code and divider blocks.",
-  "roomFocusPolicy": "Periodic sync keeps input fields in place and waits during composition. On supporting servers, Enter splits a paragraph and Backspace at its start merges it. Shift+Enter adds a line within the paragraph.",
+  "roomFocusPolicy": "Real-time sync keeps input fields in place and waits during composition. On supporting servers, Enter splits a paragraph and Backspace at its start merges it. Shift+Enter adds a line within the paragraph.",
   "roomNoPresence": "Other people’s cursors and presence are not shown yet.",
   "roomSaveFirst": "There are unsaved changes or a conflict. Save or review your input before reloading. Starting never uploads or discards existing unsaved input.",
   "roomStart": "Start coediting",

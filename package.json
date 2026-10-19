@@ -50,6 +50,9 @@
   },
   "cloudflare": {
     "bindings": {
+      "ROOMS": {
+        "description": "Durable Object rooms for real-time Yjs collaboration over WebSockets. Created automatically."
+      },
       "DB": {
         "description": "Private database for accounts, pages and encrypted instance settings. Created automatically."
       },

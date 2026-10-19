@@ -20,6 +20,7 @@ Yumunio本体は[MIT License](LICENSE)で公開しています。依存ライブ
 | `react-dom` | 19.3.0 | MIT | ブラウザー画面の描画 |
 | `katex` | 0.19.0 | MIT | ローカル数式描画 |
 | `yjs` | 13.6.33 | MIT | 共同編集 |
+| `ws` | 8.22.0 | MIT | Node.jsのWebSocket共同編集 |
 | `mysql2` | 3.24.6 | MIT | MySQL互換DB接続 |
 | `pg` | 8.23.1 | MIT | PostgreSQL接続 |
 | `@cfworker/json-schema` | 4.1.1 | MIT | JSON Schema検証 |
