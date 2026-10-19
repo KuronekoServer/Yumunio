@@ -6,7 +6,7 @@ Docker EngineまたはDocker Desktopと、Docker Compose **2.24以上**を使い
 
 ## Docker Hubから直接起動する
 
-Docker Hubの配布先は [`kuronekoserver/yumunio`](https://hub.docker.com/r/kuronekoserver/yumunio) です。以下は初回公開後に使うコマンドです。タグがまだ存在しない場合は[ソースからビルド](#ソースからビルドする)してください。
+Docker Hubの [`kuronekoserver/yumunio`](https://hub.docker.com/r/kuronekoserver/yumunio) で、amd64／arm64向けの `latest` を公開しています。次のコマンドで起動できます。
 
 ```sh
 docker pull kuronekoserver/yumunio:latest
@@ -62,7 +62,7 @@ docker compose -f compose.yaml -f compose.https.yaml logs yumunio
 
 ## ソースからビルドする
 
-GitとDockerを使う方法です。配布イメージの初回公開前にも利用できます。
+GitとDockerを使い、手元のソースからビルドする方法です。開発中の変更を試す場合にも利用できます。
 
 ```sh
 git clone https://github.com/KuronekoServer/Yumunio.git

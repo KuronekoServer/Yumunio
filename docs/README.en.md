@@ -12,7 +12,15 @@ Yumunio is a self-hostable workspace for notes, pages and databases. AI generati
 | Check current limitations | [Feature coverage, Japanese](feature-coverage.md) |
 | Contribute code or documentation | [Contributing, Japanese](../CONTRIBUTING.md) |
 
-For Docker, extract the hosting archive, run `docker compose pull`, `docker compose up -d`, then `docker compose logs yumunio`. Open the Start setup link from the log. The application generates its internal credentials automatically. Set `YUMUNIO_PUBLIC_ORIGIN` to your HTTPS origin before the first start when hosting publicly. Preserve the installation directory and persistent volumes when updating.
+Public amd64 and arm64 images are available at [Docker Hub](https://hub.docker.com/r/kuronekoserver/yumunio). To try Yumunio locally, run:
+
+```sh
+docker pull kuronekoserver/yumunio:latest
+docker run -d --name yumunio --restart unless-stopped -p 127.0.0.1:8788:8788 -v yumunio-data:/app/.data kuronekoserver/yumunio:latest
+docker logs yumunio
+```
+
+Open the Start setup link from the log. The application generates its internal credentials automatically. Keep the `yumunio-data` volume when updating. Docker Run and Compose use different default volume names, so keep the same launch method and storage after setup. For Compose, follow the [Docker guide](hosting/docker.md) using the repository's Compose files or the hosting archive when available. Set `YUMUNIO_PUBLIC_ORIGIN` to your HTTPS origin before the first start when hosting publicly. Preserve the installation directory and persistent volumes when updating.
 
 For Cloudflare, use the Deploy to Cloudflare button in the [README](../README.md). Enable R2 in your Cloudflare account first. The template provisions D1 and private R2 storage and generates the installation credentials. Complete setup using the link in the deployment log. The deployment uses resources in your account; check the provider's current limits and prices.
 

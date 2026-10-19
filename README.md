@@ -45,7 +45,7 @@ npm run dev
 
 ## Node.jsでセルフホストする
 
-Docker Hubの配布先は `kuronekoserver/yumunio` です。公開済みのタグは、[Docker Hubから起動](docs/hosting/docker.md#docker-hubから直接起動する)できます。初回公開を完了するまでは、下記のソースビルドを使ってください。GHCRの配布も継続します。
+Docker Hubの [`kuronekoserver/yumunio`](https://hub.docker.com/r/kuronekoserver/yumunio) で、amd64／arm64向けの `latest` を公開しています。[Docker Hubから起動](docs/hosting/docker.md#docker-hubから直接起動する)する場合、ソースの取得やNode.jsのインストールは不要です。GHCRの配布も継続します。
 
 Dockerだけで導入する手順、同梱CaddyでHTTPSを設定する手順、ソースからのビルドは[Docker導入ガイド](docs/hosting/docker.md)を参照してください。[更新とバックアップ](docs/hosting/maintenance.md)も合わせて確認できます。Node.jsがある場合は `npm run hosting:prepare -- --directory yumunio-host --origin https://notes.example.com --https` で導入用の新しいフォルダーを生成できます。
 
@@ -63,7 +63,7 @@ docker compose logs yumunio
 
 DB・添付・内部の認証情報は`yumunio-data`ボリュームへ保存されます。コンテナーは`127.0.0.1:8788`で待ち受けるため、公開時はリバースプロキシ等でHTTPSを設定してください。更新も同じ`pull`・`up -d`で行えます。ボリュームと`.env`を保持してください。
 
-標準の配布イメージは`docker.io/kuronekoserver/yumunio:latest`です。[公開ワークフロー](.github/workflows/container.yaml)はmasterへのpush時にamd64／arm64イメージを公開し、`v*`タグではバージョン付きタグを公開します。初回は[Docker Hubの公開用接続設定](docs/maintainers/dockerhub.md)が必要です。GHCRから取得する場合は、メンテナーがパッケージをPublicにしたことを確認して`YUMUNIO_IMAGE`を指定します。初回公開前または開発中は、リポジトリを取得してローカルビルドできます。
+標準の配布イメージは`docker.io/kuronekoserver/yumunio:latest`です。[公開ワークフロー](.github/workflows/container.yaml)はmasterへのpush時にamd64／arm64イメージを公開し、`v*`タグではバージョン付きタグを公開します。フォークで配布するメンテナーは[Docker Hubの公開用接続設定](docs/maintainers/dockerhub.md)を行います。GHCRから取得する場合は、メンテナーがパッケージをPublicにしたことを確認して`YUMUNIO_IMAGE`を指定します。開発中の変更を試す場合は、リポジトリを取得してローカルビルドできます。
 
 ```sh
 docker compose -f compose.yaml -f compose.build.yaml up --build -d
