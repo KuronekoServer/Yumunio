@@ -132,6 +132,7 @@
   "searchQuery": "Search terms",
   "searchScope": "Search saved page titles and content this account can read. Unsaved edits and trash are excluded.",
   "searchEmpty": "No matching pages.",
+  "searchKeyboardHint": "↑↓ to select · Enter to open · Esc to close",
   "searchTruncated": "Showing the first 100 results. Refine your search terms.",
   "searchFailed": "Search could not be completed. Check the terms and try again.",
   "trashPages": "Trash",

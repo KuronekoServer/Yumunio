@@ -2,7 +2,7 @@ import {createBackupOperationsApi} from '@yumunio/backup/operations-api';
 import {webPageRoute} from '../../packages/prototype/src/web-routes.js';
 import {readServerAdminIds} from '@yumunio/identity/admin';
 import { createServer } from 'node:http';
-import { readFile, realpath, stat, mkdir } from 'node:fs/promises';
+import { realpath, stat, mkdir } from 'node:fs/promises';
 import { extname, isAbsolute, relative, resolve, sep, dirname } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createWorkspaceApi, MAX_BODY_BYTES } from '@yumunio/prototype';
@@ -14,6 +14,7 @@ import { createInstanceApi } from '@yumunio/identity/instance';
 import { createPwaManifestApi } from '@yumunio/identity/pwa';
 import { createSqliteRecoveryStore, assertRecoveryReady } from '@yumunio/backup';
 import {attachRoomSockets} from './room-socket.mjs';
+import {StaticAssetCache} from './static-assets.mjs';
 
 const defaultRoot = fileURLToPath(new URL('../../.build/web/', import.meta.url));
 const contentTypes = new Map([
@@ -45,6 +46,17 @@ export function createAppServer({ root = defaultRoot, snapshotStore = null, acce
   if (identity && typeof identity.handle !== 'function') throw new Error('Expected an identity service handler.');
   const absoluteRoot = resolve(root);
   const apiByOrigin = new Map();
+  const staticAssets=new StaticAssetCache();
+  async function serveStatic(pathname,send){
+    if(pathname.includes('\0')||pathname.includes('\\')||pathname.split('/').some(part=>part.startsWith('.')&&part!==''))return send(404,'Not found');
+    const route=webPageRoute(pathname),candidate=resolve(absoluteRoot,'.'+(route?.assetPath??pathname));
+    if(!inside(absoluteRoot,candidate))return send(404,'Not found');
+    try{
+      const[actualRoot,actualPath]=await Promise.all([realpath(absoluteRoot),realpath(candidate)]);if(!inside(actualRoot,actualPath))return send(404,'Not found');
+      const info=await stat(actualPath),extension=extname(actualPath).toLowerCase();if(!info.isFile()||!contentTypes.has(extension))return send(404,'Not found');
+      return{actualPath,info,extension};
+    }catch(error){if(['ENOENT','ENOTDIR','EACCES','EPERM'].includes(error.code))return send(404,'Not found');console.error('Static asset read failed:',error.code||error.name);return send(500,'Unable to read the requested asset');}
+  }
   const baseRuntime = { accessKey, publicOrigin, identity, instanceEnvironment };
   const server = createServer(async (request, response) => {
     const send = (status, body, type = 'text/plain; charset=utf-8', extraHeaders = {}) => {
@@ -52,14 +64,19 @@ export function createAppServer({ root = defaultRoot, snapshotStore = null, acce
       response.writeHead(status, mergeHeaders({...headers,'Content-Security-Policy':headers['Content-Security-Policy'].replace("connect-src 'self'","connect-src 'self' "+socketOrigin)},{'Content-Type':type},extraHeaders));
       response.end(request.method === 'HEAD' ? undefined : body);
     };
-    let runtime;
+    let runtime=baseRuntime,pathname;
+    try{pathname=decodeURIComponent(new URL(request.url,'http://localhost').pathname);}catch{return send(400,'Invalid request path');}
+    // Repository-owned executable assets have no account or instance data. Do not open the
+    // identity/database runtime for every chunk and stylesheet in a page's critical path.
+    if(['GET','HEAD'].includes(request.method)&&/^\/(?:[A-Za-z0-9][A-Za-z0-9._-]*\.(?:js|css|json|svg|png|ico|txt)|(?:_assets|_next\/static|shared|[a-z-]+-locales)\/.+)$/.test(pathname)){
+      const file=await serveStatic(pathname,send);if(!file)return;
+      try{const asset=await staticAssets.response(file.actualPath,file.info,request.headers,{compress:file.extension!=='.png'&&file.extension!=='.ico',immutable:/^\/(?:_assets|_next\/static)\//.test(pathname)});return send(asset.status,asset.status===304?undefined:asset.body,contentTypes.get(file.extension),asset.headers);}
+      catch(error){console.error('Static asset read failed:',error.code||error.name);return send(500,'Unable to read the requested asset');}
+    }
     try { runtime = runtimeProvider ? await runtimeProvider() : baseRuntime; }
     catch { return send(503, JSON.stringify({ error: { code: 'SETUP_UNAVAILABLE' } }), 'application/json; charset=utf-8', { 'Cache-Control': 'no-store' }); }
     const { accessKey, publicOrigin, identity, instanceEnvironment, setupRequired, setup } = runtime;
     response.once('close', () => runtime.release?.());
-    let pathname;
-    try { pathname = decodeURIComponent(new URL(request.url, 'http://localhost').pathname); }
-    catch { return send(400, 'Invalid request path'); }
     if (setup && pathname === '/') return send(302, '', 'text/plain; charset=utf-8', { Location: setupRequired ? '/setup' : '/account', 'Cache-Control': 'no-store' });
     if (pathname === '/manifest.webmanifest') {
       if(!['GET','HEAD'].includes(request.method))return send(405,'Use GET or HEAD','text/plain; charset=utf-8',{Allow:'GET, HEAD'});
@@ -146,24 +163,11 @@ export function createAppServer({ root = defaultRoot, snapshotStore = null, acce
       response.setHeader('Allow', 'GET, HEAD');
       return send(405, 'Method not allowed');
     }
-    if (pathname.includes('\0') || pathname.includes('\\') || pathname.split('/').some(part => part.startsWith('.') && part !== '')) return send(404, 'Not found');
     const route=webPageRoute(pathname);
     if(route?.redirectPath)return send(308,'','text/plain; charset=utf-8',{Location:route.redirectPath+new URL(request.url,'http://localhost').search,'Cache-Control':'no-store'});
-    const candidate = resolve(absoluteRoot, '.' + (route?.assetPath??pathname));
-    if (!inside(absoluteRoot, candidate)) return send(404, 'Not found');
-    try {
-      const [actualRoot, actualPath] = await Promise.all([realpath(absoluteRoot), realpath(candidate)]);
-      if (!inside(actualRoot, actualPath)) return send(404, 'Not found');
-      const info = await stat(actualPath);
-      if (!info.isFile()) return send(404, 'Not found');
-      const extension = extname(actualPath).toLowerCase();
-      if (!contentTypes.has(extension)) return send(404, 'Not found');
-      return send(200, await readFile(actualPath), contentTypes.get(extension));
-    } catch (error) {
-      if (['ENOENT', 'ENOTDIR', 'EACCES', 'EPERM'].includes(error.code)) return send(404, 'Not found');
-      console.error('Static asset read failed:', error.code || error.name);
-      return send(500, 'Unable to read the requested asset');
-    }
+    const file=await serveStatic(pathname,send);if(!file)return;
+    try{const asset=await staticAssets.response(file.actualPath,file.info,request.headers,{compress:['.html','.js','.css','.json','.svg','.txt','.yaml'].includes(file.extension)});return send(asset.status,asset.status===304?undefined:asset.body,contentTypes.get(file.extension),asset.headers);}
+    catch(error){console.error('Static asset read failed:',error.code||error.name);return send(500,'Unable to read the requested asset');}
   });
   const roomSockets=attachRoomSockets(server,{acquire:()=>runtimeProvider?runtimeProvider():baseRuntime,assertReady:async()=>{if(recoveryStore)await assertRecoveryReady(recoveryStore);}});
   server.requestTimeout = 15000;

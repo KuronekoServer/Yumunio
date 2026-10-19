@@ -30,8 +30,9 @@ async function readJson(response,limit){
 }
 function resolveCode(manifest,requested){let code;try{code=canonicalLocale(requested);}catch{return manifest.defaultLocale;}if(manifest.locales.some(item=>item.code===code))return code;const parsed=new Intl.Locale(code),parent=parsed.script?parsed.language+'-'+parsed.script:parsed.language;if(manifest.locales.some(item=>item.code===parent))return parent;return manifest.fallbackLocale;}
 function chainFor(manifest,code){const result=[];const add=value=>{if(result.includes(value))return;result.push(value);for(const fallback of manifest.locales.find(item=>item.code===value)?.fallbacks??[])add(fallback);};add(resolveCode(manifest,code));add(manifest.fallbackLocale);add(manifest.sourceLocale);return result;}
+function defaultCatalogBase(href){const url=new URL(href);if(['https:','http:'].includes(url.protocol)){url.pathname='/i18n.js';url.search='';url.hash='';}return url.href;}
 export async function loadCatalogs(options={}){
- if(typeof options==='function')options={fetcher:options};const{namespace='app',locale='ja',fetcher=globalThis.fetch,manifest:provided,baseUrl=import.meta.url}=options;if(typeof fetcher!=='function')throw new TypeError('INVALID_CATALOG_FETCHER');
+ if(typeof options==='function')options={fetcher:options};const{namespace='app',locale='ja',fetcher=globalThis.fetch,manifest:provided,baseUrl=defaultCatalogBase(import.meta.url)}=options;if(typeof fetcher!=='function')throw new TypeError('INVALID_CATALOG_FETCHER');
  const fetchJson=async(url,limit)=>readJson(await fetcher(url,{method:'GET',mode:'same-origin',credentials:'omit',redirect:'error',cache:'no-cache',referrerPolicy:'no-referrer',signal:AbortSignal.timeout(I18N_LIMITS.timeoutMs)}),limit);
  const manifest=validateLocaleManifest(provided??await fetchJson(new URL('./locale-manifest.json',baseUrl),I18N_LIMITS.manifestBytes));if(!Object.hasOwn(manifest.namespaces,namespace))throw new TypeError('INVALID_NAMESPACE');
  const catalogs=Object.create(null),pending=new Map(),unavailable=new Set();

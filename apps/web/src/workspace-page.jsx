@@ -17,12 +17,12 @@ const Sidebar=memo(function Sidebar({model,onCollapse}){
   const expanded=expandedPages.includes(page.id);
   return <li key={page.id} className="sidebar-page-row" style={{paddingInlineStart:depth*14}}>
    {hasChildren?<Action className="sidebar-page-disclosure" label={t(expanded?'sidebarCollapse':'sidebarExpand',{name:page.title||t('untitled')})} aria-expanded={expanded} onClick={()=>h.togglePage(page.id)}><Icon name="chevron" className={expanded?'chevron expanded':'chevron'}/></Action>:<span className="sidebar-page-spacer" aria-hidden="true"/>}
-   <button type="button" className={'page-link'+(s.current?.page.id===page.id?' selected':'')} aria-current={s.current?.page.id===page.id?'page':undefined} disabled={s.busy}
+   <a href={'/workspace'+query+'&page='+encodeURIComponent(page.id)} className={'page-link'+((s.pendingPageId||s.current?.page.id)===page.id?' selected':'')} aria-current={(s.pendingPageId||s.current?.page.id)===page.id?'page':undefined} aria-disabled={s.busy||undefined}
     data-dnd-page-id={!model.room&&page.id!==s.current?.page.id&&page.capabilities.includes('editBody')?page.id:undefined}
     draggable={!model.room&&s.role!=='guest'&&page.capabilities.includes('manage')&&!page.recordId&&!s.busy}
-    onClick={()=>h.selectPage(page.id)} onDragStart={event=>h.startPageDrag(event,page)} onDragEnd={h.endPageDrag} onDragOver={event=>h.overPageDrop(event,page.id)} onDragLeave={event=>event.currentTarget.classList.remove('drop-target')} onDrop={event=>h.dropPage(event,page.id)}>
+    onClick={event=>{if(event.button||event.metaKey||event.ctrlKey||event.shiftKey||event.altKey)return;event.preventDefault();if(!s.busy)void h.selectPage(page.id);}} onPointerEnter={()=>h.prefetchPage(page.id)} onPointerLeave={h.cancelPagePrefetch} onFocus={()=>h.prefetchPage(page.id)} onDragStart={event=>h.startPageDrag(event,page)} onDragEnd={h.endPageDrag} onDragOver={event=>h.overPageDrop(event,page.id)} onDragLeave={event=>event.currentTarget.classList.remove('drop-target')} onDrop={event=>h.dropPage(event,page.id)}>
     {page.appearance?.icon?<span aria-hidden="true" translate="no">{page.appearance.icon}</span>:<Icon name={page.collectionId?'table':'page'}/>}<span translate="no" data-sidebar-page-title="">{page.title||t('untitled')}</span>
-   </button>
+   </a>
   </li>;
  }
  const favorites=s.pages.filter(page=>page.favorite);
@@ -60,7 +60,7 @@ const Sidebar=memo(function Sidebar({model,onCollapse}){
 function Toolbar({model,controls,sidebarCollapsed,onExpandSidebar}){
  const {state:s,t,handlers:h,workspaceId}=model;
  return <header className="workspace-topbar">{sidebarCollapsed&&<Action className="desktop-sidebar-toggle icon-button" label={t('expandSidebar')} icon="sidebar" aria-expanded={false} aria-controls="workspace-sidebar" onClick={onExpandSidebar}/>}<Action className="nav-toggle icon-button" label={t('menu')} icon="menu" aria-expanded={s.navOpen} aria-controls="workspace-sidebar" onClick={()=>h.setNavigation(!s.navOpen)}/>
-  <div className="breadcrumb"><span translate="no">{s.name||t('serverWorkspace')}</span>{s.current&&<><span className="breadcrumb-divider" aria-hidden="true">/</span><span translate="no" data-page-crumb="">{controls.title??s.draft?.title??t('untitled')}</span></>}</div>
+  <div className="breadcrumb"><span translate="no">{s.name||t('serverWorkspace')}</span>{(s.current||s.pendingPageId)&&<><span className="breadcrumb-divider" aria-hidden="true">/</span><span translate="no" data-page-crumb="">{controls.title??s.draft?.title??t('untitled')}</span></>}</div>
   <div className="topbar-actions"><span className="save-status" role="status" aria-live="polite">{controls.status||''}</span><Action label={t('undo')} icon="undo" disabled={controls.undoDisabled!==false} onClick={()=>h.applyEditorHistory('undo')}/><Action label={t('redo')} icon="redo" disabled={controls.redoDisabled!==false} onClick={()=>h.applyEditorHistory('redo')}/>
    {s.current&&!model.room&&<Action label={t('roomStart')} icon="users" disabled={s.busy||s.loading||s.listLoading} onClick={h.showRoomStart}/>}
    <Action className="button quiet" label={t('shareResource')} disabled={!s.current?.page.capabilities?.some(value=>['manage','invite'].includes(value))||s.busy||s.loading} onClick={h.openResourceSharing}>{t('shareResource')}</Action>
@@ -83,7 +83,7 @@ export function WorkspacePage(){
     renderChrome:next=>{if(lifetime.signal.aborted)return null;flushSync(()=>setModel(next));return{sidebar:root.current.querySelector('.workspace-sidebar'),mainPanel:root.current.querySelector('.workspace-main'),navButton:root.current.querySelector('.nav-toggle'),scroll:content.current};},
     updateToolbar:next=>{const signature=JSON.stringify(next);if(!lifetime.signal.aborted&&signature!==lastControls.current){lastControls.current=signature;flushSync(()=>setControls(next));}}
    });
-  }).catch(()=>{if(!lifetime.signal.aborted)setFailed(true);});
+  }).catch(error=>{if(!lifetime.signal.aborted){console.error('Workspace could not start',error);setFailed(true);}});
   return()=>lifetime.abort();
  },[]);
  return <><a className="skip-link" href="#workspace-document">本文に移動</a><div id="workspace-app" ref={root} className={'workspace-shell'+(model?.state.navOpen?' nav-open':'')+(model?.selectionMode?' block-selection-mode':'')+(sidebarCollapsed?' sidebar-collapsed':'')}>

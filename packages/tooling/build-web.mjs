@@ -7,6 +7,7 @@ import { createPwaIcon } from './pwa-icons.mjs';
 import { offlineAssetPaths } from '../../apps/web/public/offline-policy.js';
 import {buildNextPages} from './next-pages.mjs';
 import {syncLocalizations} from './localization.mjs';
+import {bundleBrowserControllers} from './browser-bundles.mjs';
 
 const projectRoot = fileURLToPath(new URL('../../', import.meta.url));
 const allowedExtensions = new Set(['.html', '.css', '.js', '.json', '.svg', '.png', '.ico', '.txt']);
@@ -138,6 +139,15 @@ export async function buildWeb(root = projectRoot) {
     notices.push(name + '\n\n' + await readFile(licenseFiles.get(name), 'utf8'));
   }
   if (notices.length) shared.set('THIRD_PARTY_LICENSES.txt', 'Third-party software included in the Next.js frontend, collaboration, math and drag-and-drop browser bundles\n\n' + notices.join('\n\n---\n\n'));
+  if(nextEnabled){
+    const sources=new Map();
+    for(const name of files.filter(name=>name.endsWith('.js')))sources.set(name,await readFile(join(publicRoot,name),'utf8'));
+    for(const[name,bytes]of shared){if(name.endsWith('.js'))sources.set('shared/'+name,Buffer.from(bytes).toString('utf8'));if(sources.has(name))sources.set(name,Buffer.from(bytes).toString('utf8'));}
+    const entries=new Set(['app.js','workspace.js']);
+    async function controllers(path){for(const entry of await readdir(path,{withFileTypes:true})){if(entry.isSymbolicLink())throw new Error('Unexpected controller path.');const child=join(path,entry.name);if(entry.isDirectory())await controllers(child);else if(entry.name.endsWith('.jsx')){const source=await readFile(child,'utf8');for(const match of source.matchAll(/controllers=\{\[([^\]]*)\]\}/g))for(const name of match[1].matchAll(/["']([a-z][a-z-]*\.js)["']/g))entries.add(name[1]);}}}
+    await controllers(join(root,'apps/web/app'));
+    for(const[name,bytes]of await bundleBrowserControllers(sources,[...entries]))generated.set(name,bytes);
+  }
   const specification=join(root,'openapi.yaml');
   await rejectLink(dirname(specification));
   await rejectLink(specification);

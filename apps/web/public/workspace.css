@@ -377,6 +377,11 @@ dialog::backdrop { background:#10203066; }
 @media(max-width:760px){.desktop-sidebar-toggle{display:none}.workspace-sidebar{padding-inline:10px}.workspace-brand{min-height:48px;height:48px}.workspace-sidebar .page-link{min-height:36px}.workspace-sidebar .sidebar-library summary,.workspace-sidebar .nav-link{min-height:36px}.document-content,.document-content.full-width{width:calc(100% - 40px);padding-top:36px}.page-title{font-size:30px}.page-icon{font-size:48px;margin-bottom:20px}}
 @media(max-height:600px){.workspace-sidebar{overflow-y:auto}.page-list{flex:none;min-height:0;overflow:visible}}
 
+/* Page navigation keeps the surrounding workspace in place. */
+.workspace-sidebar a.page-link{color:inherit;text-decoration:none}.workspace-sidebar a.page-link[aria-disabled=true]{opacity:.5;cursor:wait}
+.page-loading-title{font-size:40px;line-height:1.25;margin:0 0 32px;overflow-wrap:anywhere}.page-skeleton{display:grid;gap:16px;padding-block:8px}.page-skeleton span{height:12px;border-radius:3px;background:var(--border);opacity:.45}.page-skeleton span:nth-child(2){width:82%}.page-skeleton span:nth-child(3){width:64%}
+.search-results{max-height:min(56dvh,420px);overflow:auto;overscroll-behavior:contain}.search-result[aria-selected=true]{background:var(--accent-soft);color:var(--text)}.search-keyboard-hint{margin-block:12px 0;font-size:12px}
+@media(max-width:760px){.page-loading-title{font-size:30px}}
 /* Keep reading surfaces quiet while retaining pointer and keyboard editing controls. */
 .document-tools{margin-bottom:16px}.document-tools>.document-meta{margin:8px 0 12px}.document-tools:not([open])>summary{opacity:.55}.document-tools>summary:hover,.document-tools>summary:focus-visible{opacity:1}
 .workspace-shell .block-input{min-height:32px;padding-block:2px}.workspace-shell .block-row>hr.block-divider{margin:12px 0}

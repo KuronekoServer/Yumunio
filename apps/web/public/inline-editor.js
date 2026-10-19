@@ -241,8 +241,8 @@ export function createInlineEditor({ text = '', marks = [], links = [], mentions
   let lastText = normalizePlainText(text), lastMarks = rebaseInlineMarks(String(text ?? ''), lastText, marks), composing = false, pendingEdit = null, tabNavigation = false;
   let lastLinks=rebasePageLinks(String(text??''),lastText,links),lastMentions=rebaseMentions(String(text??''),lastText,mentions);const paint=()=>renderInlineText(element,lastText,lastMarks,lastLinks,{pageHref,mentions:lastMentions});
   paint();
-  // Navigation is explicit in the link toolbar; editable text never opens a link on a click.
-  if (!readOnly) element.addEventListener('click', event => { if (event.target.closest?.('a')) event.preventDefault(); });
+  // Internal page references can be handled by the workspace. Modified clicks keep normal browser navigation.
+  if (!readOnly) element.addEventListener('click', event => { if (event.target.closest?.('a')&&!event.metaKey&&!event.ctrlKey&&!event.shiftKey&&!event.altKey) event.preventDefault(); });
   const controller = {
     formatEnabled: !readOnly && formatEnabled, get mentions(){return lastMentions;}, get links(){return lastLinks;}, get marks() { return lastMarks; }, get composing() { return composing; }, savedSelection: null,
     selectionChanged() {}, hide() {}, restoreSelection() { if (this.savedSelection) focusInlineEditor(element, { ...this.savedSelection, scroll: false }); },

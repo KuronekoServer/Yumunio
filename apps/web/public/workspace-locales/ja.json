@@ -132,6 +132,7 @@
   "searchQuery": "検索する言葉",
   "searchScope": "このアカウントで読める、サーバーに保存済みのページ名と本文を検索します。未保存の入力とゴミ箱は含みません。",
   "searchEmpty": "一致するページはありません。",
+  "searchKeyboardHint": "↑↓ で選択 · Enter で開く · Esc で閉じる",
   "searchTruncated": "最初の100件を表示しています。検索する言葉を絞ってください。",
   "searchFailed": "検索できませんでした。入力を確認して再試行してください。",
   "trashPages": "ゴミ箱",
