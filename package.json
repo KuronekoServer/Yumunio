@@ -60,7 +60,7 @@
   },
   "devDependencies": {
     "esbuild": "0.28.1",
-    "wrangler": "4.148.0",
+    "wrangler": "4.151.2",
     "yaml": "2.9.1"
   }
 }
