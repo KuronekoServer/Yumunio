@@ -1,0 +1,4 @@
+# Build the same image locally when developing or before the first registry publication.
+services:
+  yumunio:
+    build: .

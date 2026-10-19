@@ -8,7 +8,7 @@ import {createMcpApi,readMcpConfig} from '@yumunio/identity/mcp';
 import {createWorkerBackupOperations} from './backup.js';
 import {createBackupOperationsApi} from '@yumunio/backup/operations-api';
 import { createIdentity, readIdentityConfig } from '@yumunio/identity';
-import { readMailConfig, createHttpMailer } from '@yumunio/identity/mail';
+import {readWorkerMailConfig,createWorkerMailer} from './mail.js';
 import { createCollaborationService } from '@yumunio/identity/collaboration';
 import { createD1CollaborationStore } from '@yumunio/identity/collaboration-store';
 import { createAccountContentApi, validateContentPayload } from '@yumunio/identity/content';
@@ -30,9 +30,9 @@ export async function createWorkerAccountServices(env, identityConfig = readIden
   if(mcpConfig.enabled&&(!identityConfig.enabled||!apiTokenConfig.enabled))throw new Error('MCP requires configured accounts and API tokens.');
   if (!identityConfig.enabled) return null;
   if (!env.DB) throw new Error('Account database required.');
-  const mailConfig = readMailConfig(env);
-  if (mailConfig.driver === 'smtp' || (identityConfig.registrationMode === 'open' && mailConfig.driver === 'disabled')) throw new Error('Unsupported account email configuration.');
-  const mailer = createHttpMailer(mailConfig); let identity;
+  const mailConfig = readWorkerMailConfig(env);
+  if (identityConfig.registrationMode === 'open' && mailConfig.driver === 'disabled') throw new Error('Unsupported account email configuration.');
+  const mailer = createWorkerMailer(mailConfig,env); let identity;
   const resolveSession = request => identity.auth.api.getSession({ headers: request.headers });
   const collaboration = createCollaborationService({ store: createD1CollaborationStore(env.DB), origin: identityConfig.origin, secret: identityConfig.secret,
     domainPolicy: identityConfig.domainPolicy, resolveSession, sendMail: mailConfig.driver === 'disabled' ? undefined : message => mailer.send(message) });

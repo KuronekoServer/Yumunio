@@ -1,12 +1,12 @@
 import * as Y from 'yjs';
-import { assertTitle, validateBlocks, rebaseInlineMarks, rebasePageLinks, rebaseMentions } from '@yumunio/domain';
+import { assertTitle, validateBlocks, rebaseInlineMarks, rebasePageLinks, rebaseMentions, TEXT_BLOCK_TYPES, BLOCK_PARENT_TYPES } from '@yumunio/domain';
 
 export { Y };
 export const ROOM_LIMITS = Object.freeze({ updateBytes: 64000, stateBytes: 160000, documentBytes: 240000,
   structs: 12000, updateStructs: 2000, clients: 64, logicalLength: 240000, blockCount: 1000 });
 const encoder = new TextEncoder();
-const editableTypes = new Set(['paragraph','heading','heading1','heading2','checklist','bulleted-list','numbered-list','quote','code']);
-const editableParentTypes = new Set(['paragraph','bulleted-list','numbered-list','quote','checklist','columns','column']);
+const editableTypes = new Set(TEXT_BLOCK_TYPES);
+const editableParentTypes = new Set([...BLOCK_PARENT_TYPES,'columns']);
 const maxEditableDepth = 8;
 export class CollaborationError extends Error {
   constructor(code = 'INVALID_ROOM_UPDATE', status = 400) { super(code); this.code = code; this.status = status; }

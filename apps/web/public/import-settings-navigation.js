@@ -14,7 +14,7 @@ function node(tag,attributes={},children=[]){
  return element;
 }
 function link(key,href,current=false){return node('a',{class:'settings-link',href,...(current?{'aria-current':'page'}:{})},t(key));}
-function route(section){return '/workspace-settings.html?workspace='+encodeURIComponent(workspaceId)+'&section='+section;}
+function route(section){return '/workspace-settings?workspace='+encodeURIComponent(workspaceId)+'&section='+section;}
 function setOpen(open,restore=true){
  navOpen=open;shell.classList.toggle('nav-open',open);toggle.setAttribute('aria-expanded',String(open));
  const mobile=matchMedia('(max-width:760px)').matches;navigation.inert=mobile&&!open;main.inert=mobile&&open;
@@ -22,13 +22,13 @@ function setOpen(open,restore=true){
 }
 function render(){
  if(!i18n)return;
- const brand=node('a',{class:'settings-brand',href:context?'/workspace.html?workspace='+encodeURIComponent(workspaceId):'/account.html#account','data-instance-label':''},node('span',{'data-instance-name':''},'Yumunio'));
+ const brand=node('a',{class:'settings-brand',href:context?'/workspace?workspace='+encodeURIComponent(workspaceId):'/account#account','data-instance-label':''},node('span',{'data-instance-name':''},'Yumunio'));
  navigation.replaceChildren(node('div',{},[brand,node('button',{type:'button',class:'button settings-mobile-close','aria-label':t('closeMenu'),onClick:()=>setOpen(false)},'×')]),
   node('div',{class:'settings-context'},[node('span',{},t('workspaceLabel')),node('strong',{translate:context?'no':undefined},context?.workspace.name||t(notice==='loading'?'currentWorkspace':'chooseWorkspace'))]),
-  ...(context?[node('nav',{class:'settings-group','aria-label':t('workspaceGroup')},[node('h2',{},t('workspaceGroup')),link('overview',route('overview')),link('import',route('import'),true),link('members','/share.html?workspace='+encodeURIComponent(workspaceId))])]:[node('p',{class:'settings-nav-status',role:'status'},t(notice))]),
-  node('nav',{class:'settings-group','aria-label':t('personalGroup')},[node('h2',{},t('personalGroup')),link('preferences','/preferences.html'),link('account','/account.html#account')]),
-  node('div',{class:'settings-sidebar-footer'},[...(context?[link('backWorkspace','/workspace.html?workspace='+encodeURIComponent(workspaceId)),node('small',{translate:'no'},context.user.name)]:[]),node('a',{class:'settings-license',href:'./LICENSE.txt'},'MIT License')]));
- back.href=context?route('import'):'/account.html#account';back.textContent=t(context?'backSettings':'openAccount');
+  ...(context?[node('nav',{class:'settings-group','aria-label':t('workspaceGroup')},[node('h2',{},t('workspaceGroup')),link('overview',route('overview')),link('import',route('import'),true),link('members','/share?workspace='+encodeURIComponent(workspaceId))])]:[node('p',{class:'settings-nav-status',role:'status'},t(notice))]),
+  node('nav',{class:'settings-group','aria-label':t('personalGroup')},[node('h2',{},t('personalGroup')),link('preferences','/preferences'),link('account','/account#account')]),
+  node('div',{class:'settings-sidebar-footer'},[...(context?[link('backWorkspace','/workspace?workspace='+encodeURIComponent(workspaceId)),node('small',{translate:'no'},context.user.name)]:[]),node('a',{class:'settings-license',href:'./LICENSE.txt'},'MIT License')]));
+ back.href=context?route('import'):'/account#account';back.textContent=t(context?'backSettings':'openAccount');
  toggle.setAttribute('aria-label',t('openMenu'));scrim.setAttribute('aria-label',t('closeMenu'));navigation.setAttribute('aria-label',t('navigation'));
  setOpen(navOpen,false);branding?.apply({kind:document.documentElement.style.colorScheme==='dark'?'dark':'light'});
 }
@@ -57,4 +57,4 @@ try{
  i18n=createI18n(catalogs,language.value||document.documentElement.lang||'ja');await i18n.switchLocale(i18n.requestedLocale);branding=createInstanceBrand(instance);
  let initial='';try{initial=settingsLocation(location.href).workspaceId;}catch{}
  const selected=document.getElementById('destination-workspace')?.value;await selectWorkspace(validId(selected)?selected:initial);
-}catch{navigation.replaceChildren(node('a',{class:'settings-link',href:'/account.html#account'},'アカウント / Account'));back.href='/account.html#account';}
+}catch{navigation.replaceChildren(node('a',{class:'settings-link',href:'/account#account'},'アカウント / Account'));back.href='/account#account';}

@@ -31,5 +31,5 @@ export function validateInbox(value){
 }
 export function notificationHref(workspaceId,notification){
  if(!safeId(workspaceId))invalidInbox();const item=validateInbox({revision:0,notifications:[notification]}).notifications[0];
- return ['assignment','inline-mention'].includes(item.reason)?'/workspace.html?workspace='+encodeURIComponent(workspaceId)+'&page='+encodeURIComponent(item.pageId):'/comments.html?workspace='+encodeURIComponent(workspaceId)+'&page='+encodeURIComponent(item.pageId)+'#thread-'+encodeURIComponent(item.threadId);
+ return ['assignment','inline-mention'].includes(item.reason)?'/workspace?workspace='+encodeURIComponent(workspaceId)+'&page='+encodeURIComponent(item.pageId):'/comments?workspace='+encodeURIComponent(workspaceId)+'&page='+encodeURIComponent(item.pageId)+'#thread-'+encodeURIComponent(item.threadId);
 }

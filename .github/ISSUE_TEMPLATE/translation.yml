@@ -1,5 +1,5 @@
-name: 翻訳の修正・追加
-description: 表示文言の改善や、新しい言語への対応を提案します。
+name: 翻訳の修正・追加 / Translation
+description: 表示文言・新しい言語の提案 / Suggest better wording or a new language.
 title: "[Translation] "
 body:
   - type: markdown
@@ -7,26 +7,28 @@ body:
       value: |
         翻訳への協力を歓迎します。言語コードや翻訳キーが分からなくても、画面と文言で報告できます。
         例文や画像には個人情報・実際のノート内容を含めないでください。
+        You can write in your language. Describe the screen and suggested wording; translation keys are optional.
+        Exclude personal information and private page content. [Browser contribution guide](https://github.com/KuronekoServer/Yumunio/blob/master/docs/community-translations.en.md).
   - type: input
     id: locale
     attributes:
-      label: 対象の言語
+      label: 対象の言語 / Language
       placeholder: "例: 日本語（ja） / English（en）"
     validations:
       required: true
   - type: input
     id: location
     attributes:
-      label: 翻訳キー・ファイル・表示箇所
-      description: 分かる範囲で記入してください。キーが不明なら、画面名と操作手順だけでも大丈夫です。
+      label: 翻訳キー・ファイル・表示箇所 / Screen or file
+      description: 分かる範囲で記入してください。画面名と操作手順だけでも大丈夫です。 / A screen name and steps are enough; keys are optional.
       placeholder: "例: ワークスペース設定 → 外観 の保存ボタン"
     validations:
       required: true
   - type: textarea
     id: sample
     attributes:
-      label: 現在の文言と提案する文言
-      description: 新しい言語の追加なら、翻訳したい範囲や例文を記入してください。
+      label: 現在の文言と提案する文言 / Current and proposed wording
+      description: 新しい言語なら翻訳したい範囲や例文を記入します。 / For a new language, describe the scope or give an example.
       placeholder: |
         現在:
         提案:
@@ -36,5 +38,5 @@ body:
   - type: textarea
     id: context
     attributes:
-      label: 補足（任意）
-      description: 用語の使い分け、複数形、画面での文字切れなども記入できます。
+      label: 補足（任意） / Context (optional)
+      description: 用語の使い分け、複数形、文字切れなど。 / Terminology, plurals, text overflow, or other context.

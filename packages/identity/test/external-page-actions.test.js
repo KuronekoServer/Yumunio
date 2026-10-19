@@ -31,6 +31,34 @@ function fixture(t,{driver='sqlite',permission='editor',enabled=true,source=fals
  return{db,raw,content,actions,payload,request,issue,commands,seed:()=>raw.write('workspace','actor',{expectedRevision:0,payload,actorMembershipId:'membership',actorRole:'member'}),beforeWrite:hook=>beforeWrite=hook,get writes(){return writes;},get sessions(){return sessions;},get tokenReads(){return tokenReads;}};
 }
 
+for(const driver of ['sqlite','d1'])test('incremental block edits preserve omitted source and private metadata atomically on '+driver,async t=>{
+ const f=fixture(t,{driver,source:true});await f.seed();const writer=await f.issue(),sessions=f.sessions;
+ const response=await f.request('/api/v1/pages/page/blocks',{method:'PATCH',authorization:writer.authorization,body:{expectedVersion:1,operations:[{type:'update',blockId:'body',data:{text:'X Hello world'}},{type:'append',parentId:'body',blocks:[{type:'paragraph',data:{text:'Nested child'}}]},{type:'append',blocks:[{type:'checklist',data:{text:'Added task',checked:false}}]}]}});
+ assert.equal(response.status,200,await response.clone().text());const result=await response.json();assert.equal(result.page.version,2);assert.equal(result.omittedBlocks,1);assert.match(result.document.blocks[1].id,/^[a-f0-9-]{36}$/);assert.equal(result.document.blocks[0].children[0].data.text,'Nested child');assert.doesNotMatch(JSON.stringify(result),/Private raw import source|private-locator|hidden-target/);assert.equal(f.sessions,sessions);
+ const saved=await f.raw.read('workspace','actor');assert.equal(saved.payload.pages[0].document.blocks[1].data.purpose,'import-source');assert.equal(saved.payload.pages[0].document.blocks[0].data.objectKey,'private-locator');assert.deepEqual(saved.payload.pages[0].document.blocks[0].data.marks,[{start:2,end:7,styles:['bold']}]);assert.equal(saved.payload.history.length,1);
+ const before=await f.raw.read('workspace','actor');
+ for(const operations of [[{type:'append',blocks:[{type:'paragraph',data:{text:'Must roll back'}}]},{type:'delete',blockId:'source'}],[{type:'update',blockId:'body',data:{mentions:[]}}],[{type:'append',blocks:[{id:'body',type:'paragraph',data:{text:'Collision'}}]}]]){
+  const rejected=await f.request('/api/v1/pages/page/blocks',{method:'PATCH',authorization:writer.authorization,body:{expectedVersion:2,operations}});assert.ok([400,409].includes(rejected.status),await rejected.text());assert.deepEqual(await f.raw.read('workspace','actor'),before);
+ }
+ const deleted=await f.actions.execute({authorization:writer.authorization,action:'blocks.edit',input:{expectedVersion:2,operations:[{type:'delete',blockId:result.document.blocks[1].id}]}});assert.equal(deleted.page.version,3);assert.equal(deleted.document.blocks.length,1);
+ await assert.rejects(f.actions.execute({authorization:writer.authorization,action:'blocks.edit',input:{expectedVersion:2,operations:[{type:'append',blocks:[{type:'paragraph',data:{text:'Stale'}}]}]}}),fails(409));
+});
+
+test('incremental edits cannot target omitted descendants or delete a visible parent containing hidden blocks',async t=>{
+ const f=fixture(t);f.payload.pages[0].document.blocks[0].children=[{id:'hidden-parent',type:'unknown',children:[{id:'hidden-child',type:'paragraph',data:{text:'Private descendant'}}]}];await f.seed();const writer=await f.issue(),before=await f.raw.read('workspace','actor');
+ for(const operation of [{type:'update',blockId:'hidden-child',data:{text:'Denied'}},{type:'delete',blockId:'body'},{type:'append',parentId:'hidden-child',blocks:[{type:'paragraph',data:{text:'Denied'}}]}]){
+  await assert.rejects(f.actions.execute({authorization:writer.authorization,action:'blocks.edit',input:{expectedVersion:1,operations:[operation]}}),fails(409));assert.deepEqual(await f.raw.read('workspace','actor'),before);
+ }
+ const result=await f.actions.execute({authorization:writer.authorization,action:'blocks.edit',input:{expectedVersion:1,operations:[{type:'update',blockId:'body',data:{text:'Updated visible parent'}}]}});assert.equal(result.page.version,2);assert.deepEqual((await f.raw.read('workspace','actor')).payload.pages[0].document.blocks[0].children,before.payload.pages[0].document.blocks[0].children);
+});
+
+test('incremental editing requires write consent and current revocation guard at commit',async t=>{
+ const f=fixture(t);await f.seed();const reader=await f.issue(readScopes),writer=await f.issue(),input={expectedVersion:1,operations:[{type:'append',blocks:[{type:'paragraph',data:{text:'Denied'}}]}]};
+ assert.equal((await f.request('/api/v1/pages/page/blocks',{method:'PATCH',authorization:reader.authorization,body:input})).status,401);assert.equal((await f.request('/api/v1/pages/page/blocks',{authorization:writer.authorization})).status,405);
+ f.beforeWrite(()=>f.db.prepare('UPDATE yumunio_api_tokens SET revoked_at=?,active_slot=NULL,version=version+1 WHERE id=?').run(new Date().toISOString(),writer.metadata.id));
+ await assert.rejects(f.actions.execute({authorization:writer.authorization,action:'blocks.edit',input}),fails(401));assert.equal((await f.raw.read('workspace','actor')).payload.pages[0].document.version,1);
+});
+
 test('explicit write consent requires current edit ACL; read credentials never acquire write or MCP access',async t=>{
  const f=fixture(t,{permission:'viewer'});await f.seed();const reader=await f.issue(readScopes),sessions=f.sessions;
  await assert.rejects(f.actions.execute({authorization:reader.authorization,pageId:'page',action:'document.write',input:{expectedVersion:1,title:'Denied'}}),fails(401));

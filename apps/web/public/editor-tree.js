@@ -1,11 +1,13 @@
-import {splitPageLinks,joinPageLinks,rebasePageLinks} from './page-links.js';
+import {splitPageLinks,joinPageLinks,rebasePageLinks,replacePageLinks} from './page-links.js';
 import { EDITABLE_BLOCK_TYPES } from './editor-model.js';
-import { splitInlineMarks, joinInlineMarks } from './inline-text.js';
-import { splitMentions, joinMentions, rebaseMentions } from './mentions.js';
+import { splitInlineMarks, joinInlineMarks,replaceInlineMarks,validateInlineMarks } from './inline-text.js';
+import { splitMentions, joinMentions, rebaseMentions,replaceMentions } from './mentions.js';
 import {isSimpleTableData} from './simple-table.js';
+import {isAttachmentBlock} from './attachment-block-model.js';
+import {BLOCK_PARENT_TYPES,GENERATED_BLOCK_TYPES,isBookmarkBlock} from './block-types.js';
 
 export const MAX_EDITOR_NESTING = 8;
-export const EDITOR_PARENT_TYPES = Object.freeze(['paragraph', 'bulleted-list', 'numbered-list', 'quote', 'checklist', 'column']);
+export const EDITOR_PARENT_TYPES = BLOCK_PARENT_TYPES;
 const editable = new Set([...EDITABLE_BLOCK_TYPES, 'heading1', 'heading2']);
 const id = value => typeof value === 'string' && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(value);
 const fail = code => { throw new TypeError(code); };
@@ -35,7 +37,7 @@ function editablePath(location) {
   });
 }
 export function canEditNestedBlock(location, { ignoreDepth = false } = {}) {
-  return !!location && (ignoreDepth || location.depth < MAX_EDITOR_NESTING) && (editable.has(location.block.type)||columnsShape(location.block)||location.block.type==='table'&&isSimpleTableData(location.block.data)&&!Object.hasOwn(location.block,'children')) &&
+  return !!location && (ignoreDepth || location.depth < MAX_EDITOR_NESTING) && (editable.has(location.block.type)||GENERATED_BLOCK_TYPES.includes(location.block.type)&&!location.block.children||isBookmarkBlock(location.block)||columnsShape(location.block)||isAttachmentBlock(location.block)||location.block.type==='table'&&isSimpleTableData(location.block.data)&&!Object.hasOwn(location.block,'children')) &&
     location.block.data?.purpose !== 'import-source' && editablePath(location) && !(location.block.type==='columns'&&location.ancestors.some(parent=>parent.type==='columns'));
 }
 /** Fixed column wrappers can receive blocks, but cannot be selected or moved alone. */
@@ -219,6 +221,64 @@ export function insertEditorBlock(blocks, { block, parentId = null, index }) {
   if (!Number.isSafeInteger(index) || index < 0 || index > items.length) fail('INVALID_BLOCK_INDEX');
   items.splice(index, 0, captured); indexEditorBlocks(next); return next;
 }
+
+/** Insert pasted blocks at the caret without losing surrounding text or inline metadata. */
+export function pasteInlineFragment(blocks,{blockId,start,end=start,text,marks=[]}={}){
+ const next=clone(blocks),row=required(indexEditorBlocks(next),blockId),block=row.block,before=block.data?.text;
+ if(!editable.has(block.type)||['code','equation','divider'].includes(block.type)||typeof before!=='string'||typeof text!=='string')fail('INVALID_CLIPBOARD_BLOCKS');
+ const fragment=validateInlineMarks(text,marks),value=before.slice(0,start)+text+before.slice(end);
+ const replaced=replaceInlineMarks(before,block.data.marks??[],start,end,text,{inherit:false});
+ const combined=validateInlineMarks(value,[...replaced,...fragment.map(mark=>({...mark,start:mark.start+start,end:mark.end+start}))].sort((a,b)=>a.start-b.start));
+ block.data=textData(block.data,value,combined,replacePageLinks(before,block.data.links??[],start,end,text),replaceMentions(before,block.data.mentions??[],start,end,text));
+ return{blocks:next,focus:{blockId,start:start+text.length},changed:true};
+}
+export function pasteEditorBlocks(blocks,{blockId=null,parentId=null,index,start=0,end=start,inserted,createId=()=>crypto.randomUUID()}={}){
+ if(!Array.isArray(inserted)||!inserted.length||inserted.length>500)fail('INVALID_CLIPBOARD_BLOCKS');
+ let next=clone(blocks),locations=indexEditorBlocks(next),items=next,at=index;
+ const added=clone(inserted),ids=indexEditorBlocks(added);
+ for(const key of ids.keys())if(locations.has(key))fail('INVALID_BLOCK_TREE');
+ const newId=()=>{const value=createId();if(!id(value)||ids.has(value)||locations.has(value))fail('INVALID_BLOCK_TREE');ids.set(value,{});return value;};
+ let tail={id:newId(),type:'paragraph',data:{text:''}};
+ if(blockId!==null){
+  const location=required(locations,blockId),block=location.block,text=block.data?.text;
+  if(!editable.has(block.type)||['code','equation','divider'].includes(block.type)||typeof text!=='string')fail('BLOCK_SPLIT_UNSUPPORTED');
+  const marks=splitInlineMarks(text,block.data.marks??[],start,end),links=splitPageLinks(text,block.data.links??[],start,end),mentions=splitMentions(text,block.data.mentions??[],start,end);
+  const before=text.slice(0,start),after=text.slice(end);items=location.siblings;at=location.index;
+  block.data=textData(block.data,before,marks.beforeMarks,links.beforeLinks,mentions.beforeMentions);
+  tail.data=textData({},after,marks.afterMarks,links.afterLinks,mentions.afterMentions);
+  // Keep a parent with children and preserve non-paragraph block semantics.
+  if(before||block.children?.length||block.type!=='paragraph')at++;else items.splice(at,1);
+  parentId=location.parentId;
+ }else if(parentId!==null){const parent=requiredParent(locations,parentId);items=parent.block.children??=[];}
+ if(!Number.isSafeInteger(at)||at<0||at>items.length)fail('INVALID_BLOCK_INDEX');
+ const depth=parentId===null?0:locations.get(parentId).depth+1;
+ for(const block of added){if(depth+subtreeHeight(block)>=MAX_EDITOR_NESTING)fail('BLOCK_NESTING_LIMIT');assertColumnsDestination(block,parentId===null?null:locations.get(parentId));}
+ items.splice(at,0,...added,tail);indexEditorBlocks(next);
+ if(new TextEncoder().encode(JSON.stringify(next)).length>800000)fail('CLIPBOARD_DOCUMENT_TOO_LARGE');
+ return {blocks:next,focus:{blockId:tail.id,start:0},lastInsertedId:added.at(-1).id,changed:true};
+}
+
+/** Duplicate complete selected subtrees with fresh IDs, retaining same-page attachment bindings. */
+export function duplicateEditorBlocks(blocks,blockIds,{createId=()=>crypto.randomUUID()}={}){
+ const selected=normalizeEditorBlockSelection(blocks,blockIds),next=clone(blocks),locations=indexEditorBlocks(next),used=new Set(locations.keys()),added=[];
+ const duplicate=block=>{const copy=clone(block),id=createId();if(!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(id)||used.has(id))fail('INVALID_BLOCK_TREE');used.add(id);copy.id=id;if(copy.children)copy.children=copy.children.map(duplicate);return copy;};
+ // Insert backwards so captured sibling indices stay valid.
+ for(const blockId of [...selected].reverse()){
+  const location=required(locations,blockId),copy=duplicate(location.block);location.siblings.splice(location.index+1,0,copy);added.unshift(copy.id);
+ }
+ indexEditorBlocks(next);if(new TextEncoder().encode(JSON.stringify(next)).length>800000)fail('CLIPBOARD_DOCUMENT_TOO_LARGE');return {blocks:next,blockIds:added,focus:{blockId:added[0],start:0},changed:true};
+}
+export function removeEditorBlocks(blocks,blockIds){
+ const selected=normalizeEditorBlockSelection(blocks,blockIds),next=clone(blocks),locations=indexEditorBlocks(next);
+ for(const blockId of [...selected].reverse()){const location=required(locations,blockId);location.siblings.splice(location.siblings.indexOf(location.block),1);}
+ return{blocks:next,changed:true};
+}
+/** Replace a whole-block selection as one undoable edit; other subtrees stay intact. */
+export function replaceEditorBlockSelection(blocks,blockIds,inserted,options={}){
+ const selected=normalizeEditorBlockSelection(blocks,blockIds),first=indexEditorBlocks(blocks).get(selected[0]);
+ const next=removeEditorBlocks(blocks,selected).blocks;
+ return pasteEditorBlocks(next,{parentId:first.parentId,index:first.index,inserted,...options});
+}
 function columnsFactory(blocks,count,createId) {
   if(![2,3].includes(count)||typeof createId!=='function')fail('BLOCK_COLUMNS_STRUCTURE');
   const used=new Set(indexEditorBlocks(blocks).keys());
@@ -288,7 +348,7 @@ function textData(data, text, marks, links, mentions) {
 }
 export function splitEditorBlock(blocks, { blockId, start, end, newId }) {
   const next = clone(blocks), locations = indexEditorBlocks(next), location = required(locations, blockId), block = location.block;
-  if (['code', 'divider'].includes(block.type) || typeof block.data?.text !== 'string' || !id(newId) || locations.has(newId)) fail('BLOCK_SPLIT_UNSUPPORTED');
+  if (!editable.has(block.type) || ['code', 'divider'].includes(block.type) || typeof block.data?.text !== 'string' || !id(newId) || locations.has(newId)) fail('BLOCK_SPLIT_UNSUPPORTED');
   const text = block.data.text, split = splitInlineMarks(text, block.data.marks || [], start, end),links=splitPageLinks(text,block.data.links||[],start,end),mentions=splitMentions(text,block.data.mentions||[],start,end);
   const before = text.slice(0, start), after = text.slice(end);
   block.data = textData(block.data, before, split.beforeMarks,links.beforeLinks,mentions.beforeMentions);
@@ -304,7 +364,7 @@ export function splitEditorBlock(blocks, { blockId, start, end, newId }) {
 }
 export function mergeEditorBlock(blocks, blockId) {
   const next = clone(blocks), locations = indexEditorBlocks(next), location = required(locations, blockId), block = location.block;
-  if (['code','divider'].includes(block.type) || typeof block.data?.text !== 'string') fail('BLOCK_MERGE_UNSUPPORTED');
+  if (!editable.has(block.type) || ['code','equation','divider'].includes(block.type) || typeof block.data?.text !== 'string') fail('BLOCK_MERGE_UNSUPPORTED');
   if (block.children?.length) fail('BLOCK_CHILDREN_JOIN_UNSUPPORTED');
   if (location.index === 0) {
     if (location.parent) return { blocks: nestEditorBlock(next, blockId, 'outdent'), focus: { blockId, start: 0 }, changed: true };
@@ -315,7 +375,7 @@ export function mergeEditorBlock(blocks, blockId) {
     return { blocks: next, focus: { blockId, start: 0 }, changed: false };
   }
   const previous = location.siblings[location.index - 1], previousLocation = locations.get(previous.id);
-  if (!canEditNestedBlock(previousLocation) || ['code','divider'].includes(previous.type) || typeof previous.data?.text !== 'string') fail('BLOCK_MERGE_UNSUPPORTED');
+  if (!canEditNestedBlock(previousLocation) || !editable.has(previous.type) || ['code','equation','divider'].includes(previous.type) || typeof previous.data?.text !== 'string') fail('BLOCK_MERGE_UNSUPPORTED');
   if (previous.children?.length) fail('BLOCK_CHILDREN_JOIN_UNSUPPORTED');
   const caret = previous.data.text.length, marks = joinInlineMarks(previous.data.text, previous.data.marks || [], block.data.text, block.data.marks || []);
   previous.data = textData(previous.data, previous.data.text + block.data.text, marks,joinPageLinks(previous.data.text,previous.data.links||[],block.data.text,block.data.links||[]),joinMentions(previous.data.text,previous.data.mentions||[],block.data.text,block.data.mentions||[]));

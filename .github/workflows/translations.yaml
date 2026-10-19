@@ -1,0 +1,96 @@
+name: Crowdin (manual opt-in only)
+on:
+  workflow_dispatch:
+    inputs:
+      enable_sync:
+        description: Explicitly enable this manual Crowdin run (may use paid quota)
+        type: boolean
+        default: false
+      seed_english:
+        description: Upload the existing English catalog once (preserves community suggestions)
+        type: boolean
+        default: false
+permissions:
+  contents: read
+concurrency:
+  group: crowdin-yumunio
+  cancel-in-progress: false
+jobs:
+  sync:
+    if: github.repository == 'KuronekoServer/Yumunio' && github.event_name == 'workflow_dispatch' && inputs.enable_sync
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+      pull-requests: write
+    env:
+      CROWDIN_PERSONAL_TOKEN: ${{ secrets.CROWDIN_PERSONAL_TOKEN }}
+    steps:
+      - name: Check connection
+        id: connection
+        shell: bash
+        run: |
+          if [ -z "$CROWDIN_PERSONAL_TOKEN" ]; then
+            echo '::notice::Add the project manager credential as CROWDIN_PERSONAL_TOKEN to connect https://crowdin.com/project/yumunio (939643).'
+            echo 'ready=false' >> "$GITHUB_OUTPUT"
+          else
+            echo 'ready=true' >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: steps.connection.outputs.ready == 'true'
+        with:
+          ref: master
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        if: steps.connection.outputs.ready == 'true'
+        with:
+          node-version: '24.16.0'
+          package-manager-cache: false
+      - name: Prepare catalogs
+        if: steps.connection.outputs.ready == 'true'
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund
+          npm run l10n:check
+          npm run l10n:export
+      - name: Send source updates and download approved translations
+        if: steps.connection.outputs.ready == 'true'
+        uses: crowdin/github-action@72955432d4aa4f6dd64cf17eeb88dd34d6ba064c # v3, CLI 5.4.0
+        with:
+          config: crowdin.yml
+          upload_sources: true
+          upload_translations: ${{ github.event_name == 'workflow_dispatch' && inputs.seed_english }}
+          upload_language: en
+          auto_approve_imported: false
+          download_translations: true
+          export_only_approved: true
+          skip_untranslated_strings: true
+          skip_untranslated_files: false
+          push_translations: false
+          create_pull_request: false
+      - name: Validate and prepare runtime translations
+        if: steps.connection.outputs.ready == 'true'
+        run: |
+          npm run l10n:import
+          npm run l10n:check
+          node --test apps/web/test/locale-runtime.test.js packages/tooling/test/localization.test.mjs
+          npm run build
+      - name: Open a translation review
+        if: steps.connection.outputs.ready == 'true'
+        uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          base: master
+          branch: l10n/crowdin
+          title: 'Update community translations'
+          commit-message: 'Update approved Crowdin translations'
+          draft: true
+          add-paths: |
+            apps/web/public/locales/*.json
+            apps/web/public/*-locales/*.json
+            apps/web/public/locale-manifest.json
+          body: |
+            Approved translations from https://crowdin.com/project/yumunio (939643).
+
+            The import preserves complete English fallback catalogs, checks message keys and named placeholders, and registers translated languages in the runtime manifest.
+
+            Validation in the translation workflow: locale checks, locale runtime and import tests, and the Next.js build. Review the wording before merging. This workflow does not merge or deploy. PRs created with GITHUB_TOKEN do not automatically trigger other workflows; run the Check workflow on this branch if additional checks are needed.

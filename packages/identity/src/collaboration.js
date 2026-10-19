@@ -57,7 +57,7 @@ export function createCollaborationService({store,origin,secret,domainPolicy=cre
     const payload=payloadOf(saved,workspaceId),state=policyOf(saved,payload,workspaceId);return {saved,actor,payload,state};
   };
   const mailJob=async(invitation,generation,token,current)=>{
-    const link=new URL('/account.html',origin);link.searchParams.set('invite',invitation.id);link.searchParams.set('token',token);
+    const link=new URL('/account',origin);link.searchParams.set('invite',invitation.id);link.searchParams.set('token',token);
     return prepareMailJob({to:invitation.recipientEmail,subject:'Yumunio: 共有への招待',text:'本人が招待内容を確認して承諾する場合だけ、次の画面で操作してください。\n'+link.href},
       {secret,id:createId(),dedupeKey:'invitation:'+invitation.id+':'+generation,now:current,expiresAt:invitation.expiresAt,invitationId:invitation.id,invitationGeneration:generation});
   };

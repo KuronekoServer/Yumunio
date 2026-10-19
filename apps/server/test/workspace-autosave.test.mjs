@@ -56,7 +56,7 @@ async function fixture(t) {
   await ok(await request('/api/auth/sign-up/email', 'POST', { name: 'Autosave fixture', email, password }), 202);
   await identity.flushBackgroundTasks();
   const token = new URL(mail.at(-1).text.split('\n').at(-1)).searchParams.get('verify');
-  await ok(await request('/api/auth/verify-email?token=' + encodeURIComponent(token) + '&callbackURL=' + encodeURIComponent(origin + '/account.html')));
+  await ok(await request('/api/auth/verify-email?token=' + encodeURIComponent(token) + '&callbackURL=' + encodeURIComponent(origin + '/account')));
   const signed = await request('/api/auth/sign-in/email', 'POST', { email, password });
   accountId = (await ok(signed)).user.id;
   cookie = signed.headers.getSetCookie().map(value => value.split(';')[0]).join('; ');

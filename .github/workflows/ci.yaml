@@ -25,6 +25,7 @@ jobs:
           node-version: '24.16.0'
           package-manager-cache: false
       - run: npm ci --ignore-scripts --no-audit --no-fund
+      - run: npm run l10n:sync
       - run: npm run check
       - run: npm test
       - run: npm run test:worker
@@ -36,7 +37,15 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - run: docker build --tag yumunio-ci .
+      - name: Build and boot a new installation
+        run: |
+          set -euo pipefail
+          YUMUNIO_PUBLIC_ORIGIN=https://notes.example.invalid docker compose -f compose.yaml -f compose.https.yaml config --quiet
+          docker run --rm -e YUMUNIO_PUBLIC_ORIGIN=https://notes.example.invalid --mount "type=bind,source=$PWD/deploy/Caddyfile,target=/etc/caddy/Caddyfile,readonly" caddy:2-alpine caddy adapt --config /etc/caddy/Caddyfile >/dev/null
+          docker build --tag yumunio-ci .
+          docker run --detach --name yumunio-smoke yumunio-ci
+          trap 'docker rm -f yumunio-smoke >/dev/null 2>&1 || true' EXIT
+          docker exec yumunio-smoke node --input-type=module -e 'for(let attempt=0;attempt<30;attempt++){try{const response=await fetch("http://127.0.0.1:8788/health");const body=await response.json();if(response.ok&&body.status==="setup-required")process.exit(0);}catch{}await new Promise(resolve=>setTimeout(resolve,1000));}process.exit(1);'
   database-contract:
     runs-on: ubuntu-latest
     timeout-minutes: 30

@@ -18,8 +18,8 @@ test('inserting a person creates an explicit plain text range without implicit m
 
 const notice={id:'assignment-1',pageId:'row-page',pageTitle:'Literal <record>',authorId:'author',createdAt:'2026-10-16T00:00:00.000Z',readAt:null,reason:'assignment'};
 test('assignment inbox links open only the readable record and never synthesize a comment thread or container',()=>{
- const inbox=validateInbox({revision:4,notifications:[notice]});assert.deepEqual(inbox.notifications[0],notice);assert.equal(notificationHref('workspace',notice),'/workspace.html?workspace=workspace&page=row-page');
- const comment={...notice,reason:'reply',threadId:'thread',messageId:'message',text:'Reply'};assert.match(notificationHref('workspace',comment),/^\/comments.html\?workspace=workspace&page=row-page#thread-thread$/);delete comment.reason;assert.equal(validateInbox({revision:1,notifications:[comment]}).notifications[0].reason,'mention');
+ const inbox=validateInbox({revision:4,notifications:[notice]});assert.deepEqual(inbox.notifications[0],notice);assert.equal(notificationHref('workspace',notice),'/workspace?workspace=workspace&page=row-page');
+ const comment={...notice,reason:'reply',threadId:'thread',messageId:'message',text:'Reply'};assert.match(notificationHref('workspace',comment),/^\/comments\?workspace=workspace&page=row-page#thread-thread$/);delete comment.reason;assert.equal(validateInbox({revision:1,notifications:[comment]}).notifications[0].reason,'mention');
 });
 test('inbox rejects mixed or unknown metadata, malformed identities and duplicate notifications before display',()=>{
  for(const value of [{...notice,threadId:'hidden-thread'},{...notice,collectionId:'hidden-container'},{...notice,text:'Private snippet'},{...notice,pageId:'javascript:alert(1)'},{...notice,readAt:'yesterday'},{...notice,reason:'unknown'}])assert.throws(()=>validateInbox({revision:1,notifications:[value]}),{code:'INVALID_NOTIFICATIONS'});
@@ -30,7 +30,7 @@ test('inbox rejects mixed or unknown metadata, malformed identities and duplicat
 test('inline person mention notifications open the current page using only the minimal page reference',()=>{
  const mention={...notice,id:'inline-mention-1',reason:'inline-mention'};
  assert.deepEqual(validateInbox({revision:9,notifications:[notice,mention]}).notifications,[notice,mention]);
- assert.equal(notificationHref('workspace',mention),'/workspace.html?workspace=workspace&page=row-page');
+ assert.equal(notificationHref('workspace',mention),'/workspace?workspace=workspace&page=row-page');
  for(const extra of [{text:'Private body'},{threadId:'thread'},{blockId:'block'},{recipientId:'account'},{recipientMembershipId:'generation'},{collectionId:'collection'}])assert.throws(()=>validateInbox({revision:9,notifications:[{...mention,...extra}]}),{code:'INVALID_NOTIFICATIONS'});
  const withoutReason={...mention};delete withoutReason.reason;assert.throws(()=>validateInbox({revision:9,notifications:[withoutReason]}),{code:'INVALID_NOTIFICATIONS'});
 });

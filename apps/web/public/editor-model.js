@@ -1,6 +1,7 @@
 const clone = value => JSON.parse(JSON.stringify(value));
+import {TEXT_BLOCK_TYPES,BLOCK_PARENT_TYPES} from './block-types.js';
 const bytes = value => new TextEncoder().encode(JSON.stringify(value)).length;
-export const EDITABLE_BLOCK_TYPES = Object.freeze(['paragraph', 'heading', 'checklist', 'bulleted-list', 'numbered-list', 'quote', 'divider', 'code']);
+export const EDITABLE_BLOCK_TYPES = Object.freeze([...TEXT_BLOCK_TYPES.filter(type=>!['heading1','heading2'].includes(type)),'divider']);
 
 /** Recognize a complete prefix only; code contents and pasted HTML remain plain text. */
 export function markdownPrefix(text) {
@@ -10,7 +11,8 @@ export function markdownPrefix(text) {
   if (/^[-*+] $/.test(text)) return { type: 'bulleted-list', data: { text: '' } };
   const ordered = /^([1-9][0-9]{0,8})[.)] $/.exec(text);
   if (ordered) return { type: 'numbered-list', data: { text: '', start: Number(ordered[1]) } };
-  if (text === '> ') return { type: 'quote', data: { text: '' } };
+  if (text === '> ') return { type: 'toggle', data: { text: '' } };
+  if (text === '" ') return { type: 'quote', data: { text: '' } };
   if (/^\[(?: |x|X)?\] $/.test(text)) return { type: 'checklist', data: { text: '', checked: /[xX]/.test(text) } };
   const fence = /^```([A-Za-z0-9_+.#-]{0,100}) $/.exec(text);
   if (fence) return { type: 'code', data: { text: '', ...(fence[1] ? { language: fence[1] } : {}) } };
@@ -72,7 +74,7 @@ export function moveEditorBlock(blocks, { blockId, parentId = null, index }) {
   const source = locations.get(blockId), parent = parentId === null ? null : locations.get(parentId);
   if (!source || parentId !== null && !parent) throw new TypeError('BLOCK_NOT_FOUND');
   if (parentId === blockId || parent?.ancestors.includes(blockId)) throw new TypeError('BLOCK_MOVE_CYCLE');
-  if (parent && !['paragraph', 'bulleted-list', 'numbered-list', 'quote', 'checklist'].includes(parent.block.type)) throw new TypeError('BLOCK_PARENT_UNSUPPORTED');
+  if (parent && !BLOCK_PARENT_TYPES.includes(parent.block.type)) throw new TypeError('BLOCK_PARENT_UNSUPPORTED');
   const destination = parent ? (parent.block.children ??= []) : next;
   const sourceIndex = source.items.indexOf(source.block);
   if (index > destination.length) throw new RangeError('INVALID_BLOCK_INDEX');

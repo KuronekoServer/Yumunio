@@ -4,7 +4,7 @@ import {readInstanceConfig,createInstanceApi,isPublicBrandAssetPath} from '../sr
 const origin='https://instance.example';
 test('instance defaults expose only the fixed public brand DTO and never read unrelated environment secrets',()=>{
   const env={};Object.defineProperty(env,'YUMUNIO_AUTH_SECRET',{get(){throw new Error('Must not be read');}});
-  const config=readInstanceConfig(env);assert.deepEqual(config,{schemaVersion:1,applicationName:'Yumunio',organizationName:null,logos:{light:null,dark:null},favicons:{light:null,dark:null},brandColor:'#385772',initialTheme:'light',defaultLocale:'ja'});
+  const config=readInstanceConfig(env);assert.deepEqual(config,{schemaVersion:1,applicationName:'Yumunio',organizationName:null,logos:{light:null,dark:null},favicons:{light:null,dark:null},brandColor:'#3D3D3A',initialTheme:'light',defaultLocale:'ja'});
   config.logos.dark='/brand/changed.svg';assert.equal(readInstanceConfig().logos.dark,null);
 });
 test('public instance settings normalize names, color, locale and independent logo variants without rewriting user preferences',()=>{
@@ -14,7 +14,7 @@ test('public instance settings normalize names, color, locale and independent lo
 });
 test('invalid brand fields fall back independently, without reflecting rejected configuration values',()=>{
   const config=readInstanceConfig({YUMUNIO_BRAND_NAME:'bad\nsecret',YUMUNIO_BRAND_ORGANIZATION:'  ',YUMUNIO_BRAND_COLOR:'url(https://private.example)',YUMUNIO_DEFAULT_THEME:'secret-path',YUMUNIO_DEFAULT_LOCALE:'unsupported_locale',YUMUNIO_BRAND_LOGO_LIGHT:'/api/content/private.png',YUMUNIO_BRAND_LOGO_DARK:'/brand/valid.svg',YUMUNIO_BRAND_FAVICON:'data:image/svg+xml,private'});
-  assert.equal(config.applicationName,'Yumunio');assert.equal(config.organizationName,null);assert.equal(config.brandColor,'#385772');assert.equal(config.initialTheme,'light');assert.equal(config.defaultLocale,'ja');
+  assert.equal(config.applicationName,'Yumunio');assert.equal(config.organizationName,null);assert.equal(config.brandColor,'#3D3D3A');assert.equal(config.initialTheme,'light');assert.equal(config.defaultLocale,'ja');
   assert.deepEqual(config.logos,{light:null,dark:'/brand/valid.svg'});assert.deepEqual(config.favicons,{light:null,dark:null});assert.doesNotMatch(JSON.stringify(config),/private|secret|unsupported_locale/);
 });
 test('brand asset paths are a dedicated public allowlist and reject arbitrary origins, encoded traversal, secrets and URL modifiers',()=>{

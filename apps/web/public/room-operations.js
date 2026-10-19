@@ -1,3 +1,4 @@
+import {RICH_BLOCK_TYPES,BLOCK_PARENT_TYPES} from './block-types.js';
 import {indexEditorBlocks,normalizeEditorBlockSelection,canEditNestedBlock,planEditorNesting} from './editor-tree.js';
 const fail=()=>{throw new TypeError('ROOM_OPERATION_UNSUPPORTED');};
 const shape=block=>{const result=structuredClone(block);delete result.children;return JSON.stringify(result);};
@@ -22,7 +23,7 @@ export function prepareRoomTreeOperation(before,after,{blockIds}={}){
  const excluded=new Set(roots),strip=items=>items.filter(block=>!excluded.has(block.id)).map(block=>({...block,...(block.children?{children:strip(block.children)}:{})}));if(!equal(strip(before),strip(after)))fail();return{operation:{kind:'move',blockIds:roots,parentId,beforeId:siblings[first+roots.length]?.id??null}};
 }
 
-const textTypes=new Set(['paragraph','heading','heading1','heading2','checklist','bulleted-list','numbered-list','quote']);
+const textTypes=new Set(RICH_BLOCK_TYPES);
 const boundary=(text,at)=>Number.isSafeInteger(at)&&at>=0&&at<=text.length&&!(at>0&&at<text.length&&/[\uD800-\uDBFF]/.test(text[at-1])&&/[\uDC00-\uDFFF]/.test(text[at]));
 function transformRow(blocks,blockId){const row=indexEditorBlocks(blocks).get(blockId);if(!row||!canEditNestedBlock(row)||!textTypes.has(row.block.type)||typeof row.block.data?.text!=='string')fail();return row;}
 function outdentOperation(blocks,blockId){const plan=planEditorNesting(blocks,blockId,'outdent');const siblings=plan.parentId===null?blocks:indexEditorBlocks(blocks).get(plan.parentId)?.block.children;return{kind:'move',blockIds:[blockId],parentId:plan.parentId,beforeId:siblings?.[plan.index]?.id??null};}
@@ -38,7 +39,7 @@ export function prepareRoomMergeOperation(blocks,blockId){
  return{operation:{kind:'merge',blockId,previousId:previous.id},focus:{blockId:previous.id,start:previous.data.text.length}};
 }
 export function prepareRoomConvertOperation(blocks,{blockId,choice,seedBlocks=blocks}){
- const row=indexEditorBlocks(blocks).get(blockId),original=indexEditorBlocks(seedBlocks).get(blockId)?.block;if(!row||!canEditNestedBlock(row)||!textTypes.has(row.block.type)&&!['code','divider'].includes(row.block.type)||original&&['code','divider'].includes(original.type))fail();
- const type=/^heading[123]$/.test(choice)?'heading':choice;if(!textTypes.has(type)&&!['code','divider'].includes(type)||row.block.children?.length&&!['paragraph','checklist','bulleted-list','numbered-list','quote'].includes(type)||type==='divider'&&(row.block.data?.text||row.block.children?.length)||type==='code'&&['marks','links','mentions'].some(key=>row.block.data?.[key]?.length))fail();
+ const row=indexEditorBlocks(blocks).get(blockId),original=indexEditorBlocks(seedBlocks).get(blockId)?.block;if(!row||!canEditNestedBlock(row)||!textTypes.has(row.block.type)&&!['code','equation','divider'].includes(row.block.type)||original&&['code','equation','divider'].includes(original.type))fail();
+ const type=/^heading[123]$/.test(choice)?'heading':choice;if(!textTypes.has(type)&&!['code','equation','divider'].includes(type)||row.block.children?.length&&!BLOCK_PARENT_TYPES.includes(type)||type==='divider'&&(row.block.data?.text||row.block.children?.length)||['code','equation'].includes(type)&&['marks','links','mentions'].some(key=>row.block.data?.[key]?.length))fail();
  const data=type==='heading'?{level:Number(choice.at(-1))}:type==='checklist'?{checked:row.block.data?.checked===true}:type==='numbered-list'?{start:1}:{};return{kind:'convert',blockId,type,data};
 }

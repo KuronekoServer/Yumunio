@@ -1,6 +1,8 @@
 import {captureInlineSelection} from './inline-editor.js';
 import {participantRoster,remoteCursorLayer} from './room-presence-ui.js';
-export function createWorkspacePresence({app,getRoom,getCurrent,isComposing,isModalOpen,translate:t,onAuthorizationFailure}){
+export function createWorkspacePresence({app,getRoom,getCurrent,isComposing,isModalOpen,translate:t,onAuthorizationFailure,signal}){
+ const lifetime=new AbortController(),listen=(target,type,handler,options={})=>target.addEventListener(type,handler,{...options,signal:lifetime.signal});
+ signal?.addEventListener('abort',()=>lifetime.abort(),{once:true});
  let frame=0;
  function refresh(){
   app.querySelector('.room-cursor-layer')?.remove();
@@ -29,7 +31,7 @@ export function createWorkspacePresence({app,getRoom,getCurrent,isComposing,isMo
  }
  function changed(){const active=getRoom();if(!active||active.phase!=='ready')return;clearTimeout(active.presenceTimer);active.presenceTimer=setTimeout(()=>void publish(active),700);paint();}
  function leave(active){if(!active)return;clearTimeout(active.presenceTimer);void active.client?.leavePresence().catch(()=>{});app.querySelector('.room-cursor-layer')?.remove();app.querySelector('[data-room-presence]')?.replaceChildren();}
- document.addEventListener('selectionchange',changed);window.addEventListener('resize',paint);app.addEventListener('scroll',paint,true);
- document.addEventListener('visibilitychange',()=>{const active=getRoom();if(!active)return;if(document.hidden){leave(active);refresh();}else void publish(active,{force:true});});
- return{refresh,paint,publish,changed,leave};
+ listen(document,'selectionchange',changed);listen(window,'resize',paint);listen(app,'scroll',paint,{capture:true});
+ listen(document,'visibilitychange',()=>{const active=getRoom();if(!active)return;if(document.hidden){leave(active);refresh();}else void publish(active,{force:true});});
+ return{refresh,paint,publish,changed,leave,destroy(){lifetime.abort();cancelAnimationFrame(frame);}};
 }

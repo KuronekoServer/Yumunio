@@ -5,7 +5,7 @@ const presets = [
   ['ocean', 'Ocean', 'light', '#11364A', '#F0F6FA', '#FFFFFF', '#F7FBFD', '#17627E', '#FFFFFF', '#DDEDF5', '#203744', '#4D6575', '#C8DDE8', '#E1EBF1', '#506574'],
   ['lavender', 'Lavender', 'light', '#392B4A', '#F6F3FA', '#FFFEFF', '#FCFAFE', '#69508C', '#FFFFFF', '#EEE5F7', '#3B2E48', '#655C71', '#DFD5E9', '#EBE5F0', '#665A72'],
   ['forest', 'Forest', 'dark', '#091B15', '#10251E', '#17332A', '#132B23', '#99D3AF', '#10251E', '#234C3B', '#E8F2EC', '#AFC5B8', '#355548', '#294238', '#ADC1B4'],
-  ['midnight', 'Midnight', 'dark', '#0B1220', '#131C2B', '#1B2739', '#172234', '#9CC7EA', '#12263C', '#29405C', '#EDF2FA', '#BBC7D8', '#3C4F69', '#28364D', '#B5C0D2']
+  ['midnight', 'Midnight', 'dark', '#1F2022', '#1B1C1D', '#1B1C1D', '#232426', '#A8C6DF', '#17202A', '#303236', '#E9EAEC', '#A6A8AD', '#393B40', '#303236', '#A6A8AD']
 ];
 const roles = ['rail', 'canvas', 'surface', 'nav', 'accent', 'on', 'soft', 'text', 'muted', 'border', 'disabledBg', 'disabledFg'];
 export const THEMES = Object.freeze(presets.map(([id, name, kind, ...values]) => Object.freeze({ id, name, kind, colors: Object.freeze(Object.fromEntries(roles.map((role, index) => [role, values[index]]))) })));

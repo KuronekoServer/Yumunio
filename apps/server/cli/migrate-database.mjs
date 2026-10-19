@@ -1,10 +1,11 @@
 import { readFile } from 'node:fs/promises';
 import { readServerConfig } from '../config.mjs';
+import { readNodeInstanceEnvironment } from '../setup.mjs';
 import { createDatabaseClient } from '@yumunio/adapters/prototype-sql';
 
 let client;
 try {
-  const config = readServerConfig(process.env);
+  const config = readServerConfig(await readNodeInstanceEnvironment(process.env));
   if (!config.databaseOptions) throw new Error('Select mariadb, mysql, or postgres in YUMUNIO_STORAGE.');
   const schema = config.databaseOptions.dialect === 'postgres' ? 'prototype.postgres.sql' : 'prototype.mysql.sql';
   const sql = await readFile(new URL('../../../packages/adapters/' + schema, import.meta.url), 'utf8');

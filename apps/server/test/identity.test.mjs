@@ -22,7 +22,7 @@ test('Node HTTP preserves separate account cookies and never treats an account s
   assert.equal((await post('/api/auth/sign-up/email', { name: 'HTTP Fixture', email, password })).status, 202);
   await identity.flushBackgroundTasks();
   const token = new URL(mail[0].text.split('\n').at(-1)).searchParams.get('verify');
-  assert.equal((await fetch(origin + '/api/auth/verify-email?token=' + encodeURIComponent(token) + '&callbackURL=' + encodeURIComponent(origin + '/account.html'), { redirect: 'manual' })).status, 200);
+  assert.equal((await fetch(origin + '/api/auth/verify-email?token=' + encodeURIComponent(token) + '&callbackURL=' + encodeURIComponent(origin + '/account'), { redirect: 'manual' })).status, 200);
   const login = await post('/api/auth/sign-in/email', { email, password, rememberMe: false });
   assert.equal(login.status, 200);
   const loginBody = await login.json();

@@ -1,0 +1,38 @@
+name: Translation review
+on:
+  pull_request:
+    paths:
+      - 'apps/web/public/locales/*.json'
+      - 'apps/web/public/*-locales/*.json'
+      - 'apps/web/public/locale-manifest.json'
+      - 'apps/web/public/i18n.js'
+      - 'packages/tooling/localization.mjs'
+      - '.github/workflows/translation-check.yaml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: translation-review-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24.16.0'
+          package-manager-cache: false
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Prepare partial translations
+        run: npm run l10n:sync
+      - name: Check keys, placeholders and fallback
+        run: |
+          npm run l10n:check
+          node --test packages/tooling/test/localization.test.mjs apps/web/test/locale-runtime.test.js
+      - name: Show translation progress
+        shell: bash
+        run: node packages/tooling/localization.mjs report --markdown >> "$GITHUB_STEP_SUMMARY"

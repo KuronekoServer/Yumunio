@@ -1,6 +1,6 @@
 services:
   yumunio:
-    build: .
+    image: ${YUMUNIO_IMAGE:-docker.io/kuronekoserver/yumunio:latest}
     # Compose >= 2.24: inject application settings at runtime; never copy .env into the image.
     env_file:
       - path: .env
@@ -9,9 +9,24 @@ services:
       # The container listener must match the published/internal port even if the host .env uses loopback.
       YUMUNIO_HOST: 0.0.0.0
       YUMUNIO_PORT: "8788"
+      YUMUNIO_STORAGE: "${YUMUNIO_STORAGE:-sqlite}"
+      YUMUNIO_WEB_SETUP: "${YUMUNIO_WEB_SETUP:-true}"
+      YUMUNIO_DATABASE: /app/.data/yumunio.sqlite
+      YUMUNIO_BLOB_DRIVER: "${YUMUNIO_BLOB_DRIVER:-local}"
+      YUMUNIO_BLOB_LOCAL_DIR: /app/.data/blobs
       # Database bootstrap credentials belong only to the database service.
       YUMUNIO_DB_PASSWORD: ""
       YUMUNIO_DB_ADMIN_PASSWORD: ""
     ports:
       - "127.0.0.1:8788:8788"
+    volumes:
+      - yumunio-data:/app/.data
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8788/health',{signal:AbortSignal.timeout(3000)}).then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
     restart: unless-stopped
+volumes:
+  yumunio-data:

@@ -10,7 +10,7 @@ export function settingsLocation(href) {
 }
 export function importHref(workspaceId, source) {
   if (!validId(workspaceId) || !['notion', 'appflowy'].includes(source)) throw new WorkspaceSettingsError('INVALID_WORKSPACE');
-  return '/import.html?workspace=' + encodeURIComponent(workspaceId) + '&source=' + source;
+  return '/import?workspace=' + encodeURIComponent(workspaceId) + '&source=' + source;
 }
 export async function loadWorkspaceSettings({ workspaceId, expectedAccountId = null, request }) {
   if (!validId(workspaceId) || typeof request !== 'function') throw new WorkspaceSettingsError('INVALID_WORKSPACE');

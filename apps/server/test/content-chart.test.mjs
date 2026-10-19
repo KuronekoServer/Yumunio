@@ -21,7 +21,7 @@ test('Node HTTP chart views persist exact config and aggregate fresh values whil
   const request=(path,{method='GET',body,headers={}}={})=>fetch(origin+path,{method,redirect:'manual',headers:{...(body===undefined?{}:{Origin:origin,'Content-Type':'application/json'}),...(cookie?{Cookie:cookie,'X-Yumunio-Expected-Account':accountId}:{}),...headers},...(body===undefined?{}:{body:JSON.stringify(body)})});
   async function ok(response,status=200){assert.equal(response.status,status,await response.clone().text());return response.json();}
   const email='chart-http@example.invalid',password='chart-http-fictional-password';await ok(await request('/api/auth/sign-up/email',{method:'POST',body:{name:'Synthetic formula owner',email,password}}),202);await identity.flushBackgroundTasks();
-  const token=new URL(mail.at(-1).text.split('\n').at(-1)).searchParams.get('verify');await ok(await request('/api/auth/verify-email?token='+encodeURIComponent(token)+'&callbackURL='+encodeURIComponent(origin+'/account.html')));
+  const token=new URL(mail.at(-1).text.split('\n').at(-1)).searchParams.get('verify');await ok(await request('/api/auth/verify-email?token='+encodeURIComponent(token)+'&callbackURL='+encodeURIComponent(origin+'/account')));
   const signed=await request('/api/auth/sign-in/email',{method:'POST',body:{email,password}}),user=(await ok(signed)).user;cookie=signed.headers.getSetCookie().map(value=>value.split(';')[0]).join('; ');accountId=user.id;
   const workspace=await ok(await request('/api/auth/organization/create',{method:'POST',body:{name:'Chart HTTP fixture',slug:'chart-http-fixture'}})),base='/api/content/workspaces/'+workspace.id;
 

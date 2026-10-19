@@ -142,7 +142,7 @@ function jobsPanel(){
     summary.append(rows);
   }
   const test=node('section',{class:'panel'},[node('h2',{},t('testTitle')),node('p',{class:'intro'},t('testHint')),node('p',{class:'identity'},actor.email)]);
-  const disabled=!['smtp','http'].includes(config.mail.driver),checkbox=node('input',{id:'test-consent',type:'checkbox',checked:mailConsent,disabled:busy||disabled,onChange:event=>{mailConsent=event.target.checked;document.getElementById('queue-test').disabled=busy||disabled||!mailConsent;}});
+  const disabled=!['smtp','http','cloudflare'].includes(config.mail.driver),checkbox=node('input',{id:'test-consent',type:'checkbox',checked:mailConsent,disabled:busy||disabled,onChange:event=>{mailConsent=event.target.checked;document.getElementById('queue-test').disabled=busy||disabled||!mailConsent;}});
   test.append(node('label',{class:'consent-row'},[checkbox,t('testConsent')]));
   test.append(button('testButton',async()=>{
     pendingTestId??='admin-test-'+crypto.randomUUID();
@@ -158,14 +158,14 @@ function jobsPanel(){
 function render(){
   applyLocaleDocument(document,i18n);document.querySelector('.skip-link').textContent=t('skip');nav.setAttribute('aria-label',t('navigation'));
   const language=node('select',{class:'admin-language','aria-label':t('language'),disabled:busy,onChange:async event=>{try{const code=event.target.value;if(!await i18n.switchLocale(code))return;preferences.update({locale:code});applyAppearance();render();}catch{message='unavailable';render();}}},createLocaleOptions(document,i18n,{value:i18n.requestedLocale}));language.value=i18n.locale;
-  nav.replaceChildren(node('a',{href:'/workspace.html'},t('workspace')),node('a',{href:'/preferences.html'},t('preferences')),language);
+  nav.replaceChildren(node('a',{href:'/workspace'},t('workspace')),node('a',{href:'/preferences'},t('preferences')),language);
   main.replaceChildren(node('div',{class:'page-heading'},[node('h1',{},t('title')),node('p',{class:'intro'},t('intro'))]),node('p',{class:'admin-boundary'},t('boundary')),
     node('p',{class:'status',role:'status','aria-live':'polite'},message?t(message):''));
   if(!access||!config){
-    main.append(node('section',{class:'panel admin-access'},[node('p',{},t('denied')),node('a',{href:'/account.html',class:'button'},t('login')),
+    main.append(node('section',{class:'panel admin-access'},[node('p',{},t('denied')),node('a',{href:'/account',class:'button'},t('login')),
       node('button',{type:'button',class:'button',onClick:()=>location.reload()},t('reloadPage'))]));brand.apply({titleSuffix:t('title')});return;
   }
-  main.append(node('p',{},node('a',{href:'/backups.html',class:'button'},t('backups'))));
+  main.append(node('p',{},node('a',{href:'/backups',class:'button'},t('backups'))));
   const tabs=node('div',{class:'admin-tabs',role:'tablist','aria-label':t('title')});
   for(const [key,label]of [['config','configTab'],['users','usersTab'],['jobs','jobsTab']])tabs.append(node('button',{type:'button',id:'tab-'+key,class:'admin-tab',role:'tab','aria-selected':String(view===key),'aria-controls':'admin-panel',disabled:busy,onClick:()=>void run(async()=>{
     if(key==='users'&&!users)await loadUsers();if(key==='jobs'&&!jobs)await loadJobs();view=key;

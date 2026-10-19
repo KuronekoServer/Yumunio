@@ -13,11 +13,12 @@ export class PageUploadFlow{
   async review(){
     if(this.busy)fail('UPLOAD_BUSY');this.busy=true;
     try{
-      const[page,pending,workspace]=await Promise.all([this.call(this.path),this.call(this.path+'/uploads'),this.call('/api/content/workspaces/'+encodeURIComponent(this.workspaceId)+'/pages')]);
+      // Keep account/session reads ordered on Workers; every response must still share a revision.
+      const page=await this.call(this.path),pending=await this.call(this.path+'/uploads'),workspace=await this.call('/api/content/workspaces/'+encodeURIComponent(this.workspaceId)+'/pages');
       if(page?.page?.id!==this.pageId||!Array.isArray(page.page.capabilities)||!Number.isSafeInteger(page.document?.version)||page.document.version<1||!Number.isSafeInteger(page.revision)||page.revision<0||pending?.pageId!==this.pageId||!Array.isArray(pending.uploads)||pending.uploads.length>1000||pending.revision!==page.revision||workspace?.revision!==page.revision||typeof workspace.attachmentsEnabled!=='boolean')fail('UPLOAD_REVIEW_CONFLICT',409);
       const attachments=page.attachments??[];if(!Array.isArray(attachments)||attachments.length>1000)fail('INVALID_UPLOAD_RESPONSE');attachments.forEach(asset);
       pending.uploads.forEach(item=>{asset(item);if(!validId(item.uploadId)||!validId(item.sourceId)||typeof item.checksum!=='string'||!/^[a-f0-9]{64}$/.test(item.checksum)||!['reserved','ready','deleting'].includes(item.status))fail('INVALID_UPLOAD_RESPONSE');});
-      this.page=clone(page.page);this.attachments=clone(attachments);this.uploads=clone(pending.uploads);this.revision=page.revision;this.version=page.document.version;this.editable=page.page.capabilities.includes('editBody');this.enabled=workspace.attachmentsEnabled;
+      this.page=clone(page.page);this.document=clone(page.document);this.attachments=clone(attachments);this.uploads=clone(pending.uploads);this.revision=page.revision;this.version=page.document.version;this.editable=page.page.capabilities.includes('editBody');this.enabled=workspace.attachmentsEnabled;
       if(!this.editable)fail('UPLOAD_ACCESS_CHANGED',404);
       if(this.file&&this.uploadId){
         const committed=this.assetId&&attachments.find(item=>item.id===this.assetId);

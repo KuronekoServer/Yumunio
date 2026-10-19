@@ -1,9 +1,11 @@
 import {validateInlineMarks} from './inline-text.js';
 import {validatePageLinks} from './page-links.js';
 import {validateSimpleTableData} from './simple-table.js';
+import {RICH_BLOCK_TYPES} from './block-types.js';
+import {validatePageAppearance} from './page-appearance.js';
 
 const ID=/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
-const MARK_TYPES=new Set(['paragraph','heading','heading1','heading2','checklist','bulleted-list','numbered-list','quote']);
+const MARK_TYPES=new Set(RICH_BLOCK_TYPES);
 const own=(value,key)=>Object.hasOwn(value,key);
 const fail=()=>{throw Object.assign(new TypeError('INVALID_PAGE_SAVE_RESULT'),{code:'INVALID_PAGE_SAVE_RESULT'});};
 const integer=(value,min=0)=>Number.isSafeInteger(value)&&value>=min&&value<Number.MAX_SAFE_INTEGER;
@@ -70,7 +72,9 @@ export function validateSavedPage(sentBasis,response,{workspaceId,pageId}={}){
   exact(saved,['revision','page','document'],['attachments']);
   if(saved.revision!==sent.expectedRevision+1||!Number.isSafeInteger(saved.revision))fail();
   const page=saved.page,document=saved.document;
-  exact(page,['id','workspaceId','title','parentId','createdAt','updatedAt','trashedAt','version','capabilities'],['collectionId','recordId','teamspaceId','sidebarSection']);
+  exact(page,['id','workspaceId','title','parentId','createdAt','updatedAt','trashedAt','version','capabilities'],['collectionId','recordId','teamspaceId','sidebarSection','appearance','favorite']);
+  if(own(page,'favorite')&&page.favorite!==true)fail();
+  if(own(page,'appearance'))validatePageAppearance(page.appearance);
   exact(document,['pageId','workspaceId','version','updatedAt','blocks']);
   if(page.id!==pageId||page.workspaceId!==workspaceId||document.pageId!==pageId||document.workspaceId!==workspaceId||document.version!==sent.expectedVersion+1||page.version!==document.version||!Number.isSafeInteger(document.version)||page.title!==sent.title||page.trashedAt!==null||page.parentId!==null&&(!id(page.parentId)||page.parentId===pageId))fail();
   if(!Array.isArray(page.capabilities)||page.capabilities.length>32||page.capabilities.some(capability=>typeof capability!=='string'||!id(capability))||new Set(page.capabilities).size!==page.capabilities.length||!page.capabilities.includes('read'))fail();

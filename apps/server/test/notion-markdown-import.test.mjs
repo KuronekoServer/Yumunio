@@ -44,7 +44,7 @@ test('synthetic Notion rich Markdown retains nested editable blocks marks mapped
   const email=name+'@example.invalid',password='Synthetic-Notion-Markdown-password-2026!';
   await ok(await request('/api/auth/sign-up/email',{method:'POST',body:{name,email,password}}),202);await identity.flushBackgroundTasks();
   const token=new URL(mail.at(-1).text.split('\n').at(-1)).searchParams.get('verify');
-  await ok(await request('/api/auth/verify-email?token='+encodeURIComponent(token)+'&callbackURL='+encodeURIComponent(origin+'/account.html')));
+  await ok(await request('/api/auth/verify-email?token='+encodeURIComponent(token)+'&callbackURL='+encodeURIComponent(origin+'/account')));
   const response=await request('/api/auth/sign-in/email',{method:'POST',body:{email,password}}),result=await ok(response);
   return{id:result.user.id,cookie:response.headers.getSetCookie().map(value=>value.split(';')[0]).join('; ')};
  }

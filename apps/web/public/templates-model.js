@@ -1,4 +1,4 @@
-const encoder=new TextEncoder(),styles=['bold','italic','strike','underline','code'],types=new Set(['paragraph','heading','heading1','heading2','checklist','bulleted-list','numbered-list','quote','code','divider']);
+const encoder=new TextEncoder(),styles=['bold','italic','strike','underline','code'],types=new Set(['paragraph','heading','heading1','heading2','checklist','bulleted-list','numbered-list','quote','callout','toggle','code','divider']);
 const fail=()=>{throw new TypeError('INVALID_TEMPLATES_RESPONSE');};
 export const templateId=value=>typeof value==='string'&&/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(value);
 export const templateRequestId=value=>typeof value==='string'&&/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(value);

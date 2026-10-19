@@ -1,4 +1,5 @@
 import {validateSimpleTableData,setSimpleTableCell,insertSimpleTableRow,deleteSimpleTableRow,insertSimpleTableColumn,deleteSimpleTableColumn,setSimpleTableHeader,setSimpleTableAlignment,simpleTableHasContent,SIMPLE_TABLE_LIMITS} from './simple-table.js';
+import {readClipboardContent,pasteTableCells} from './clipboard-content.js';
 
 export function renderSimpleTable(data,document=globalThis.document){
  validateSimpleTableData(data);const scroll=document.createElement('div');scroll.className='simple-table-scroll';const table=document.createElement('table');table.className='simple-table simple-table-readonly';const body=document.createElement('tbody');
@@ -22,6 +23,17 @@ export function createTableBlockView({document=globalThis.document,data,getData=
   const apply=()=>{if(!root.isConnected)return;try{const latest=current();if(!editable()){input.value=latest.rows[row]?.[column]??'';return;}if(input.value===latest.rows[row]?.[column])return;changed(setSimpleTableCell(latest,row,column,input.value),{kind:'text',row,column});}catch(error){try{input.value=current().rows[row]?.[column]??'';}catch{}onError(error);}};
   input.addEventListener('beforeinput',()=>{if(editable())onBeforeChange();});input.addEventListener('input',()=>{if(!composing.has(key))apply();});
   input.addEventListener('compositionstart',()=>{composing.add(key);onComposition(true,key);});input.addEventListener('compositionend',()=>{composing.delete(key);apply();onComposition(false,key);});
+  input.addEventListener('paste',event=>{
+   if(!editable()||composing.size){event.preventDefault();return;}
+   try{
+    const content=readClipboardContent(event.clipboardData,{document});
+    if(content.kind==='text')return;
+    event.preventDefault();
+    if(content.kind!=='table')throw new TypeError('CLIPBOARD_FILES_IN_CELL');
+    const next=pasteTableCells(current(),content.table,row,column);
+    onBeforeChange();changed(next,{kind:'paste',row,column});paint(next);focus(row,column);
+   }catch(error){event.preventDefault();onError(error);}
+  });
   input.addEventListener('keydown',event=>{if(!root.isConnected)return;if(event.isComposing||event.keyCode===229||composing.has(key))return;if((event.ctrlKey||event.metaKey)&&!event.altKey&&['z','y'].includes(event.key.toLowerCase())){if(editable()&&onHistory(event.key.toLowerCase()==='y'||event.shiftKey?'redo':'undo'))event.preventDefault();return;}if(event.key==='Tab'&&!event.ctrlKey&&!event.metaKey&&!event.altKey){const width=current().columnAlignments.length,at=row*width+column+(event.shiftKey?-1:1);if(at>=0&&at<current().rows.length*width){event.preventDefault();focus(Math.floor(at/width),at%width);}}});
   cells.set(key,input);return input;
  }

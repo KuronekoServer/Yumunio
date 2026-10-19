@@ -26,7 +26,7 @@ test('Node HTTP persists convergent Yjs edits and durable acknowledgements acros
   const request=(path,{method='GET',body,headers={}}={})=>realFetch(origin+path,{method,redirect:'manual',headers:{...(body===undefined?{}:{Origin:origin,'Content-Type':'application/json'}),...(account?{Cookie:account.cookie,'X-Yumunio-Expected-Account':account.user.id}:{}),...headers},...(body===undefined?{}:{body:JSON.stringify(body)})});
   const email='room-http@example.invalid',password='room-http-password-fixture';
   assert.equal((await request('/api/auth/sign-up/email',{method:'POST',body:{email,password,name:'Room HTTP fixture'}})).status,202);await service.collaboration.runJobs();
-  const token=new URL(mail[0].text.split('\n').at(-1)).searchParams.get('verify');assert.equal((await request('/api/auth/verify-email?token='+encodeURIComponent(token)+'&callbackURL='+encodeURIComponent(origin+'/account.html'))).status,200);
+  const token=new URL(mail[0].text.split('\n').at(-1)).searchParams.get('verify');assert.equal((await request('/api/auth/verify-email?token='+encodeURIComponent(token)+'&callbackURL='+encodeURIComponent(origin+'/account'))).status,200);
   const login=await request('/api/auth/sign-in/email',{method:'POST',body:{email,password}});assert.equal(login.status,200);account={user:(await login.json()).user,cookie:login.headers.getSetCookie().map(row=>row.split(';')[0]).join('; ')};
   const workspace=await(await request('/api/auth/organization/create',{method:'POST',body:{name:'HTTP room',slug:'http-room'}})).json();
   const created=await(await request('/api/content/workspaces/'+workspace.id+'/pages',{method:'POST',body:{expectedRevision:0,title:'Shared',blocks:[{id:'shared',type:'paragraph',data:{text:'Hello'}}]}})).json();

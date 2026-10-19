@@ -34,9 +34,12 @@ test('the shared web build copies only public assets and canonical portable modu
   await writeFile(join(root,'apps/web/public/mentions.js'),'DO_NOT_SHIP_NODE_SHIM');
   await writeFile(join(root,'apps/web/public/block-forest.js'),'DO_NOT_SHIP_NODE_SHIM');
   await writeFile(join(root,'apps/web/public/simple-table.js'),'DO_NOT_SHIP_NODE_SHIM');
+  await writeFile(join(root,'apps/web/public/attachment-block-model.js'),'DO_NOT_SHIP_NODE_SHIM');
+  for(const name of ['block-types.js','page-appearance.js','math-renderer.js'])await writeFile(join(root,'apps/web/public',name),'DO_NOT_SHIP_NODE_SHIM');
   await writeFile(join(root, 'apps/web/public/chart-model.js'), 'DO_NOT_SHIP_NODE_SHIM');
   await writeFile(join(root, 'apps/web/public/board-order.js'), 'DO_NOT_SHIP_NODE_SHIM');
   await writeFile(join(root, 'apps/web/public/property-conversion.js'), 'DO_NOT_SHIP_NODE_SHIM');
+  await writeFile(join(root, 'packages/prototype/src/web-routes.js'),'export const routes=true;');
   await writeFile(join(root, 'packages/prototype/src/snapshot.js'), 'export const schema = 1;');
   await writeFile(join(root, 'packages/prototype/src/export.js'), "import './snapshot.js';");
   await writeFile(join(root, 'packages/importer/src/index.js'), 'export const safeBrowserImporter = true;');
@@ -46,12 +49,15 @@ test('the shared web build copies only public assets and canonical portable modu
   await writeFile(join(root, 'packages/domain/src/import-source.js'), 'export const importSourceText=()=>null;');
   await writeFile(join(root, 'packages/importer/src/node-private.js'), 'DO_NOT_COPY=fixture');
   await writeFile(join(root, 'packages/collaboration/src/client.js'), 'export class HttpRoomClient { snapshot() { return "browser-safe"; } }');
+  await writeFile(join(root,'apps/web/math-entry.js'),await readFile(new URL('../../../apps/web/math-entry.js',import.meta.url)));
   await writeFile(join(root,'apps/web/dnd-kit-entry.js'),await readFile(new URL('../../../apps/web/dnd-kit-entry.js',import.meta.url)));
   await writeFile(join(root, 'packages/domain/src/inline.js'), 'export const validateInlineMarks=()=>[];');
   await writeFile(join(root, 'packages/domain/src/page-links.js'), 'export const validatePageLinks=()=>[];');
   await writeFile(join(root,'packages/domain/src/mentions.js'),'export const validateMentions=()=>[];');
   await writeFile(join(root,'packages/domain/src/block-forest.js'),'export const planBlockForestMove=()=>[];');
   await writeFile(join(root,'packages/domain/src/simple-table.js'),'export const validateSimpleTableData=value=>value;');
+  await writeFile(join(root,'packages/domain/src/attachment-block-model.js'),'export const isAttachmentBlock=()=>true;');
+  for(const name of ['block-types.js','page-appearance.js'])await writeFile(join(root,'packages/domain/src',name),'export const portable=true;');
   await writeFile(join(root, 'packages/domain/src/charts.js'), 'export const aggregateChart=()=>[];');
   await writeFile(join(root, 'packages/domain/src/board-order.js'), 'export const orderedBoardIds=()=>[];');
   await writeFile(join(root, 'packages/domain/src/property-conversion.js'), 'export const convertTextPropertyValue=()=>null;');
@@ -60,7 +66,7 @@ test('the shared web build copies only public assets and canonical portable modu
   const destination=join(root,'.build/web'),beforeDirectory=await lstat(destination),heldDirectory=await opendir(destination);
   let built;try{built=await buildWeb(root);}finally{await heldDirectory.close();}
   assert.equal((await lstat(destination)).ino,beforeDirectory.ino,'a live asset directory must remain valid while rebuilding');
-  assert.deepEqual(built.files, ['_headers','block-forest.js','board-order.js','chart-model.js','fixture-locales/qaa.json','index.html','inline-text.js','locale-code.js','locale-manifest.json','mentions.js','page-links.js','property-conversion.js','shared/THIRD_PARTY_LICENSES.txt','shared/block-forest.js','shared/board-order.js','shared/chart-model.js','shared/collaboration-client.js','shared/dnd-kit.js','shared/export.js','shared/import-source.js','shared/importer/appflowy-native.js','shared/importer/apply-plan.js','shared/importer/index.js','shared/importer/markdown.js','shared/inline-text.js','shared/locale-code.js','shared/mentions.js','shared/page-links.js','shared/property-conversion.js','shared/simple-table.js','shared/snapshot.js','simple-table.js']);
+  assert.deepEqual(built.files, ['_headers','attachment-block-model.js','block-forest.js','block-types.js','board-order.js','chart-model.js','fixture-locales/qaa.json','index.html','inline-text.js','locale-code.js','locale-manifest.json','math-renderer.js','mentions.js','page-appearance.js','page-links.js','property-conversion.js','shared/THIRD_PARTY_LICENSES.txt','shared/attachment-block-model.js','shared/block-forest.js','shared/block-types.js','shared/board-order.js','shared/chart-model.js','shared/collaboration-client.js','shared/dnd-kit.js','shared/export.js','shared/import-source.js','shared/importer/appflowy-native.js','shared/importer/apply-plan.js','shared/importer/index.js','shared/importer/markdown.js','shared/inline-text.js','shared/locale-code.js','shared/math-renderer.js','shared/mentions.js','shared/page-appearance.js','shared/page-links.js','shared/property-conversion.js','shared/simple-table.js','shared/snapshot.js','shared/web-routes.js','simple-table.js']);
   assert.equal(await readFile(join(built.output,'shared/inline-text.js'),'utf8'),'export const validateInlineMarks=()=>[];');
   assert.equal(await readFile(join(built.output,'inline-text.js'),'utf8'),'export const validateInlineMarks=()=>[];');
   assert.equal(await readFile(join(built.output,'page-links.js'),'utf8'),'export const validatePageLinks=()=>[];');
@@ -69,6 +75,7 @@ test('the shared web build copies only public assets and canonical portable modu
   assert.equal(await readFile(join(built.output,'shared/block-forest.js'),'utf8'),'export const planBlockForestMove=()=>[];');
   assert.equal(await readFile(join(built.output,'simple-table.js'),'utf8'),'export const validateSimpleTableData=value=>value;');
   assert.equal(await readFile(join(built.output,'shared/simple-table.js'),'utf8'),'export const validateSimpleTableData=value=>value;');
+  assert.equal(await readFile(join(built.output,'attachment-block-model.js'),'utf8'),'export const isAttachmentBlock=()=>true;');
   assert.equal(await readFile(join(built.output,'chart-model.js'),'utf8'),'export const aggregateChart=()=>[];');
   assert.equal(await readFile(join(built.output,'board-order.js'),'utf8'),'export const orderedBoardIds=()=>[];');
   assert.equal(await readFile(join(built.output,'shared/board-order.js'),'utf8'),'export const orderedBoardIds=()=>[];');
@@ -90,7 +97,7 @@ test('the shared web build copies only public assets and canonical portable modu
   assert.equal(await readFile(join(built.output,'shared/import-source.js'),'utf8'),'export const importSourceText=()=>null;');
   assert.equal(await readFile(join(built.output,'shared/importer/markdown.js'),'utf8'),'export const markdown = true;');
   assert.deepEqual((await readdir(join(built.output, 'shared/importer'))).sort(), ['appflowy-native.js', 'apply-plan.js', 'index.js', 'markdown.js']);
-  assert.deepEqual((await readdir(built.output)).sort(), ['_headers','block-forest.js','board-order.js','chart-model.js','fixture-locales','index.html','inline-text.js','locale-code.js','locale-manifest.json','mentions.js','page-links.js','property-conversion.js','shared','simple-table.js']);
+  assert.deepEqual((await readdir(built.output)).sort(), ['_headers','attachment-block-model.js','block-forest.js','block-types.js','board-order.js','chart-model.js','fixture-locales','index.html','inline-text.js','locale-code.js','locale-manifest.json','math-renderer.js','mentions.js','page-appearance.js','page-links.js','property-conversion.js','shared','simple-table.js']);
   await mkdir(join(root,'private-notes'));
   const specification='openapi: 3.1.0\ninfo:\n  title: Synthetic public API\n  version: 1.0.0\npaths: {}\n';
   await writeFile(join(root,'openapi.yaml'),specification);

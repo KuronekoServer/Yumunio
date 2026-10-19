@@ -9,6 +9,9 @@ export function renderPublicationBody(snapshot, document = globalThis.document, 
     for (const block of blocks) {
       let element, childParent;
       if(block.type==='table'){previousList=null;previousType=null;element=renderSimpleTable(block.data,document);parent.append(element);childParent=parent;}
+      else if(block.type==='toggle'){
+        previousList=null;previousType=null;element=document.createElement('details');element.className='publication-block';const summary=document.createElement('summary');summary.textContent=block.text;element.append(summary);parent.append(element);childParent=element;
+      }
       else if (block.type === 'bulleted-list' || block.type === 'numbered-list') {
         if (previousType !== block.type) {
           previousList = document.createElement(block.type === 'bulleted-list' ? 'ul' : 'ol');
@@ -23,7 +26,7 @@ export function renderPublicationBody(snapshot, document = globalThis.document, 
       } else {
         previousList = null;
         previousType = null;
-        const tag = block.type === 'divider' ? 'hr' : block.type === 'heading' ? 'h' + (block.level + 1) : block.type === 'heading1' ? 'h2' : block.type === 'heading2' ? 'h3' : block.type === 'quote' ? 'blockquote' : 'p';
+        const tag = block.type === 'divider' ? 'hr' : block.type === 'heading' ? 'h' + (block.level + 1) : block.type === 'heading1' ? 'h2' : block.type === 'heading2' ? 'h3' : ['quote','callout'].includes(block.type) ? 'blockquote' : 'p';
         element = document.createElement(tag);
         element.className = 'publication-block';
         if (block.type === 'checklist') {

@@ -33,7 +33,7 @@ function node(tag, attributes = {}, children = []) {
 function button(key, onClick, { primary = false, disabled = false } = {}) {
   return node('button', { type: 'button', class: 'button' + (primary ? ' primary' : ''), disabled, onClick }, t(key));
 }
-function accountLink(key = 'account') { return node('a', { href: '/account.html#account', target: '_blank', rel: 'noopener', class: 'text-link' }, t(key)); }
+function accountLink(key = 'account') { return node('a', { href: '/account#account', target: '_blank', rel: 'noopener', class: 'text-link' }, t(key)); }
 function settingsLocked() { return flow.locked || !!pinnedImportId; }
 function busy() { return assetPreparing || assetFlow.pending || inspectionBusy || accountBusy || flow.pending || flow.phase === 'loading'; }
 function applyPreferences() {
@@ -320,7 +320,7 @@ function renderPrepared() {
     ]), summaryTable(prepared.summary, 'bundle_')
   ]);
   if (flow.result) {
-    const href = '/workspace.html?workspace=' + encodeURIComponent(flow.workspace.id) + '&page=' + encodeURIComponent(flow.result.rootPageId);
+    const href = '/workspace?workspace=' + encodeURIComponent(flow.workspace.id) + '&page=' + encodeURIComponent(flow.result.rootPageId);
     section.append(node('p', { class: 'status', role: 'status' }, t(flow.result.replayed ? 'successReplayed' : 'success')),
       node('a', { class: 'button primary', href }, t('openImportedRoot')),
       button('startOver', resetImport));

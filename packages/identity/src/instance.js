@@ -1,6 +1,6 @@
 import {canonicalLocale} from './locale-code.js';
 const THEMES=new Set(['paper','light','ocean','lavender','forest','midnight']);
-const defaults={schemaVersion:1,applicationName:'Yumunio',organizationName:null,logos:{light:null,dark:null},favicons:{light:null,dark:null},brandColor:'#385772',initialTheme:'light',defaultLocale:'ja'};
+const defaults={schemaVersion:1,applicationName:'Yumunio',organizationName:null,logos:{light:null,dark:null},favicons:{light:null,dark:null},brandColor:'#3D3D3A',initialTheme:'light',defaultLocale:'ja'};
 const clone=value=>structuredClone(value);
 function value(env,key){try{return typeof env[key]==='string'?env[key].trim():'';}catch{return '';}}
 function name(input,max,fallback){return input&&Array.from(input).length<=max&&!/[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/.test(input)?input:fallback;}

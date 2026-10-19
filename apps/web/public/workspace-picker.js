@@ -54,7 +54,7 @@ export function mountWorkspacePicker({document=globalThis.document,background,wo
   try{
    const workspace=await client.create({...draft});if(destroyed||marker!==generation)return;
    model={...model,workspaces:[...model.workspaces.filter(item=>item.id!==workspace.id),workspace]};draft.name='';draft.slug='';creating=false;notice='created';
-   busy=false;await navigate('/workspace.html?workspace='+encodeURIComponent(workspace.id));
+   busy=false;await navigate('/workspace?workspace='+encodeURIComponent(workspace.id));
   }catch(failure){if(!destroyed&&marker===generation){error=unavailable(failure.code);if(['ACCOUNT_CHANGED','ACCOUNT_UNAVAILABLE','CREATE_UNCONFIRMED'].includes(failure.code))model=null;}}
   finally{if(!destroyed&&marker===generation){busy=false;render();const input=error==='invalidName'?'#workspace-picker-name':error==='invalidSlug'?'#workspace-picker-slug':null;if(input)main.querySelector(input)?.focus();else close.focus();}}
  }
@@ -65,7 +65,7 @@ export function mountWorkspacePicker({document=globalThis.document,background,wo
   if(notice)main.append(node('p',{class:'workspace-picker-message',role:'status'},labels(notice)));
   if(model){
    const list=node('ul',{class:'workspace-picker-list','aria-label':labels('workspaces')});
-   for(const item of model.workspaces){const current=item.id===workspaceId;list.append(node('li',{},node('button',{type:'button',class:'workspace-picker-option',disabled:busy||loading,...(current?{'aria-current':'true'}:{}),onClick:()=>{if(current)requestClose();else requestNavigate('/workspace.html?workspace='+encodeURIComponent(item.id));}},[node('span',{class:'workspace-picker-symbol','aria-hidden':'true'},Array.from(item.name)[0]),node('span',{class:'workspace-picker-name',translate:'no'},item.name),...(current?[node('span',{class:'workspace-picker-current'},labels('current'))]:[])])));}
+   for(const item of model.workspaces){const current=item.id===workspaceId;list.append(node('li',{},node('button',{type:'button',class:'workspace-picker-option',disabled:busy||loading,...(current?{'aria-current':'true'}:{}),onClick:()=>{if(current)requestClose();else requestNavigate('/workspace?workspace='+encodeURIComponent(item.id));}},[node('span',{class:'workspace-picker-symbol','aria-hidden':'true'},Array.from(item.name)[0]),node('span',{class:'workspace-picker-name',translate:'no'},item.name),...(current?[node('span',{class:'workspace-picker-current'},labels('current'))]:[])])));}
    main.append(list);
    if(creating){
     const name=node('input',{id:'workspace-picker-name',name:'name',type:'text',autocomplete:'off',required:true,maxlength:'100',value:draft.name,disabled:busy||client.creationUncertain,onInput:event=>{draft.name=event.target.value;}});
@@ -76,8 +76,8 @@ export function mountWorkspacePicker({document=globalThis.document,background,wo
   }
   if(!loading&&!model&&!client.creationUncertain)main.append(button('reload',()=>void load(),{disabled:busy}));
   main.append(node('nav',{class:'workspace-picker-footer','aria-label':labels('account')},[
-   node('a',{href:'/account.html#account',onClick:event=>{if(event.button!==0||event.metaKey||event.ctrlKey||event.shiftKey||event.altKey)return;event.preventDefault();requestNavigate('/account.html#account');}},labels('account')),
-   ...(model?[node('a',{href:'/share.html?workspace='+encodeURIComponent(workspaceId),onClick:event=>{if(event.button!==0||event.metaKey||event.ctrlKey||event.shiftKey||event.altKey)return;event.preventDefault();requestNavigate('/share.html?workspace='+encodeURIComponent(workspaceId));}},labels('manage'))]:[])
+   node('a',{href:'/account#account',onClick:event=>{if(event.button!==0||event.metaKey||event.ctrlKey||event.shiftKey||event.altKey)return;event.preventDefault();requestNavigate('/account#account');}},labels('account')),
+   ...(model?[node('a',{href:'/share?workspace='+encodeURIComponent(workspaceId),onClick:event=>{if(event.button!==0||event.metaKey||event.ctrlKey||event.shiftKey||event.altKey)return;event.preventDefault();requestNavigate('/share?workspace='+encodeURIComponent(workspaceId));}},labels('manage'))]:[])
   ]));
   if(focusedId)main.querySelector('#'+focusedId)?.focus({preventScroll:true});
  }

@@ -11,6 +11,8 @@ test('static host confines files, handles methods, and distinguishes the unavail
   const root = join(fixture, 'public');
   await mkdir(root);
   await writeFile(join(root, 'index.html'), '<h1>Yumunio</h1>');
+  await writeFile(join(root, 'notes.html'), '<h1>Yumunio</h1>');
+  await writeFile(join(root,'setup.html'),'<h1>Setup route</h1>');
   await writeFile(join(root, 'app.js'), 'export const test = true;');
   await writeFile(join(root, 'openapi.yaml'), 'openapi: 3.1.0\n');
   await writeFile(join(fixture, 'secret.txt'), 'outside-root');
@@ -34,6 +36,9 @@ test('static host confines files, handles methods, and distinguishes the unavail
     req.on('error', reject); req.end();
   });
   assert.equal((await raw('/')).body, '<h1>Yumunio</h1>');
+  assert.equal((await raw('/notes')).body,'<h1>Yumunio</h1>');assert.equal((await raw('/setup')).body,'<h1>Setup route</h1>');
+  const legacy=await raw('/setup.html?source=fixture');assert.equal(legacy.status,308);assert.equal(legacy.headers.location,'/setup?source=fixture');
+  assert.equal((await raw('/setup/')).headers.location,'/setup');assert.equal((await raw('/missing')).status,404);
   assert.match((await raw('/app.js')).headers['content-type'], /javascript/);
   assert.equal((await raw('/app.js', 'HEAD')).body, '');
   assert.equal((await raw('/app.js', 'POST')).status, 405);

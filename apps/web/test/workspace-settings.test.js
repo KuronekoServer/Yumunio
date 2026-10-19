@@ -15,13 +15,13 @@ function fixture({role='member',verified=true,current='account-a',currentVerifie
  return {calls,request};
 }
 test('settings links preserve the selected workspace and permit only explicit sources',()=>{
- assert.deepEqual(settingsLocation('https://example.invalid/workspace-settings.html?workspace=studio&section=import'),{workspaceId:'studio',section:'import'});
- assert.equal(importHref('team:studio','notion'),'/import.html?workspace=team%3Astudio&source=notion');
- assert.equal(importHref('studio','appflowy'),'/import.html?workspace=studio&source=appflowy');
+ assert.deepEqual(settingsLocation('https://example.invalid/workspace-settings?workspace=studio&section=import'),{workspaceId:'studio',section:'import'});
+ assert.equal(importHref('team:studio','notion'),'/import?workspace=team%3Astudio&source=notion');
+ assert.equal(importHref('studio','appflowy'),'/import?workspace=studio&source=appflowy');
  for(const source of ['https://evil.invalid','../notion','','Notion'])assert.throws(()=>importHref('studio',source));
 });
 test('ambiguous and unsafe workspace query values fail before requests',()=>{
- for(const query of ['', '?workspace=../studio','?workspace=studio&workspace=other','?workspace=%3Cscript%3E'])assert.throws(()=>settingsLocation('https://example.invalid/workspace-settings.html'+query));
+ for(const query of ['', '?workspace=../studio','?workspace=studio&workspace=other','?workspace=%3Cscript%3E'])assert.throws(()=>settingsLocation('https://example.invalid/workspace-settings'+query));
 });
 test('verified current membership returns a minimal literal settings context with fixed expected account',async()=>{
  const f=fixture(),value=await loadWorkspaceSettings({workspaceId:'studio',request:f.request});

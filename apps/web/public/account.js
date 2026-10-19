@@ -12,7 +12,7 @@ let inviteBusy=false,inviteError='';
 let verifyToken = raw.searchParams.get('verify');
 let resetToken = raw.searchParams.get('reset');
 let view = verifyToken ? 'verify' : resetToken ? 'reset' : invitationFlow.present ? 'invite' : ['signup', 'forgot', 'verify', 'reset', 'account'].includes(location.hash.slice(1)) ? location.hash.slice(1) : 'login';
-if (raw.search) history.replaceState(null, '', '/account.html#' + view);
+if (raw.search) history.replaceState(null, '', '/account#' + view);
 raw.searchParams.delete('invite');raw.searchParams.delete('token');
 const instanceConfig=await loadInstanceConfig();
 const instanceBrand=createInstanceBrand(instanceConfig);
@@ -54,7 +54,7 @@ async function api(path, body) {
   } catch (error) { throw new Error(['rateLimited', 'failed'].includes(error.message) ? error.message : 'unavailable'); }
   finally { clearTimeout(timer); }
 }
-function setView(next) { view = next; history.replaceState(null, '', '/account.html#' + next); render(); }
+function setView(next) { view = next; history.replaceState(null, '', '/account#' + next); render(); }
 function action(key, handler, primary = false) { return node('button', { type: 'button', class: 'button' + (primary ? ' primary' : ''), onClick: handler }, t(key)); }
 function link(key, next) { return node('a', { href: '#' + next, onClick: event => { event.preventDefault(); setView(next); } }, t(key)); }
 function field(key, type, autocomplete, attributes = {}) {
@@ -91,7 +91,7 @@ function render() {
     const submit = node('button', { type: 'submit', class: 'button primary', 'data-instance-primary': '', disabled: !verifyToken }, t('verify'));
     form.append(submit, message);
     form.addEventListener('submit', event => { event.preventDefault(); void perform(form, message, async () => {
-      await api('/verify-email?token=' + encodeURIComponent(verifyToken) + '&callbackURL=' + encodeURIComponent(location.origin + '/account.html'));
+      await api('/verify-email?token=' + encodeURIComponent(verifyToken) + '&callbackURL=' + encodeURIComponent(location.origin + '/account'));
       verifyToken = null; message.textContent = t('verified'); submit.hidden = true;
     }); });
     main.append(form, node('div', { class: 'links' }, link('login', 'login'))); return;
@@ -115,8 +115,8 @@ function render() {
   form.addEventListener('submit', event => { event.preventDefault(); void perform(form, message, async () => {
     if (confirmation && password.value !== confirmation.value) throw new Error('mismatch');
     if (reset) { await api('/reset-password', { token: resetToken, newPassword: password.value }); resetToken = null; session = null; password.value = ''; confirmation.value = ''; message.textContent = t('resetDone'); submit.hidden = true; }
-    else if (forgot) { await api('/request-password-reset', { email: email.value, redirectTo: location.origin + '/account.html' }); message.textContent = t('received'); }
-    else if (signup) { await api('/sign-up/email', { name: name.value, email: email.value, password: password.value, callbackURL: location.origin + '/account.html' }); password.value = ''; confirmation.value = ''; message.textContent = t('received'); }
+    else if (forgot) { await api('/request-password-reset', { email: email.value, redirectTo: location.origin + '/account' }); message.textContent = t('received'); }
+    else if (signup) { await api('/sign-up/email', { name: name.value, email: email.value, password: password.value, callbackURL: location.origin + '/account' }); password.value = ''; confirmation.value = ''; message.textContent = t('received'); }
     else {
       await api('/sign-in/email', { email: email.value, password: password.value }); password.value = '';
       session = await api('/get-session'); if (!session?.user) throw new Error('failed');
@@ -128,7 +128,7 @@ function render() {
   if (!signup && !reset && !forgot) { const providers = providerButtons(false); if (providers) main.append(providers); }
   if (config.emailDelivery && !reset) main.append(action('resend', () => void perform(form, message, async () => {
     if (!email.checkValidity()) { email.reportValidity(); return; }
-    await api('/send-verification-email', { email: email.value, callbackURL: location.origin + '/account.html' }); message.textContent = t('received');
+    await api('/send-verification-email', { email: email.value, callbackURL: location.origin + '/account' }); message.textContent = t('received');
   })), node('p', { class: 'hint' }, t('deliveryNote')));
   main.append(node('p', { class: 'hint boundary' }, t('boundary')));
   } finally { instanceBrand.apply({kind:document.documentElement.dataset.appearance,titleSuffix:t('title')}); }
@@ -138,14 +138,14 @@ function renderInvitation(){
   if(snapshot.preview&&snapshot.actorId!==session.user.id)invitationFlow.clearPreview();
   main.append(node('h1',{},t('inviteTitle')),node('p',{class:'intro'},t('inviteIntro')),node('p',{class:'identity-email',translate:'no'},session.user.email));
   if(snapshot.result){
-    const result=snapshot.result,path='/workspace.html?workspace='+encodeURIComponent(result.workspaceId)+(result.pageId?'&page='+encodeURIComponent(result.pageId):'');
+    const result=snapshot.result,path='/workspace?workspace='+encodeURIComponent(result.workspaceId)+(result.pageId?'&page='+encodeURIComponent(result.pageId):'');
     main.append(status(t('inviteAccepted')),node('a',{class:'button primary',href:path},t('inviteOpen')),action('accountTitle',()=>setView('account')));return;
   }
   if(!invitationFlow.valid){main.append(status(t('inviteInvalid')),action('accountTitle',()=>setView('account')));return;}
   main.append(node('p',{class:'hint'},t('inviteMemory')),node('p',{class:'hint'},t('inviteEmailMatch')),
     node('dl',{class:'invite-details'},[node('dt',{},t('inviteId')),node('dd',{translate:'no'},invitationFlow.invitationId)]));
   if(inviteError)main.append(status(t(inviteError)));
-  if(session.user.emailVerified!==true){main.append(status(t('inviteNeedsVerification')),action('resend',()=>void api('/send-verification-email',{email:session.user.email,callbackURL:location.origin+'/account.html'}).then(()=>{inviteError='received';render();}).catch(()=>{inviteError='failed';render();})));return;}
+  if(session.user.emailVerified!==true){main.append(status(t('inviteNeedsVerification')),action('resend',()=>void api('/send-verification-email',{email:session.user.email,callbackURL:location.origin+'/account'}).then(()=>{inviteError='received';render();}).catch(()=>{inviteError='failed';render();})));return;}
   const preview=invitationFlow.snapshot.preview;
   const run=async(accepting)=>{
     if(inviteBusy)return;inviteBusy=true;inviteError='';render();
@@ -180,7 +180,7 @@ function providerButtons(signup) {
   if(invitationFlow.valid)section.append(node('p',{class:'hint'},t('inviteExternalNote')));
   for (const provider of providers) grid.append(node('button', { type: 'button', class: 'button oauth-button', onClick: () => {
     void perform(section, message, async () => {
-      const data = await api('/sign-in/social', { provider: provider.id, callbackURL: '/account.html', requestSignUp: signup });
+      const data = await api('/sign-in/social', { provider: provider.id, callbackURL: '/account', requestSignUp: signup });
       let target; try { target = new URL(data?.url); } catch { throw new Error('oauthFailed'); }
       if (target.protocol !== 'https:' || target.username || target.password) throw new Error('oauthFailed');
       message.textContent = t('oauthOpening'); location.assign(target.href);
@@ -190,7 +190,7 @@ function providerButtons(signup) {
 }
 function renderAccount() {
   if(invitationFlow.valid)main.append(action('inviteResume',()=>setView('invite')));
-  history.replaceState(null, '', '/account.html#account');
+  history.replaceState(null, '', '/account#account');
   const marker = generation;
   main.append(node('h1', {}, t('accountTitle')), node('p', { class: 'identity-name', translate: 'no' }, session.user.name), node('p', { class: 'identity-email', translate: 'no' }, session.user.email));
   const accountStatus = status();
@@ -203,7 +203,7 @@ function renderAccount() {
     if (marker !== generation) return;
     list.replaceChildren();
     if (!Array.isArray(items) || !items.length) list.append(node('li', {}, t('empty')));
-    else for (const workspace of items) list.append(node('li', { translate: 'no' }, [node('strong', {}, workspace.name), node('span', { class: 'workspace-slug' }, workspace.slug), node('a', { href: '/workspace.html?workspace=' + encodeURIComponent(workspace.id), class: 'workspace-open' }, t('openWorkspace')), node('a', { href: '/templates.html?workspace=' + encodeURIComponent(workspace.id), class: 'workspace-open' }, t('personalTemplates'))]));
+    else for (const workspace of items) list.append(node('li', { translate: 'no' }, [node('strong', {}, workspace.name), node('span', { class: 'workspace-slug' }, workspace.slug), node('a', { href: '/workspace?workspace=' + encodeURIComponent(workspace.id), class: 'workspace-open' }, t('openWorkspace')), node('a', { href: '/templates?workspace=' + encodeURIComponent(workspace.id), class: 'workspace-open' }, t('personalTemplates'))]));
   }).catch(() => { if (marker === generation) list.replaceChildren(node('li', {}, t('workspaceError'))); });
   const form = node('form', { class: 'account-form' }); const [nameField, name] = field('workspaceName', 'text', 'off', { maxlength: '100' });
   const [slugField, slug] = field('workspaceSlug', 'text', 'off', { maxlength: '100', pattern: '[a-z0-9]+(?:-[a-z0-9]+)*' }); const message = status();
@@ -211,7 +211,7 @@ function renderAccount() {
   form.addEventListener('submit', event => { event.preventDefault(); void perform(form, message, async () => {
     await api('/organization/create', { name: name.value, slug: slug.value }); render();
   }); });
-  main.append(form, node('p', { class: 'hint boundary' }, t('boundary')), node('a', { class: 'migration-preview-link', href: '/import.html' }, t('importPreview')),node('p',{},node('a',{href:'/integrations.html'},t('integrations'))));
+  main.append(form, node('p', { class: 'hint boundary' }, t('boundary')), node('a', { class: 'migration-preview-link', href: '/import' }, t('importPreview')),node('p',{},node('a',{href:'/integrations'},t('integrations'))));
 }
 window.addEventListener('beforeunload',event=>{if(invitationFlow.valid){event.preventDefault();event.returnValue='';}});
 language.addEventListener('change', async () => { try { const nextLocale=language.value;if(!await i18n.switchLocale(nextLocale))return;preferences.update({locale:nextLocale}); applyPreferences(); render(); } catch {} });

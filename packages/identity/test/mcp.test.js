@@ -21,13 +21,15 @@ const initialize={jsonrpc:'2.0',id:1,method:'initialize',params:{protocolVersion
 test('MCP uses the official SDK client for stateless initialize, tools, resources and optimistic writes',async t=>{
  const f=fixture(),client=await f.client();t.after(()=>client.close());
  assert.equal(client.getServerVersion().name,'yumunio');
- const tools=await client.listTools();assert.deepEqual(tools.tools.map(row=>row.name),['get_page','get_document','update_page']);assert.equal(tools.tools[2].annotations.destructiveHint,true);
+ const tools=await client.listTools();assert.deepEqual(tools.tools.map(row=>row.name),['get_page','get_document','update_page','edit_blocks']);assert.equal(tools.tools[2].annotations.destructiveHint,true);
  const result=await client.callTool({name:'get_document',arguments:{}});assert.equal(result.structuredContent.document.blocks[0].data.text,'Literal <script>text</script>');
  const resources=await client.listResources();assert.equal(resources.resources.length,1);const resource=await client.readResource({uri:resources.resources[0].uri});assert.equal(JSON.parse(resource.contents[0].text).page.id,'page-a');
  const updated=await client.callTool({name:'update_page',arguments:{expectedVersion:1,title:'Edited through MCP'}});assert.equal(updated.structuredContent.page.version,2);assert.equal(updated.structuredContent.page.title,'Edited through MCP');
  const conflict=await client.callTool({name:'update_page',arguments:{expectedVersion:1,title:'Stale'}});assert.equal(conflict.isError,true);assert.equal(conflict.structuredContent.error.code,'CONTENT_CONFLICT');assert.equal(f.pages.get('page-a').page.title,'Edited through MCP');
  const untitled=await client.callTool({name:'update_page',arguments:{expectedVersion:2,title:''}});assert.equal(untitled.isError,undefined);assert.equal(f.calls.at(-1).input.title,'');
  assert.ok(f.calls.every(call=>JSON.stringify(call.requiredScopes)==='["mcp:connect"]'));
+ const operations=[{type:'append',blocks:[{type:'paragraph',data:{text:'Added through MCP'}}]}];await client.callTool({name:'edit_blocks',arguments:{expectedVersion:3,operations}});assert.equal(f.calls.at(-1).action,'blocks.edit');assert.deepEqual(f.calls.at(-1).input.operations,operations);
+ await assert.rejects(client.callTool({name:'edit_blocks',arguments:{expectedVersion:3,operations:[{type:'delete',blockId:'body',unexpected:true}]}}));
 });
 test('MCP discovery requires explicit scope and never accepts a cookie as a bearer',async()=>{
  const f=fixture({scopes:['page:read','document:read']});assert.equal((await f.request(initialize)).status,401);assert.equal((await f.request(initialize,{token:null,headers:{Cookie:'fixture=session'}})).status,401);assert.equal(f.calls.length,0);

@@ -1,10 +1,12 @@
 import { readServerConfig } from '../config.mjs';
+import { readNodeInstanceEnvironment } from '../setup.mjs';
 import { createNodeIdentityService } from '../identity.mjs';
 import { getMigrations } from 'better-auth/db/migration';
 let service;
 try {
-  const config = readServerConfig(process.env);
-  service = await createNodeIdentityService(process.env, config, { verifySchema: false });
+  const environment = await readNodeInstanceEnvironment(process.env);
+  const config = readServerConfig(environment);
+  service = await createNodeIdentityService(environment, config, { verifySchema: false });
   if (!service) throw new Error('Accounts are disabled.');
   const plan = await getMigrations(service.auth.options);
   await plan.runMigrations();

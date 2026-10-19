@@ -75,7 +75,7 @@ async function fixture(t, options = {}) {
     ...(body === undefined ? {} : {body:JSON.stringify(body)})
   }),{peerAddress:'127.0.0.1'});
   async function begin(provider,extra={}) {
-    const response = await request('/sign-in/social',{provider,callbackURL:'/account.html',...extra});
+    const response = await request('/sign-in/social',{provider,callbackURL:'/account',...extra});
     assert.equal(response.status,200);
     const data = await response.json();
     assert.deepEqual(Object.keys(data),['url','redirect']);assert.equal(data.redirect,false);
@@ -97,7 +97,7 @@ async function fixture(t, options = {}) {
 
 function assertCallback(response, success) {
   assert.equal(response.status,302);
-  assert.equal(response.headers.get('location'),origin+'/account.html?oauth='+(success ? 'success' : 'error'));
+  assert.equal(response.headers.get('location'),origin+'/account?oauth='+(success ? 'success' : 'error'));
   assert.equal(response.headers.get('referrer-policy'),'no-referrer');
 }
 

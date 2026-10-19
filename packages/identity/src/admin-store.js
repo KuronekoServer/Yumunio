@@ -7,6 +7,9 @@ function context(dialect){
   const column=(a,n)=>a+'.'+mark+n+mark,equal=(a,b)=>dialect==='mysql'?'BINARY '+a+' = BINARY '+b:a+' = '+b;
   return {params,bind,column,equal};
 }
+// D1 limits LIKE patterns below the length of our hashed administrator prefix.
+// Compare the literal prefix so neither that limit nor wildcard interpretation applies.
+const startsWith=(s,column,prefix)=>s.equal('substr('+column+',1,'+s.bind(prefix.length)+')',s.bind(prefix));
 const number=value=>{if(typeof value==='bigint')value=Number(value);if(typeof value==='string'&&/^\d{1,16}$/.test(value))value=Number(value);if(!Number.isSafeInteger(value)||value<0)fail();return value;};
 function date(value){
   if(value===null||value===undefined)fail();
@@ -69,7 +72,7 @@ export class SqlAdminStore {
     const aggregate=Object.fromEntries(statuses.map(status=>[status,0]));
     for(const row of counts.rows){if(!statuses.includes(row.status))fail();aggregate[row.status]=number(row.n);}
     const t=context(this.#client.dialect);
-    const {rows}=await this.#query('SELECT id,status,attempts,created_at,updated_at,expires_at,available_at FROM yumunio_mail_jobs WHERE dedupe_key LIKE '+t.bind(prefix+'%')+' AND '+this.#guard(t,accountId)+' ORDER BY created_at DESC,id LIMIT 20',t.params);
+    const {rows}=await this.#query('SELECT id,status,attempts,created_at,updated_at,expires_at,available_at FROM yumunio_mail_jobs WHERE '+startsWith(t,'dedupe_key',prefix)+' AND '+this.#guard(t,accountId)+' ORDER BY created_at DESC,id LIMIT 20',t.params);
     // This also rejects a removed administrator when the job tables are empty.
     await this.authorize(accountId);
     return {counts:aggregate,tests:rows.map(mailJob)};
@@ -90,7 +93,7 @@ export class SqlAdminStore {
     assertId(id);const s=context(this.#client.dialect);
     const r=await this.#query("UPDATE yumunio_mail_jobs SET status='queued',attempts=0,payload_ciphertext="+s.bind(job.ciphertext)+',payload_digest='+s.bind(job.digest)+
       ',available_at='+s.bind(job.now)+',updated_at='+s.bind(job.now)+',expires_at='+s.bind(job.expiresAt)+',lease_id=NULL,lease_until=NULL WHERE '+s.equal('id',s.bind(id))+
-      " AND status='dead' AND dedupe_key LIKE "+s.bind(prefix+'%')+' AND '+this.#guard(s,accountId,email),s.params);
+      " AND status='dead' AND "+startsWith(s,'dedupe_key',prefix)+' AND '+this.#guard(s,accountId,email),s.params);
     if(r.affectedRows!==1)fail('ADMIN_CONFLICT');return {jobId:id,status:'queued'};
   }
 }

@@ -3,7 +3,7 @@ const headers={'Content-Type':'application/manifest+json; charset=utf-8','Cache-
 export function readPwaManifest(env={}){
   const brand=readInstanceConfig(env);
   const icon=size=>{let custom;try{custom=env['YUMUNIO_BRAND_PWA_ICON_'+size];}catch{}return{src:isPublicBrandAssetPath(custom)&&custom.endsWith('.png')?custom:'/pwa/icon-'+size+'.png',sizes:size+'x'+size,type:'image/png',purpose:'any'};};
-  return{id:'/',name:brand.applicationName,short_name:Array.from(brand.applicationName).slice(0,12).join(''),lang:brand.defaultLocale,start_url:'/account.html',scope:'/',display:'standalone',background_color:['forest','midnight'].includes(brand.initialTheme)?'#131C2B':'#FFFFFF',theme_color:brand.brandColor,icons:[icon(192),icon(512)]};
+  return{id:'/',name:brand.applicationName,short_name:Array.from(brand.applicationName).slice(0,12).join(''),lang:brand.defaultLocale,start_url:'/account',scope:'/',display:'standalone',background_color:['forest','midnight'].includes(brand.initialTheme)?'#131C2B':'#FFFFFF',theme_color:brand.brandColor,icons:[icon(192),icon(512)]};
 }
 export function createPwaManifestApi({env={},origin}={}){
   if(new URL(origin).origin!==origin)throw new Error('Invalid PWA origin.');

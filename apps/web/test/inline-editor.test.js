@@ -64,7 +64,7 @@ test('ordinary Enter keeps prose and other Markdown literal and a refused fence 
 test('shortcut input respects composition, partial selections and soft line breaks without losing marks or page references', t => {
   const dom = inlineDomFixture(t), shortcuts = [], splits = [];
   const element = createInlineEditor({ text: '```js', marks: [{ start: 0, end: 5, styles: ['bold'] }],
-    links: [{ start: 3, end: 5, label: 'js', pageId: 'page-b' }], pageHref: link => '/workspace.html?page=' + link.pageId,
+    links: [{ start: 3, end: 5, label: 'js', pageId: 'page-b' }], pageHref: link => '/workspace?page=' + link.pageId,
     onShortcut: value => { shortcuts.push(value); return true; }, onSplit: value => splits.push(value) });
   const before = element.getInlineState(); dom.select(element, 5);
   for (const event of [{ key: 'Enter', isComposing: true }, { key: 'Enter', keyCode: 229 }]) assert.equal(element.dispatch('keydown', event).prevented, false);

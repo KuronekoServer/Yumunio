@@ -1,4 +1,4 @@
-import {validateBlocks,validateMentions,rebaseMentions} from '@yumunio/domain';
+import {validateBlocks,validateMentions,rebaseMentions,BLOCK_PARENT_TYPES} from '@yumunio/domain';
 export class ContentMentionsError extends Error{constructor(code='INVALID_CONTENT',status=400){super(code);this.code=code;this.status=status;}}
 const invalid=()=>{throw new ContentMentionsError();},missing=()=>{throw new ContentMentionsError('CONTENT_NOT_FOUND',404);};
 const options={allowUnavailable:true,allowMembershipIds:true};
@@ -7,7 +7,7 @@ const sameRange=(left,right)=>left.kind===right.kind&&left.start===right.start&&
 function indexBlocks(blocks){const result=new Map();const visit=items=>{for(const block of items){result.set(block.id,block);if(block.children)visit(block.children);}};visit(blocks);return result;}
 /** Page-level bindings ignore ranges, labels and block placement, and never descend through opaque/source payloads. */
 export function personMentionBindings(blocks){
- const result=new Map(),parents=new Set(['paragraph','bulleted-list','numbered-list','quote','checklist','columns','column']);
+ const result=new Map(),parents=new Set([...BLOCK_PARENT_TYPES,'columns']);
  const visit=items=>{for(const block of items){if(block.data?.purpose==='import-source')continue;
   for(const mention of block.data?.mentions??[])if(mention.kind==='person'&&!mention.unavailable&&mention.membershipId)result.set(mention.accountId+'\0'+mention.membershipId,{accountId:mention.accountId,membershipId:mention.membershipId});
   if(block.children&&parents.has(block.type))visit(block.children);

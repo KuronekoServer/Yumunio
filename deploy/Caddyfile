@@ -1,0 +1,3 @@
+{$YUMUNIO_PUBLIC_ORIGIN} {
+	reverse_proxy yumunio:8788
+}

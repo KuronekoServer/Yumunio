@@ -2,7 +2,7 @@ import {assertId,assertJsonSerializable,assertPlainObject,assertTitle,createPage
 import {symmetricEncrypt,symmetricDecrypt,generateRandomString,constantTimeEqual} from 'better-auth/crypto';
 
 const encoder=new TextEncoder(),MAX_SNAPSHOT_BYTES=200000,MAX_BLOCKS=1000,MAX_DEPTH=20;
-const TYPES=new Set(['paragraph','heading','heading1','heading2','checklist','bulleted-list','numbered-list','quote','divider','table']);
+const TYPES=new Set(['paragraph','heading','heading1','heading2','checklist','bulleted-list','numbered-list','quote','callout','toggle','divider','table']);
 const EXCLUSIONS=Object.freeze(['child-pages','database-records','attachments','comments','authors','source-code','unsupported-blocks','structured-links']);
 const TOKEN=/^[a-f0-9]{160,2048}$/;
 const headers={'Cache-Control':'no-store','Surrogate-Control':'no-store','X-Robots-Tag':'noindex, nofollow, noarchive','Referrer-Policy':'no-referrer','X-Content-Type-Options':'nosniff','Cross-Origin-Resource-Policy':'same-origin'};
@@ -75,7 +75,7 @@ async function live(context,row,secret,token=row?.token,locator){
   if(!row?.active)return false;locator??=await decode(token,secret);if(!locator||locator.workspaceId!==context.workspaceId||locator.pageId!==row.pageId||!constantTimeEqual(locator.nonce,row.nonce)||!constantTimeEqual(await digest(token),row.tokenHash)||!constantTimeEqual(await digest(row.token),row.tokenHash))return false;
   try{const item=page(context,row.pageId);if(item.document.version!==row.sourceVersion)return false;const current=await authority(context,row.publisherAccountId,row.pageId);return current.principal.id===row.publisherMembershipId&&constantTimeEqual(current.fingerprint,row.authorizationFingerprint);}catch{return false;}
 }
-async function status(context){const row=context.payload.publications?.find(row=>row.pageId===context.pageId),active=await live(context,row,context.publicationSecret);return{revision:context.saved.revision,pageId:context.pageId,mode:'snapshot',active,needsRepublish:Boolean(row?.active&&!active),sourceVersion:row?.sourceVersion??null,currentSourceVersion:page(context,context.pageId).document.version,publishedAt:row?.publishedAt??null,publicPath:active?'/site.html?publication='+row.token:null};}
+async function status(context){const row=context.payload.publications?.find(row=>row.pageId===context.pageId),active=await live(context,row,context.publicationSecret);return{revision:context.saved.revision,pageId:context.pageId,mode:'snapshot',active,needsRepublish:Boolean(row?.active&&!active),sourceVersion:row?.sourceVersion??null,currentSourceVersion:page(context,context.pageId).document.version,publishedAt:row?.publishedAt??null,publicPath:active?'/site?publication='+row.token:null};}
 
 /** Authenticated management; review never writes and publishing never grants ACL. */
 export async function handlePublicationRequest(context){

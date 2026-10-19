@@ -1,4 +1,5 @@
 import {createBackupOperationsApi} from '@yumunio/backup/operations-api';
+import {webPageRoute} from '../../packages/prototype/src/web-routes.js';
 import {readServerAdminIds} from '@yumunio/identity/admin';
 import { createServer } from 'node:http';
 import { readFile, realpath, stat, mkdir } from 'node:fs/promises';
@@ -34,7 +35,7 @@ const inside = (root, target) => {
 };
 
 /** Static host with an optional single-user snapshot API. */
-export function createAppServer({ root = defaultRoot, snapshotStore = null, accessKey = '', publicOrigin = null, allowAnonymous = false, storage = snapshotStore ? 'sqlite' : 'browser-local', identity = null, instanceEnvironment = {}, backupOperations = null, recoveryStore = storage === 'sqlite' && snapshotStore?.database ? createSqliteRecoveryStore(snapshotStore.database) : null } = {}) {
+export function createAppServer({ root = defaultRoot, snapshotStore = null, accessKey = '', publicOrigin = null, allowAnonymous = false, storage = snapshotStore ? 'sqlite' : 'browser-local', identity = null, instanceEnvironment = {}, backupOperations = null, recoveryStore = storage === 'sqlite' && snapshotStore?.database ? createSqliteRecoveryStore(snapshotStore.database) : null, runtimeProvider = null } = {}) {
   if (snapshotStore && !accessKey && !allowAnonymous) throw new Error('Persistence requires an access key or explicit loopback mode.');
   if (accessKey && !isValidAccessKey(accessKey)) throw new Error('Use an access key of 32 to 4096 characters.');
   if (publicOrigin) validatePublicOrigin(publicOrigin);
@@ -43,15 +44,21 @@ export function createAppServer({ root = defaultRoot, snapshotStore = null, acce
   if (identity && typeof identity.handle !== 'function') throw new Error('Expected an identity service handler.');
   const absoluteRoot = resolve(root);
   const apiByOrigin = new Map();
-  const instanceByOrigin = new Map();
+  const baseRuntime = { accessKey, publicOrigin, identity, instanceEnvironment };
   const server = createServer(async (request, response) => {
     const send = (status, body, type = 'text/plain; charset=utf-8', extraHeaders = {}) => {
       response.writeHead(status, mergeHeaders(headers,{'Content-Type':type},extraHeaders));
       response.end(request.method === 'HEAD' ? undefined : body);
     };
+    let runtime;
+    try { runtime = runtimeProvider ? await runtimeProvider() : baseRuntime; }
+    catch { return send(503, JSON.stringify({ error: { code: 'SETUP_UNAVAILABLE' } }), 'application/json; charset=utf-8', { 'Cache-Control': 'no-store' }); }
+    const { accessKey, publicOrigin, identity, instanceEnvironment, setupRequired, setup } = runtime;
+    response.once('close', () => runtime.release?.());
     let pathname;
     try { pathname = decodeURIComponent(new URL(request.url, 'http://localhost').pathname); }
     catch { return send(400, 'Invalid request path'); }
+    if (setup && pathname === '/') return send(302, '', 'text/plain; charset=utf-8', { Location: setupRequired ? '/setup' : '/account', 'Cache-Control': 'no-store' });
     if (pathname === '/manifest.webmanifest') {
       if(!['GET','HEAD'].includes(request.method))return send(405,'Use GET or HEAD','text/plain; charset=utf-8',{Allow:'GET, HEAD'});
       const configuredOrigin=publicOrigin||('http://127.0.0.1:'+server.address().port);
@@ -63,7 +70,7 @@ export function createAppServer({ root = defaultRoot, snapshotStore = null, acce
       if (!['GET', 'HEAD'].includes(request.method)) return send(405, 'Use GET or HEAD');
       try { if (recoveryStore) await assertRecoveryReady(recoveryStore); }
       catch { return send(503, JSON.stringify({ status: 'recovery-unavailable', runtime: 'node', storage }), 'application/json; charset=utf-8', { 'Cache-Control': 'no-store' }); }
-      return send(200, JSON.stringify({ status: 'ok', runtime: 'node', prototype: true, storage }), 'application/json; charset=utf-8');
+      return send(200, JSON.stringify({ status: setupRequired ? 'setup-required' : 'ok', runtime: 'node', prototype: true, storage }), 'application/json; charset=utf-8', { 'Cache-Control': 'no-store' });
     }
     if (pathname === '/api' || pathname.startsWith('/api/')) {
       const configuredOrigin = publicOrigin || ('http://127.0.0.1:' + server.address().port);
@@ -81,9 +88,12 @@ export function createAppServer({ root = defaultRoot, snapshotStore = null, acce
         for (const [name, value] of Object.entries(request.headers)) if (value !== undefined) apiHeaders.set(name, Array.isArray(value) ? value.join(', ') : value);
         const apiRequest = new Request(new URL(request.url, configuredOrigin), { method: request.method, headers: apiHeaders, ...(body ? { body } : {}) });
         let result;
-        if (pathname === '/api/instance') {
-          if (!instanceByOrigin.has(configuredOrigin)) instanceByOrigin.set(configuredOrigin, createInstanceApi({ env: instanceEnvironment, origin: configuredOrigin }));
-          result = await instanceByOrigin.get(configuredOrigin)(apiRequest);
+        if (pathname === '/api/setup' || pathname === '/api/admin/settings') {
+          result = setup ? await setup.handle(apiRequest) : Response.json({ enabled: false, error: { code: 'SETUP_DISABLED' } }, { status: pathname === '/api/setup' && request.method === 'GET' ? 200 : 404, headers: { 'Cache-Control': 'no-store' } });
+        } else if (setupRequired && pathname !== '/api/instance') {
+          result = Response.json({ error: { code: 'SETUP_REQUIRED' } }, { status: 503, headers: { 'Cache-Control': 'no-store' } });
+        } else if (pathname === '/api/instance') {
+          result = await createInstanceApi({ env: instanceEnvironment, origin: configuredOrigin })(apiRequest);
         } else if (pathname === '/api/auth' || pathname.startsWith('/api/auth/')) {
           result = identity ? await identity.handle(apiRequest, { peerAddress: request.socket.remoteAddress }) :
             pathname === '/api/auth/config' && request.method === 'GET' ? disabledIdentityResponse() :
@@ -134,7 +144,9 @@ export function createAppServer({ root = defaultRoot, snapshotStore = null, acce
       return send(405, 'Method not allowed');
     }
     if (pathname.includes('\0') || pathname.includes('\\') || pathname.split('/').some(part => part.startsWith('.') && part !== '')) return send(404, 'Not found');
-    const candidate = resolve(absoluteRoot, '.' + (pathname === '/' ? '/index.html' : pathname));
+    const route=webPageRoute(pathname);
+    if(route?.redirectPath)return send(308,'','text/plain; charset=utf-8',{Location:route.redirectPath+new URL(request.url,'http://localhost').search,'Cache-Control':'no-store'});
+    const candidate = resolve(absoluteRoot, '.' + (route?.assetPath??pathname));
     if (!inside(absoluteRoot, candidate)) return send(404, 'Not found');
     try {
       const [actualRoot, actualPath] = await Promise.all([realpath(absoluteRoot), realpath(candidate)]);
@@ -179,13 +191,16 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
   let accountIdentity;
   let recoveryGuard;
   let backupService;
+  let setupService;
   let closing;
-  const closeStore = () => closing ??= Promise.resolve().then(async()=>{try{await backupService?.close();}finally{await Promise.all([Promise.resolve().then(() => snapshotStore?.close()), accountIdentity?.close(), recoveryGuard?.close()]);}}).catch(() => {
+  const closeStore = () => closing ??= Promise.resolve().then(async()=>{try{await backupService?.close();}finally{await Promise.all([Promise.resolve().then(() => snapshotStore?.close()), accountIdentity?.close(), recoveryGuard?.close(), setupService?.close()]);}}).catch(() => {
     console.error('Unable to close the workspace database.');
     process.exitCode = 1;
   });
   try {
-    const { port, host, storage, accessKey, publicOrigin, allowAnonymous, database, databaseOptions } = readServerConfig(process.env);
+    const { createNodeSetup } = await import('./setup.mjs');
+    setupService = await createNodeSetup(process.env);
+    const { port, host, storage, accessKey, publicOrigin, allowAnonymous, database, databaseOptions } = setupService?.config || readServerConfig(process.env);
     if (storage === 'sqlite') {
       const { SqliteSnapshotStore } = await import('./snapshot-store.mjs');
       const databaseFile = resolve(database);
@@ -199,17 +214,21 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
     recoveryGuard = await createNodeRecoveryGuard({storage,databaseOptions},snapshotStore);
     if(databaseOptions)await snapshotStore.read(); // Fail before listening on invalid stored data.
     const {createNodeBackupService}=await import('./backup.mjs');
-    backupService=await createNodeBackupService(process.env,{storage,database,databaseOptions},{snapshotStore,recoveryStore:recoveryGuard?.store});
+    const runtimeEnvironment = setupService ? (await setupService.setup.load()).env : process.env;
+    backupService=await createNodeBackupService(runtimeEnvironment,{storage,database,databaseOptions},{snapshotStore,recoveryStore:recoveryGuard?.store});
     const { createNodeIdentityService } = await import('./identity.mjs');
-    accountIdentity = await createNodeIdentityService(process.env, { storage, database, databaseOptions });
-    const server = createAppServer({ snapshotStore, storage, accessKey, allowAnonymous, publicOrigin, identity: accountIdentity, instanceEnvironment: process.env, recoveryStore:recoveryGuard?.store, backupOperations:backupService?.operations });
+    accountIdentity = setupService ? null : await createNodeIdentityService(process.env, { storage, database, databaseOptions });
+    const server = createAppServer({ snapshotStore, storage, accessKey, allowAnonymous, publicOrigin, identity: accountIdentity, instanceEnvironment: process.env, recoveryStore:recoveryGuard?.store, backupOperations:backupService?.operations, runtimeProvider: setupService ? () => setupService.acquire() : null });
     server.once('close', closeStore);
     server.on('error', () => {
       console.error('Unable to start Yumunio. Check the bind address and port.');
       process.exitCode = 1;
       void closeStore();
     });
-    server.listen(port, host, () => { backupService?.start(); console.log('Yumunio prototype (' + storage + '): http://' + host + ':' + port); });
+    server.listen(port, host, async () => {
+      backupService?.start(); console.log('Yumunio (' + storage + '): ' + publicOrigin);
+      if (setupService && !(await setupService.setup.load()).data) console.log('初期設定をはじめる / Start setup: ' + setupService.setup.initialSetupUrl);
+    });
     for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => server.close());
   } catch {
     console.error('Unable to initialize Yumunio. Check .env, database connectivity, TLS, and the schemas (npm run db:migrate / npm run auth:migrate).');

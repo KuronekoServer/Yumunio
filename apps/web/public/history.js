@@ -39,7 +39,7 @@ function content(title, data) {
   return node('section', { class: 'history-snapshot' }, [node('h2', {}, t(title)), ...(data ? [node('h3', { translate: 'no' }, data.title), node('div', { class: 'history-content', translate: 'no' }, documentText(data.document)), ...(documentText(data.document, true) ? [node('details', {}, [node('summary', {}, t('source')), node('pre', { class: 'history-content', translate: 'no' }, documentText(data.document, true))])] : [])] : [node('p', { class: 'history-hint' }, t('choose'))])]);
 }
 function render() {
-  const back = '/workspace.html?workspace=' + encodeURIComponent(workspaceId) + '&page=' + encodeURIComponent(pageId);
+  const back = '/workspace?workspace=' + encodeURIComponent(workspaceId) + '&page=' + encodeURIComponent(pageId);
   const fragment = document.createDocumentFragment();
   fragment.append(node('div', { class: 'history-toolbar' }, [node('h1', {}, t('title')), node('a', { href: back }, t('back')), button('reload', () => void load(), !state.user)]), node('p', { class: 'history-hint' }, t('retention')));
   if (state.message) fragment.append(node('p', { class: 'history-alert', role: 'status' }, t(state.message)));
@@ -54,7 +54,7 @@ function render() {
       body.append(node('section', { class: 'history-confirm' }, [node('p', { class: 'history-hint' }, t('scope')), node('label', { class: 'history-consent' }, [check, node('span', {}, t('consent'))]), submit]));
     }
     fragment.append(node('div', { class: 'history-layout' }, [versions, body]));
-  } else if (!state.user) fragment.append(node('a', { href: '/account.html' }, t('auth')));
+  } else if (!state.user) fragment.append(node('a', { href: '/account' }, t('auth')));
   app.replaceChildren(fragment); document.querySelector('#history-account').textContent = t('account'); brand?.apply({ titleSuffix: t('title') });
 }
 async function load() {

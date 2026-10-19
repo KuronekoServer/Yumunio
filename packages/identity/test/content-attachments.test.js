@@ -4,6 +4,8 @@ import { DatabaseSync } from 'node:sqlite';
 import { readFile } from 'node:fs/promises';
 import { createSqliteContentStore } from '../src/content-store.js';
 import { createAccountContentApi } from '../src/content.js';
+import {ClipboardUploadBatch} from '../../../apps/web/public/clipboard-upload.js';
+import {createAttachmentBlock} from '../../../apps/web/public/attachment-block.js';
 const schema=await readFile(new URL('../../../apps/worker/auth-schema.sql',import.meta.url),'utf8');
 const stamp='2026-10-15T00:00:00.000Z',origin='https://uploads.example.invalid',workspaceId='workspace';
 const bytes=new TextEncoder().encode('Synthetic page attachment.');
@@ -27,6 +29,59 @@ async function fixture(t){
   return{db,objects,raw,request,read,change,stagePath,setBeforeWrite:fn=>beforeWrite=fn,setBeforeGet:fn=>beforeGet=fn,setBeforeDelete:fn=>beforeDelete=fn,get reads(){return reads;},get putCount(){return putCount;},async reserve(accountId='author'){const response=await request(accountId,stagePath,'POST',{expectedRevision:(await read()).revision,sourceId:'file-one',name:'架空.txt',mediaType:'text/plain',size:bytes.length,checksum:await hash(bytes)});assert.equal(response.status,201,await response.clone().text());return response.json();},async ready(accountId='author'){const reservation=await this.reserve(accountId),response=await request(accountId,stagePath+'/'+reservation.assetId,'PUT',bytes,{'X-Yumunio-Expected-Revision':String(reservation.revision)});assert.equal(response.status,200,await response.clone().text());return{...await response.json(),path:stagePath+'/'+reservation.assetId};}};
 }
 async function error(response,status,code){assert.equal(response.status,status,await response.clone().text());assert.equal((await response.json()).error.code,code);}
+
+const png=Uint8Array.from(Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aWrkAAAAASUVORK5CYII=','base64'));
+async function clipboardFixture(t,{lose=null}={}){
+ const f=await fixture(t),pageId='page',base='/api/content/workspaces/'+workspaceId;
+ let envelope=await(await f.request('editor','/pages/page')).json(),fault=lose,actor='editor',counter=0;
+ const attached=[],calls=[],draft=structuredClone(envelope.document.blocks);
+ const request=async({path,method='GET',body,headers={}})=>{
+  calls.push({path,method});
+  if(path==='/api/auth/get-session')return{user:{id:actor,emailVerified:true}};
+  const response=await f.request(actor,path.slice(base.length),method,body,headers),result=await response.json();
+  if(!response.ok)throw Object.assign(new Error(result.error.code),{code:result.error.code,status:response.status});
+  if(fault==='put'&&method==='PUT'||fault==='commit'&&path.endsWith('/commit')){fault=null;throw new Error('Synthetic lost response');}
+  return result;
+ };
+ const files=[{name:'日本語.png',mediaType:'image/png',file:{arrayBuffer:async()=>png.slice().buffer}},{name:'notes.txt',mediaType:'text/plain',file:{arrayBuffer:async()=>bytes.slice().buffer}}];
+ const batch=new ClipboardUploadBatch({files,accountId:'editor',workspaceId,pageId,request,createId:()=> 'clipboard-'+(++counter),onReview:value=>{
+  if(value.document.version!==envelope.document.version)throw Object.assign(new Error('CONTENT_CONFLICT'),{status:409});envelope=value;
+ },onAttachment:(attachment,result)=>{attached.push(attachment);envelope.revision=result.revision;draft.push(createAttachmentBlock(attachment,{pageId,id:'block-'+attachment.id}));}});
+ return{...f,batch,calls,attached,draft,get putCount(){return f.putCount;},get envelope(){return envelope;},setActor:value=>actor=value};
+}
+
+test('clipboard files publish sequentially and image/file blocks persist with page-bound references and private previews',async t=>{
+ const f=await clipboardFixture(t);await f.batch.run();assert.equal(f.batch.state,'done');assert.equal(f.attached.length,2);assert.equal(f.putCount,2);
+ const saved=await f.request('editor','/pages/page','PATCH',{expectedRevision:f.envelope.revision,expectedVersion:1,title:'page',blocks:f.draft});assert.equal(saved.status,200,await saved.clone().text());
+ const loaded=await(await f.request('viewer','/pages/page')).json();assert.deepEqual(loaded.document.blocks.slice(1).map(block=>block.type),['image','file']);
+ const image=f.attached[0],path='/pages/page/attachments/'+image.id+'/preview',preview=await f.request('viewer',path);assert.equal(preview.status,200);assert.equal(preview.headers.get('content-type'),'image/png');assert.match(preview.headers.get('content-disposition'),/^inline;/);assert.equal(preview.headers.get('x-content-type-options'),'nosniff');assert.deepEqual(new Uint8Array(await preview.arrayBuffer()),png);
+ await error(await f.request('hidden',path),404,'CONTENT_NOT_FOUND');await error(await f.request('viewer','/pages/other/attachments/'+image.id+'/preview'),404,'CONTENT_NOT_FOUND');
+ const download=await f.request('viewer','/pages/page/attachments/'+image.id);assert.match(download.headers.get('content-disposition'),/^attachment;/);
+ await error(await f.request('viewer','/pages/page/attachments/'+f.attached[1].id+'/preview'),415,'CONTENT_TYPE');
+ const removed=await f.request('editor','/pages/page/attachments/'+image.id,'DELETE',{expectedRevision:loaded.revision,expectedVersion:loaded.document.version});assert.equal(removed.status,200);
+ const afterRemoval=await(await f.request('editor','/pages/page')).json();
+ const edited=await f.request('editor','/pages/page','PATCH',{expectedRevision:afterRemoval.revision,expectedVersion:afterRemoval.document.version,title:'Still editable',blocks:afterRemoval.document.blocks});assert.equal(edited.status,200,await edited.clone().text());
+ await error(await f.request('viewer',path),404,'CONTENT_NOT_FOUND');
+});
+test('clipboard retries reconcile lost binary/commit responses and never create duplicate attachments',async t=>{
+ for(const lose of ['put','commit']){const f=await clipboardFixture(t,{lose});await assert.rejects(f.batch.run());assert.equal(f.batch.state,'paused');assert.ok(f.batch.flow.file);const puts=f.putCount;await f.batch.run();assert.equal(f.batch.state,'done');assert.equal(f.attached.length,2);assert.equal(f.putCount,2);assert.equal(puts,1);assert.equal((await f.read()).payload.attachments.length,2);assert.equal(f.calls.filter(call=>call.method==='PUT').length,2);}
+});
+test('cancelling a clipboard batch reads its uncertain result and keeps a committed image without sending remaining files',async t=>{
+ const f=await clipboardFixture(t,{lose:'commit'});await assert.rejects(f.batch.run());const before=f.calls.filter(call=>call.method!=='GET').length;await f.batch.cancel();assert.equal(f.batch.state,'done');assert.equal(f.attached.length,1);assert.equal(f.calls.filter(call=>call.method!=='GET').length,before);assert.equal(f.putCount,1);
+});
+test('account/content changes pause clipboard uploads before new writes and retain the source files',async t=>{
+ const switched=await clipboardFixture(t);switched.setActor('author');await assert.rejects(switched.batch.run(),error=>error.code==='ACCOUNT_CHANGED');assert.equal(switched.putCount,0);assert.equal(switched.batch.files.length,2);
+ const changed=await clipboardFixture(t);await changed.change(payload=>{payload.pages[0].document.version++;});await assert.rejects(changed.batch.run(),error=>error.status===409);assert.equal(changed.putCount,0);assert.equal(changed.batch.files.length,2);
+});
+test('image previews reject active/mislabeled bytes and recheck permissions after blob IO',async t=>{
+ const f=await clipboardFixture(t);await f.batch.run();const image=f.attached[0],path='/pages/page/attachments/'+image.id+'/preview';
+ const malicious=new TextEncoder().encode('<svg onload="alert(1)"></svg>'),checksum=await hash(malicious);
+ // Keep the checksum valid so this verifies type validation, rather than corruption detection.
+ await f.change(payload=>{const asset=payload.attachments.find(row=>row.id===image.id);asset.mediaType='image/png';asset.size=malicious.length;asset.checksum=checksum;f.objects.set(asset.objectKey,malicious);});
+ await error(await f.request('viewer',path),415,'CONTENT_TYPE');
+ const legitimate=await clipboardFixture(t);await legitimate.batch.run();legitimate.setBeforeGet(()=>legitimate.change(payload=>{const grant=payload.grants.find(row=>row.accountId==='viewer');grant.status='revoked';}));
+ await error(await legitimate.request('viewer','/pages/page/attachments/'+legitimate.attached[0].id+'/preview'),404,'CONTENT_NOT_FOUND');
+});
 test('a page editor guest can stage private bytes and bind exactly one page attachment without changing the body or granting access',async t=>{
   const f=await fixture(t),ready=await f.ready('editor');
   assert.equal((await(await f.request('author','/pages/page')).json()).attachments,undefined);

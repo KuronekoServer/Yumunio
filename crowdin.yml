@@ -1,0 +1,259 @@
+# https://crowdin.com/project/yumunio — Japanese source catalogs
+project_id: "939643"
+api_token_env: CROWDIN_PERSONAL_TOKEN
+base_path: "."
+preserve_hierarchy: true
+files:
+  - source: "/apps/web/public/locales/ja.json"
+    translation: "/.crowdin/%two_letters_code%/app.json"
+    type: json
+    update_option: update_as_unapproved
+    languages_mapping:
+      two_letters_code:
+        zh-CN: zh-Hans
+        zh-TW: zh-Hant
+        pt-PT: pt-PT
+        pt-BR: pt-BR
+        "no": nb
+  - source: "/apps/web/public/account-locales/ja.json"
+    translation: "/.crowdin/%two_letters_code%/account.json"
+    type: json
+    update_option: update_as_unapproved
+    languages_mapping:
+      two_letters_code:
+        zh-CN: zh-Hans
+        zh-TW: zh-Hant
+        pt-PT: pt-PT
+        pt-BR: pt-BR
+        "no": nb
+  - source: "/apps/web/public/admin-locales/ja.json"
+    translation: "/.crowdin/%two_letters_code%/admin.json"
+    type: json
+    update_option: update_as_unapproved
+    languages_mapping:
+      two_letters_code:
+        zh-CN: zh-Hans
+        zh-TW: zh-Hant
+        pt-PT: pt-PT
+        pt-BR: pt-BR
+        "no": nb
+  - source: "/apps/web/public/attachments-locales/ja.json"
+    translation: "/.crowdin/%two_letters_code%/attachments.json"
+    type: json
+    update_option: update_as_unapproved
+    languages_mapping:
+      two_letters_code:
+        zh-CN: zh-Hans
+        zh-TW: zh-Hant
+        pt-PT: pt-PT
+        pt-BR: pt-BR
+        "no": nb
+  - source: "/apps/web/public/backlinks-locales/ja.json"
+    translation: "/.crowdin/%two_letters_code%/backlinks.json"
+    type: json
+    update_option: update_as_unapproved
+    languages_mapping:
+      two_letters_code:
+        zh-CN: zh-Hans
+        zh-TW: zh-Hant
+        pt-PT: pt-PT
+        pt-BR: pt-BR
+        "no": nb
+  - source: "/apps/web/public/backups-locales/ja.json"
+    translation: "/.crowdin/%two_letters_code%/backups.json"
+    type: json
+    update_option: update_as_unapproved
+    languages_mapping:
+      two_letters_code:
+        zh-CN: zh-Hans
+        zh-TW: zh-Hant
+        pt-PT: pt-PT
+        pt-BR: pt-BR
+        "no": nb
+  - source: "/apps/web/public/collections-locales/ja.json"
+    translation: "/.crowdin/%two_letters_code%/collections.json"
+    type: json
+    update_option: update_as_unapproved
+    languages_mapping:
+      two_letters_code:
+        zh-CN: zh-Hans
+        zh-TW: zh-Hant
+        pt-PT: pt-PT
+        pt-BR: pt-BR
+        "no": nb
+  - source: "/apps/web/public/comments-locales/ja.json"
+    translation: "/.crowdin/%two_letters_code%/comments.json"
+    type: json
+    update_option: update_as_unapproved
+    languages_mapping:
+      two_letters_code:
+        zh-CN: zh-Hans
+        zh-TW: zh-Hant
+        pt-PT: pt-PT
+        pt-BR: pt-BR
+        "no": nb
+  - source: "/apps/web/public/forms-locales/ja.json"
+    translation: "/.crowdin/%two_letters_code%/forms.json"
+    type: json
+    update_option: update_as_unapproved
+    languages_mapping:
+      two_letters_code:
+        zh-CN: zh-Hans
+        zh-TW: zh-Hant
+        pt-PT: pt-PT
+        pt-BR: pt-BR
+        "no": nb
+  - source: "/apps/web/public/groups-locales/ja.json"
+    translation: "/.crowdin/%two_letters_code%/groups.json"
+    type: json
+    update_option: update_as_unapproved
+    languages_mapping:
+      two_letters_code:
+        zh-CN: zh-Hans
+        zh-TW: zh-Hant
+        pt-PT: pt-PT
+        pt-BR: pt-BR
+        "no": nb
+  - source: "/apps/web/public/history-locales/ja.json"
+    translation: "/.crowdin/%two_letters_code%/history.json"
+    type: json
+    update_option: update_as_unapproved
+    languages_mapping:
+      two_letters_code:
+        zh-CN: zh-Hans
+        zh-TW: zh-Hant
+        pt-PT: pt-PT
+        pt-BR: pt-BR
+        "no": nb
+  - source: "/apps/web/public/import-locales/ja.json"
+    translation: "/.crowdin/%two_letters_code%/import.json"
+    type: json
+    update_option: update_as_unapproved
+    languages_mapping:
+      two_letters_code:
+        zh-CN: zh-Hans
+        zh-TW: zh-Hant
+        pt-PT: pt-PT
+        pt-BR: pt-BR
+        "no": nb
+  - source: "/apps/web/public/install-locales/ja.json"
+    translation: "/.crowdin/%two_letters_code%/install.json"
+    type: json
+    update_option: update_as_unapproved
+    languages_mapping:
+      two_letters_code:
+        zh-CN: zh-Hans
+        zh-TW: zh-Hant
+        pt-PT: pt-PT
+        pt-BR: pt-BR
+        "no": nb
+  - source: "/apps/web/public/integrations-locales/ja.json"
+    translation: "/.crowdin/%two_letters_code%/integrations.json"
+    type: json
+    update_option: update_as_unapproved
+    languages_mapping:
+      two_letters_code:
+        zh-CN: zh-Hans
+        zh-TW: zh-Hant
+        pt-PT: pt-PT
+        pt-BR: pt-BR
+        "no": nb
+  - source: "/apps/web/public/prefs-locales/ja.json"
+    translation: "/.crowdin/%two_letters_code%/preferences.json"
+    type: json
+    update_option: update_as_unapproved
+    languages_mapping:
+      two_letters_code:
+        zh-CN: zh-Hans
+        zh-TW: zh-Hant
+        pt-PT: pt-PT
+        pt-BR: pt-BR
+        "no": nb
+  - source: "/apps/web/public/publication-locales/ja.json"
+    translation: "/.crowdin/%two_letters_code%/publication.json"
+    type: json
+    update_option: update_as_unapproved
+    languages_mapping:
+      two_letters_code:
+        zh-CN: zh-Hans
+        zh-TW: zh-Hant
+        pt-PT: pt-PT
+        pt-BR: pt-BR
+        "no": nb
+  - source: "/apps/web/public/share-locales/ja.json"
+    translation: "/.crowdin/%two_letters_code%/share.json"
+    type: json
+    update_option: update_as_unapproved
+    languages_mapping:
+      two_letters_code:
+        zh-CN: zh-Hans
+        zh-TW: zh-Hant
+        pt-PT: pt-PT
+        pt-BR: pt-BR
+        "no": nb
+  - source: "/apps/web/public/setup-locales/ja.json"
+    translation: "/.crowdin/%two_letters_code%/setup.json"
+    type: json
+    update_option: update_as_unapproved
+    languages_mapping:
+      two_letters_code:
+        zh-CN: zh-Hans
+        zh-TW: zh-Hant
+        pt-PT: pt-PT
+        pt-BR: pt-BR
+        "no": nb
+  - source: "/apps/web/public/teamspace-locales/ja.json"
+    translation: "/.crowdin/%two_letters_code%/teamspace.json"
+    type: json
+    update_option: update_as_unapproved
+    languages_mapping:
+      two_letters_code:
+        zh-CN: zh-Hans
+        zh-TW: zh-Hant
+        pt-PT: pt-PT
+        pt-BR: pt-BR
+        "no": nb
+  - source: "/apps/web/public/templates-locales/ja.json"
+    translation: "/.crowdin/%two_letters_code%/templates.json"
+    type: json
+    update_option: update_as_unapproved
+    languages_mapping:
+      two_letters_code:
+        zh-CN: zh-Hans
+        zh-TW: zh-Hant
+        pt-PT: pt-PT
+        pt-BR: pt-BR
+        "no": nb
+  - source: "/apps/web/public/webhooks-locales/ja.json"
+    translation: "/.crowdin/%two_letters_code%/webhooks.json"
+    type: json
+    update_option: update_as_unapproved
+    languages_mapping:
+      two_letters_code:
+        zh-CN: zh-Hans
+        zh-TW: zh-Hant
+        pt-PT: pt-PT
+        pt-BR: pt-BR
+        "no": nb
+  - source: "/apps/web/public/workspace-locales/ja.json"
+    translation: "/.crowdin/%two_letters_code%/workspace.json"
+    type: json
+    update_option: update_as_unapproved
+    languages_mapping:
+      two_letters_code:
+        zh-CN: zh-Hans
+        zh-TW: zh-Hant
+        pt-PT: pt-PT
+        pt-BR: pt-BR
+        "no": nb
+  - source: "/apps/web/public/workspace-settings-locales/ja.json"
+    translation: "/.crowdin/%two_letters_code%/workspace-settings.json"
+    type: json
+    update_option: update_as_unapproved
+    languages_mapping:
+      two_letters_code:
+        zh-CN: zh-Hans
+        zh-TW: zh-Hant
+        pt-PT: pt-PT
+        pt-BR: pt-BR
+        "no": nb

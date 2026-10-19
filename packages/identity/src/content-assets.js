@@ -172,9 +172,38 @@ export async function handleAssetRequest({request,importId,assetId,blobStore,sto
   }
   fail('METHOD_NOT_ALLOWED',405);
 }
-export async function downloadAttachment({blobStore,attachment,authorize}){
+export function rasterMediaType(bytes){
+ const starts=values=>values.every((value,index)=>bytes[index]===value),ascii=(start,end)=>String.fromCharCode(...bytes.slice(start,end));
+ if(bytes.length>=24&&starts([137,80,78,71,13,10,26,10])&&ascii(12,16)==='IHDR')return 'image/png';
+ if(bytes.length>=4&&starts([255,216,255]))return 'image/jpeg';
+ if(bytes.length>=10&&['GIF87a','GIF89a'].includes(ascii(0,6)))return 'image/gif';
+ if(bytes.length>=16&&ascii(0,4)==='RIFF'&&ascii(8,12)==='WEBP'&&['VP8 ','VP8L','VP8X'].includes(ascii(12,16)))return 'image/webp';
+ return null;
+}
+export function previewMediaType(bytes,declared){
+ const image=rasterMediaType(bytes);if(image)return image===declared?image:null;
+ const ascii=(start,end)=>String.fromCharCode(...bytes.slice(start,end)),starts=values=>values.every((value,index)=>bytes[index]===value);
+ if(declared==='application/pdf'&&/^%PDF-1\.[0-9]|^%PDF-2\.0/.test(ascii(0,8)))return declared;
+ if(declared==='audio/mpeg'&&(ascii(0,3)==='ID3'||bytes.length>3&&bytes[0]===255&&(bytes[1]&224)===224))return declared;
+ if(['audio/wav','audio/x-wav'].includes(declared)&&ascii(0,4)==='RIFF'&&ascii(8,12)==='WAVE')return declared;
+ if(['audio/ogg','video/ogg'].includes(declared)&&ascii(0,4)==='OggS')return declared;
+ if(['audio/mp4','video/mp4'].includes(declared)&&bytes.length>=12&&ascii(4,8)==='ftyp')return declared;
+ if(['audio/webm','video/webm'].includes(declared)&&bytes.length>=4&&starts([26,69,223,163]))return declared;
+ return null;
+}
+export async function downloadAttachment({blobStore,attachment,authorize,preview=false,range=null}){
   const bytes=await verifiedBytes(blobStore,attachment);if(!await authorize())missing();
+  const mediaType=preview?previewMediaType(bytes,attachment.mediaType):null;
+  if(preview&&!mediaType)fail('CONTENT_TYPE',415);
   const name=encodeURIComponent(attachment.name).replace(/[!'()*]/g,char=>'%'+char.charCodeAt(0).toString(16).toUpperCase());
-  return new Response(bytes,{headers:{...responseHeaders,'Content-Type':'application/octet-stream','Content-Length':String(bytes.length),
-    'Content-Disposition':"attachment; filename=\"attachment.bin\"; filename*=UTF-8''"+name,'Content-Security-Policy':"default-src 'none'; sandbox"}});
+  const headers={...responseHeaders,'Content-Type':mediaType??'application/octet-stream','Accept-Ranges':'bytes',
+    'Content-Disposition':(preview?'inline':'attachment')+"; filename=\"attachment.bin\"; filename*=UTF-8''"+name,
+    'Content-Security-Policy':mediaType==='application/pdf'?"default-src 'none'; script-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'":"default-src 'none'; sandbox"};
+  if(range){
+   const match=/^bytes=(\d*)-(\d*)$/.exec(range);let start,end;
+   if(match&&(match[1]||match[2])){start=match[1]?Number(match[1]):Math.max(0,bytes.length-Number(match[2]));end=match[1]?(match[2]?Math.min(Number(match[2]),bytes.length-1):bytes.length-1):bytes.length-1;}
+   if(!Number.isSafeInteger(start)||!Number.isSafeInteger(end)||start<0||start>=bytes.length||end<start)return new Response(null,{status:416,headers:{...headers,'Content-Range':'bytes */'+bytes.length,'Content-Length':'0'}});
+   const chunk=bytes.slice(start,end+1);return new Response(chunk,{status:206,headers:{...headers,'Content-Length':String(chunk.length),'Content-Range':`bytes ${start}-${end}/${bytes.length}`}});
+  }
+  return new Response(bytes,{headers:{...headers,'Content-Length':String(bytes.length)}});
 }

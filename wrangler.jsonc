@@ -1,0 +1,118 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "yumunio",
+  "main": "apps/worker/worker.js",
+  "compatibility_date": "2026-10-01",
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
+  "workers_dev": true,
+  "preview_urls": false,
+  "triggers": {
+    "crons": ["* * * * *"]
+  },
+  "build": {
+    "command": "npm run build"
+  },
+  "assets": {
+    "directory": ".build/web",
+    "binding": "ASSETS",
+    "html_handling": "none",
+    "run_worker_first": [
+      "/",
+      "/index",
+      "/index.html",
+      "/account",
+      "/account/",
+      "/account.html",
+      "/admin",
+      "/admin/",
+      "/admin.html",
+      "/attachments",
+      "/attachments/",
+      "/attachments.html",
+      "/backlinks",
+      "/backlinks/",
+      "/backlinks.html",
+      "/backups",
+      "/backups/",
+      "/backups.html",
+      "/collections",
+      "/collections/",
+      "/collections.html",
+      "/comments",
+      "/comments/",
+      "/comments.html",
+      "/forms",
+      "/forms/",
+      "/forms.html",
+      "/history",
+      "/history/",
+      "/history.html",
+      "/import",
+      "/import/",
+      "/import.html",
+      "/install",
+      "/install/",
+      "/install.html",
+      "/integrations",
+      "/integrations/",
+      "/integrations.html",
+      "/notes",
+      "/notes/",
+      "/notes.html",
+      "/offline",
+      "/offline/",
+      "/offline.html",
+      "/preferences",
+      "/preferences/",
+      "/preferences.html",
+      "/publication",
+      "/publication/",
+      "/publication.html",
+      "/setup",
+      "/setup/",
+      "/setup.html",
+      "/share",
+      "/share/",
+      "/share.html",
+      "/site",
+      "/site/",
+      "/site.html",
+      "/templates",
+      "/templates/",
+      "/templates.html",
+      "/webhooks",
+      "/webhooks/",
+      "/webhooks.html",
+      "/workspace-settings",
+      "/workspace-settings/",
+      "/workspace-settings.html",
+      "/workspace",
+      "/workspace/",
+      "/workspace.html",
+      "/api",
+      "/api/*",
+      "/health",
+      "/manifest.webmanifest"
+    ]
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "yumunio",
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "apps/worker/install-migrations"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "BLOBS",
+      "bucket_name": "yumunio"
+    }
+  ],
+  "vars": {
+    "YUMUNIO_BLOB_DRIVER": "r2",
+    "YUMUNIO_WEB_SETUP": "true"
+  }
+}

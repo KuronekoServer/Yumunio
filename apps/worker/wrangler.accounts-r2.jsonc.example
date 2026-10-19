@@ -2,7 +2,9 @@
   "name": "yumunio-test",
   "main": "worker.js",
   "compatibility_date": "2026-10-01",
-  "compatibility_flags": ["nodejs_compat"],
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
   "workers_dev": true,
   "preview_urls": false,
   "minify": true,
@@ -14,7 +16,84 @@
     "directory": "../../.build/web",
     "binding": "ASSETS",
     "html_handling": "none",
-    "run_worker_first": ["/", "/api", "/api/*", "/health", "/manifest.webmanifest"]
+    "run_worker_first": [
+      "/",
+      "/index",
+      "/index.html",
+      "/account",
+      "/account/",
+      "/account.html",
+      "/admin",
+      "/admin/",
+      "/admin.html",
+      "/attachments",
+      "/attachments/",
+      "/attachments.html",
+      "/backlinks",
+      "/backlinks/",
+      "/backlinks.html",
+      "/backups",
+      "/backups/",
+      "/backups.html",
+      "/collections",
+      "/collections/",
+      "/collections.html",
+      "/comments",
+      "/comments/",
+      "/comments.html",
+      "/forms",
+      "/forms/",
+      "/forms.html",
+      "/history",
+      "/history/",
+      "/history.html",
+      "/import",
+      "/import/",
+      "/import.html",
+      "/install",
+      "/install/",
+      "/install.html",
+      "/integrations",
+      "/integrations/",
+      "/integrations.html",
+      "/notes",
+      "/notes/",
+      "/notes.html",
+      "/offline",
+      "/offline/",
+      "/offline.html",
+      "/preferences",
+      "/preferences/",
+      "/preferences.html",
+      "/publication",
+      "/publication/",
+      "/publication.html",
+      "/setup",
+      "/setup/",
+      "/setup.html",
+      "/share",
+      "/share/",
+      "/share.html",
+      "/site",
+      "/site/",
+      "/site.html",
+      "/templates",
+      "/templates/",
+      "/templates.html",
+      "/webhooks",
+      "/webhooks/",
+      "/webhooks.html",
+      "/workspace-settings",
+      "/workspace-settings/",
+      "/workspace-settings.html",
+      "/workspace",
+      "/workspace/",
+      "/workspace.html",
+      "/api",
+      "/api/*",
+      "/health",
+      "/manifest.webmanifest"
+    ]
   },
   "vars": {
     "YUMUNIO_PUBLIC_ORIGIN": "https://yumunio-test.REPLACE_WITH_YOUR_SUBDOMAIN.workers.dev",
@@ -27,10 +106,17 @@
     "YUMUNIO_WEBHOOK_ENABLED": "false",
     "YUMUNIO_BACKUP_DRIVER": "disabled"
   },
-  "d1_databases": [{
-    "binding": "DB",
-    "database_name": "yumunio-test",
-    "database_id": "REPLACE_WITH_YOUR_DATABASE_ID"
-  }],
-  "r2_buckets": [{"binding": "BLOBS", "bucket_name": "yumunio-test"}]
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "yumunio-test",
+      "database_id": "REPLACE_WITH_YOUR_DATABASE_ID"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "BLOBS",
+      "bucket_name": "yumunio-test"
+    }
+  ]
 }

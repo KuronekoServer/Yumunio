@@ -1,3 +1,4 @@
+import {webPageRoute} from '../../packages/prototype/src/web-routes.js';
 import {readApiTokenConfig} from '@yumunio/identity/api-tokens';
 import {readMcpConfig} from '@yumunio/identity/mcp';
 import {readWebhookConfig} from '@yumunio/identity/webhooks-model';
@@ -9,11 +10,13 @@ import { createWorkspaceApi } from '@yumunio/prototype';
 import { D1SnapshotStore } from './snapshot-store.js';
 import { isValidAccessKey, validatePublicOrigin } from '../../packages/prototype/src/config.js';
 import { readIdentityConfig, disabledIdentityResponse } from '@yumunio/identity';
-import { readMailConfig } from '@yumunio/identity/mail';
+import {readWorkerMailConfig} from './mail.js';
 import { createWorkerAccountServices, drainWorkerMail } from './identity.js';
 import { createInstanceApi } from '@yumunio/identity/instance';
 import { createPwaManifestApi } from '@yumunio/identity/pwa';
 import { createD1RecoveryStore, assertRecoveryReady } from '@yumunio/backup';
+import { createInstanceSetup } from '../../packages/identity/src/setup.js';
+import { createD1SetupStore } from '../../packages/identity/src/setup-store.js';
 
 const policy = {
   'X-Content-Type-Options': 'nosniff',
@@ -24,14 +27,54 @@ const policy = {
 /** Shared UI, separate account identity and the legacy manual snapshot API. */
 export default {
   async scheduled(_event, env, context) {
+    if (env.YUMUNIO_SETUP_TOKEN || env.YUMUNIO_INSTANCE_SECRET) {
+      const setup = await createInstanceSetup({ env, store: createD1SetupStore(env.DB), runtime: 'worker' });
+      const state = await setup.load();
+      if (!state.data) return;
+      env = state.env;
+    }
     if (env.DB) await assertRecoveryReady(createD1RecoveryStore(env.DB));
     const task = (async()=>{const operations=await createWorkerBackupOperations(env);try{await drainWorkerMail(env,context);await operations?.tick({steps:4});}finally{await operations?.close();}})();
     if (context?.waitUntil) context.waitUntil(task); else await task;
   },
   async fetch(request, env, context) {
     const url = new URL(request.url);
+    const pageRoute=webPageRoute(url.pathname);
+    if(pageRoute?.redirectPath)return new Response(null,{status:['GET','HEAD'].includes(request.method)?308:405,headers:{...policy,'Cache-Control':'no-store',...(['GET','HEAD'].includes(request.method)?{Location:pageRoute.redirectPath+url.search}:{Allow:'GET, HEAD'})}});
+    if ((env.YUMUNIO_SETUP_TOKEN || env.YUMUNIO_INSTANCE_SECRET) && env.YUMUNIO_PUBLIC_ORIGIN && ['/', '/setup'].includes(url.pathname) && ['GET', 'HEAD'].includes(request.method)) {
+      try {
+        const canonical = validatePublicOrigin(env.YUMUNIO_PUBLIC_ORIGIN);
+        if (canonical !== url.origin) return new Response(null, { status: 302, headers: { ...policy, 'Cache-Control': 'no-store', Location: canonical + url.pathname } });
+      } catch { return Response.json({ error: { code: 'SETUP_UNAVAILABLE' } }, { status: 503, headers: { ...policy, 'Cache-Control': 'no-store' } }); }
+    }
     const configured = Boolean(env.DB);
     const storage = configured ? 'd1' : 'browser-local';
+    if (env.YUMUNIO_WEB_SETUP === 'true' && !env.YUMUNIO_SETUP_TOKEN && !env.YUMUNIO_INSTANCE_SECRET) return Response.json({ error: { code: 'SETUP_UNAVAILABLE' } }, { status: 503, headers: { ...policy, 'Cache-Control': 'no-store' } });
+    if (env.YUMUNIO_SETUP_TOKEN || env.YUMUNIO_INSTANCE_SECRET) {
+      try {
+        if (!env.DB) throw new Error('Setup requires D1.');
+        const setup = await createInstanceSetup({ env, store: createD1SetupStore(env.DB), origin: url.origin, runtime: 'worker',
+          assertReady: () => assertRecoveryReady(createD1RecoveryStore(env.DB)),
+          resolveSession: async request => {
+            const state = await setup.load();
+            const services = await createWorkerAccountServices(state.env, undefined, context);
+            return services?.identity.auth.api.getSession({ headers: request.headers });
+          } });
+        const state = await setup.load();
+        env = state.env;
+        if (state.data && url.pathname === '/') return new Response(null, { status: 302, headers: { ...policy, 'Cache-Control': 'no-store', Location: '/account' } });
+        if (url.pathname === '/api/setup' || url.pathname === '/api/admin/settings') {
+          const result = await setup.handle(request);
+          for (const [name, value] of Object.entries(policy)) result.headers.set(name, value);
+          return result;
+        }
+        if (!state.data) {
+          if (url.pathname === '/') return new Response(null, { status: 302, headers: { ...policy, 'Cache-Control': 'no-store', Location: '/setup' } });
+          if (url.pathname === '/health') return new Response(request.method === 'HEAD' ? null : JSON.stringify({ status: 'setup-required', runtime: 'worker', storage }), { status: ['GET', 'HEAD'].includes(request.method) ? 200 : 405, headers: { ...policy, 'Cache-Control': 'no-store', 'Content-Type': 'application/json' } });
+          if (url.pathname.startsWith('/api/') && url.pathname !== '/api/instance') return Response.json({ error: { code: 'SETUP_REQUIRED' } }, { status: 503, headers: { ...policy, 'Cache-Control': 'no-store' } });
+        }
+      } catch { return Response.json({ error: { code: 'SETUP_UNAVAILABLE' } }, { status: 503, headers: { ...policy, 'Cache-Control': 'no-store' } }); }
+    } else if (url.pathname === '/api/setup' && request.method === 'GET') return Response.json({ enabled: false }, { headers: { ...policy, 'Cache-Control': 'no-store' } });
     let origin, identityConfig, mailConfig;
     let valid = true;
     try {
@@ -48,8 +91,8 @@ export default {
       if(webhookConfig.enabled&&(!configured||!identityConfig.enabled))throw new Error('Webhooks require configured account storage.');
       if (identityConfig.enabled) {
         if (!configured) throw new Error('Account database required.');
-        mailConfig = readMailConfig(env);
-        if (mailConfig.driver === 'smtp' || (identityConfig.registrationMode === 'open' && mailConfig.driver === 'disabled')) throw new Error('Unsupported account email configuration.');
+        mailConfig = readWorkerMailConfig(env);
+        if (identityConfig.registrationMode === 'open' && mailConfig.driver === 'disabled') throw new Error('Unsupported account email configuration.');
       }
     } catch { valid = false; }
     if (url.pathname === '/manifest.webmanifest') return createPwaManifestApi({env,origin:origin??url.origin})(request);
@@ -114,11 +157,9 @@ export default {
         return Response.json({ error: { code: 'SERVER_CONFIGURATION', message: 'Check the D1 binding, exact public origin, access key and account configuration.' } }, { status: 503, headers: { 'Cache-Control': 'no-store', ...policy } });
       }
     }
-    // Keep explicit .html URLs usable by the service worker's redirect:error precache.
-    // HTML handling is disabled; only the public root needs an index alias.
     let assetRequest = request;
-    if (url.pathname === '/') {
-      url.pathname = '/index.html';
+    if (pageRoute?.assetPath) {
+      url.pathname = pageRoute.assetPath;
       assetRequest = new Request(url, request);
     }
     const response = await env.ASSETS.fetch(assetRequest);

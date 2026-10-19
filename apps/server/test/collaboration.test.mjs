@@ -47,7 +47,7 @@ test('Node durable auth mail survives restart and page-guest invitation is consu
   async function login(name) {
     const message = mail.find(row => row.to === name + '@example.invalid' && row.text.includes('?verify='));
     const token = new URL(message.text.split('\n').at(-1)).searchParams.get('verify');
-    assert.equal((await request('/api/auth/verify-email?token=' + encodeURIComponent(token) + '&callbackURL=' + encodeURIComponent(origin + '/account.html'))).status, 200);
+    assert.equal((await request('/api/auth/verify-email?token=' + encodeURIComponent(token) + '&callbackURL=' + encodeURIComponent(origin + '/account'))).status, 200);
     const response = await request('/api/auth/sign-in/email', { method: 'POST', body: { email: name + '@example.invalid', password: 'durable-fixture-password' } });
     assert.equal(response.status, 200);
     return { user: (await response.json()).user, cookie: response.headers.getSetCookie().map(row => row.split(';')[0]).join('; ') };

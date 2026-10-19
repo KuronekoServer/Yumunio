@@ -13,7 +13,12 @@ export function preparePageLinkBlocks({blocks,previousBlocks=[],access,attachmen
   block.data.links=links.map(link=>{
    if(link.unavailable){const old=match(link);if(!old)fail();return{...old};}
    if(!canRead(link.pageId)){const old=match(link);if(!old||old.pageId!==link.pageId||old.fragment!==link.fragment||old.attachmentId!==link.attachmentId)fail('CONTENT_NOT_FOUND',404);return{...old};}
-   if(link.attachmentId&&!attachments.some(row=>row.id===link.attachmentId&&row.pageId===pageId&&link.pageId===pageId))fail('CONTENT_NOT_FOUND',404);
+   if(link.attachmentId&&!attachments.some(row=>row.id===link.attachmentId&&row.pageId===pageId&&link.pageId===pageId)){
+    // Deleting a file must not make the rest of its page impossible to edit.
+    // Only an unchanged surviving reference may retain an unavailable attachment.
+    const old=surviving.find(old=>old.start===link.start&&old.end===link.end&&old.label===link.label&&old.pageId===link.pageId&&old.attachmentId===link.attachmentId&&old.fragment===link.fragment);
+    if(!old)fail('CONTENT_NOT_FOUND',404);return {...old};
+   }
    return link;
   });
  }if(block.children)visit(block.children);}};visit(captured);return captured;

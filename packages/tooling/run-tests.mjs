@@ -6,7 +6,7 @@ const root = fileURLToPath(new URL('../../', import.meta.url));
 const files = [];
 async function discover(directory) {
   for (const entry of await readdir(directory, { withFileTypes: true })) {
-    if (entry.name === 'node_modules' || entry.name === 'integration') continue;
+    if (['node_modules','integration','.next','out'].includes(entry.name)) continue;
     const path = resolve(directory, entry.name);
     if (entry.isDirectory()) await discover(path);
     else if (/\.test\.(?:js|mjs)$/.test(entry.name)) files.push(path);

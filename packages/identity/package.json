@@ -7,6 +7,7 @@
   "exports": {
     ".": "./src/index.js",
     "./mail": "./src/mail.js",
+    "./smtp": "./src/smtp.js",
     "./content": "./src/content.js",
     "./content-store": "./src/content-store.js",
     "./content-codec": "./src/content-codec.js",

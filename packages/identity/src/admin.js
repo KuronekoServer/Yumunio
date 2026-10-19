@@ -19,7 +19,7 @@ export function readServerAdminIds(env={}){
 /** A fixed whitelist of resolved settings. Never returns the environment object or connection details. */
 export function readAdminDiagnostics({env={},runtime='node',storage}={}){
   const driver=oneOf(storage??value(env,'YUMUNIO_STORAGE'),['browser-local','sqlite','mariadb','mysql','tidb','postgres','d1'],'unknown');
-  const mail=oneOf(value(env,'YUMUNIO_MAIL_DRIVER')||'disabled',['disabled','smtp','http'],'invalid');
+  const mail=oneOf(value(env,'YUMUNIO_MAIL_DRIVER')||'disabled',['disabled','smtp','http','cloudflare'],'invalid');
   let domain;
   try{domain=createDomainPolicy({mode:value(env,'YUMUNIO_EMAIL_DOMAIN_MODE')||'unrestricted',
     allowedDomains:value(env,'YUMUNIO_EMAIL_ALLOWED_DOMAINS').split(',').map(v=>v.trim()).filter(Boolean),
@@ -85,13 +85,13 @@ export function createAdminApi({store,resolveSession,origin,secret,env={},runtim
       if(path==='/api/admin/jobs'&&request.method==='GET')return json(await store.jobs(accountId,prefix));
       if(path==='/api/admin/mail-test'&&request.method==='POST'){
         const data=await readJson(request);object(data,['requestId','consent']);assertId(data.requestId);if(data.consent!==true)fail('ADMIN_CONSENT_REQUIRED',400);
-        if(!['smtp','http'].includes(diagnostics.mail.driver))fail('ADMIN_MAIL_DISABLED',503);
+        if(!['smtp','http','cloudflare'].includes(diagnostics.mail.driver))fail('ADMIN_MAIL_DISABLED',503);
         return json(await store.enqueueTest(accountId,account.email,prefix,await job(account,prefix,data.requestId)),202);
       }
       const retry=/^\/api\/admin\/jobs\/([A-Za-z0-9._:-]+)\/retry$/.exec(path);
       if(retry&&request.method==='POST'){
         const data=await readJson(request);object(data,['consent']);if(data.consent!==true)fail('ADMIN_CONSENT_REQUIRED',400);
-        if(!['smtp','http'].includes(diagnostics.mail.driver))fail('ADMIN_MAIL_DISABLED',503);
+        if(!['smtp','http','cloudflare'].includes(diagnostics.mail.driver))fail('ADMIN_MAIL_DISABLED',503);
         return json(await store.retryTest(accountId,account.email,prefix,assertId(retry[1]),await job(account,prefix,'retry:'+retry[1])),202);
       }
       fail();

@@ -6,7 +6,7 @@ import {createSimpleTable} from '../public/simple-table.js';
 
 const stamp='2026-10-15T00:00:00.000Z',token='a'.repeat(160);
 const snapshot=()=>({title:'<script>Literal title</script>',blocks:[{type:'heading',level:2,text:'Heading'},{type:'paragraph',text:'https://example.invalid/<b>literal</b>',children:[{type:'checklist',text:'Aoi & Ren',checked:false}]},{type:'divider'}]});
-const status=()=>({revision:4,pageId:'page-A',mode:'snapshot',active:true,needsRepublish:false,sourceVersion:2,currentSourceVersion:2,publishedAt:stamp,publicPath:'/site.html?publication='+token});
+const status=()=>({revision:4,pageId:'page-A',mode:'snapshot',active:true,needsRepublish:false,sourceVersion:2,currentSourceVersion:2,publishedAt:stamp,publicPath:'/site?publication='+token});
 const review=()=>({revision:4,pageId:'page-A',mode:'snapshot',sourceVersion:2,snapshot:snapshot(),summary:{blocksIncluded:4,blocksOmitted:3,linkSpansOmitted:1},exclusions:['attachments','structured-links'],reviewDigest:'b'.repeat(64)});
 
 test('public projection accepts only the independent literal snapshot and returns detached values',()=>{
@@ -52,7 +52,7 @@ test('review binds page, digest, nested counts and exclusion values',()=>{
 test('public links allow only a same-origin site route and inactive states cannot expose a link',()=>{
   assert.deepEqual(validatePublicationStatus(status(),'page-A'),status());
   assert.equal(publicToken(token),token);
-  for(const publicPath of ['https://example.invalid/site.html?publication='+token,'//example.invalid/'+token,'/site.html?publication='+token+'&private=1','/site.html?publication='+token+'#fragment'])assert.throws(()=>validatePublicationStatus({...status(),publicPath},'page-A'));
+  for(const publicPath of ['https://example.invalid/site?publication='+token,'//example.invalid/'+token,'/site?publication='+token+'&private=1','/site?publication='+token+'#fragment'])assert.throws(()=>validatePublicationStatus({...status(),publicPath},'page-A'));
   for(const value of [{...status(),active:false},{...status(),publicPath:null},{...status(),needsRepublish:true},{...status(),publishedAt:'not-a-date'},{...status(),currentSourceVersion:3},{...status(),sourceVersion:4}])assert.throws(()=>validatePublicationStatus(value,'page-A'));
   assert.equal(validatePublicationStatus({...status(),active:false,needsRepublish:true,publicPath:null,currentSourceVersion:3},'page-A').publicPath,null);
 });

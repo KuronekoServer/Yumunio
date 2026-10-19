@@ -3,12 +3,12 @@ const workspaceSections=['general','import','members','teamspaces','groups'];
 export function settingsHrefSection(href,workspaceId,base=globalThis.location?.href??'https://local.invalid/'){
  let url;try{url=new URL(href,base);}catch{return null;}
  if(url.origin!==new URL(base).origin)return null;
- if(url.pathname==='/preferences.html'){
+ if(url.pathname==='/preferences'){
   const values=url.searchParams.getAll('workspace');if(values.length>1||values.length===1&&values[0]!==workspaceId)return null;
   return personalSections.includes(url.hash.slice(1))?url.hash.slice(1):'appearance';
  }
- if(!['/workspace-settings.html','/share.html'].includes(url.pathname)||url.searchParams.getAll('workspace').length!==1||url.searchParams.get('workspace')!==workspaceId)return null;
- return url.pathname==='/share.html'?'members':['import','teamspaces','groups'].includes(url.searchParams.get('section'))?url.searchParams.get('section'):'general';
+ if(!['/workspace-settings','/share'].includes(url.pathname)||url.searchParams.getAll('workspace').length!==1||url.searchParams.get('workspace')!==workspaceId)return null;
+ return url.pathname==='/share'?'members':['import','teamspaces','groups'].includes(url.searchParams.get('section'))?url.searchParams.get('section'):'general';
 }
 const defaultMounts={
  preferences:async options=>(await import('./preferences-page.js')).mountPreferencesPage(options),

@@ -5,6 +5,8 @@ import { build as bundle } from 'esbuild';
 import { createHash } from 'node:crypto';
 import { createPwaIcon } from './pwa-icons.mjs';
 import { offlineAssetPaths } from '../../apps/web/public/offline-policy.js';
+import {buildNextPages} from './next-pages.mjs';
+import {syncLocalizations} from './localization.mjs';
 
 const projectRoot = fileURLToPath(new URL('../../', import.meta.url));
 const allowedExtensions = new Set(['.html', '.css', '.js', '.json', '.svg', '.png', '.ico', '.txt']);
@@ -50,6 +52,7 @@ export async function buildWeb(root = projectRoot) {
     await rejectLink(path);
     shared.set(name, await readFile(path));
   }
+  const routesSource=join(prototypeRoot,'web-routes.js');await rejectLink(routesSource);shared.set('web-routes.js',await readFile(routesSource));
   const importSource=join(domainRoot,'import-source.js');
   await rejectLink(importSource);
   shared.set('import-source.js',await readFile(importSource));
@@ -68,6 +71,15 @@ export async function buildWeb(root = projectRoot) {
   const simpleTableSource=join(domainRoot,'simple-table.js');
   await rejectLink(simpleTableSource);
   shared.set('simple-table.js',await readFile(simpleTableSource));
+  const attachmentSource=join(domainRoot,'attachment-block-model.js');
+  await rejectLink(attachmentSource);
+  shared.set('attachment-block-model.js',await readFile(attachmentSource));
+  const blockTypesSource=join(domainRoot,'block-types.js');
+  await rejectLink(blockTypesSource);
+  shared.set('block-types.js',(await readFile(blockTypesSource,'utf8')).replaceAll("'./inline.js'","'./inline-text.js'"));
+  const appearanceSource=join(domainRoot,'page-appearance.js');
+  await rejectLink(appearanceSource);
+  shared.set('page-appearance.js',await readFile(appearanceSource));
   const localeSource=join(root,'packages/identity/src/locale-code.js');
   await rejectLink(localeSource);
   shared.set('locale-code.js',await readFile(localeSource));
@@ -90,9 +102,13 @@ export async function buildWeb(root = projectRoot) {
   const dndEntry = join(root, 'apps/web/dnd-kit-entry.js');
   await rejectLink(dndEntry);
   const bundledDependencies = new Set();
-  for (const [name, entry] of [['collaboration-client.js', collaborationEntry], ['dnd-kit.js', dndEntry]]) {
+  const mathEntry=join(root,'apps/web/math-entry.js');await rejectLink(mathEntry);
+  const generated=new Map(),nextConfig=join(root,'apps/web/next.config.mjs');let nextEnabled=false;
+  await rejectLink(nextConfig);try{await readFile(nextConfig);nextEnabled=true;}catch(error){if(error.code!=='ENOENT')throw error;}
+  for (const [name, entry] of [['collaboration-client.js', collaborationEntry], ['dnd-kit.js', dndEntry],['math-renderer.js',mathEntry]]) {
     const bundled = await bundle({ entryPoints: [entry], bundle: true, write: false, absWorkingDir: root, tsconfigRaw: {},
       format: 'esm', platform: 'browser', target: ['es2022'], legalComments: 'inline',
+      define:{'process.env.NODE_ENV':'"production"'},
       minify: true, logLevel: 'silent', metafile: true });
     // These entries must remain portable: Node built-ins, external imports and runtime chunks are forbidden.
     if (bundled.outputFiles.length !== 1 || Object.values(bundled.metafile.outputs).some(output => output.imports.length)) throw new Error('Browser bundles must be self-contained.');
@@ -103,16 +119,25 @@ export async function buildWeb(root = projectRoot) {
     }
   }
   const licenseFiles = new Map([
+    ['katex',join(projectRoot,'node_modules/katex/LICENSE')],
     ...['yjs', 'lib0', 'isomorphic.js', '@dnd-kit/dom', '@dnd-kit/abstract', '@dnd-kit/collision', '@dnd-kit/geometry', '@dnd-kit/state', '@preact/signals-core'].map(name => [name, join(projectRoot, 'node_modules', name, 'LICENSE')]),
     ['tslib', join(projectRoot, 'node_modules/tslib/LICENSE.txt')],
   ]);
   const notices = [];
+  if(nextEnabled){
+    for(const[name,content]of await buildNextPages(root,{publicFiles:files}))generated.set(name,content);
+    for(const name of ['next','react','react-dom','scheduler','styled-jsx']){
+      let license;for(const file of ['LICENSE','license.md','LICENSE.md']){try{license=await readFile(join(projectRoot,'node_modules',name,file),'utf8');break;}catch(error){if(error.code!=='ENOENT')throw error;}}
+      if(!license)throw new Error('Next dependency requires a license notice: '+name);
+      notices.push(name+'\n\n'+license);
+    }
+    for(const name of ['react','react-dom','scheduler','react-server-dom-webpack'])notices.push('Next.js compiled '+name+'\n\n'+await readFile(join(projectRoot,'node_modules/next/dist/compiled',name,'LICENSE'),'utf8'));
+  }
   for (const name of [...bundledDependencies].sort()) {
     if (!licenseFiles.has(name)) throw new Error('Browser dependency requires an explicit license notice.');
     notices.push(name + '\n\n' + await readFile(licenseFiles.get(name), 'utf8'));
   }
-  if (notices.length) shared.set('THIRD_PARTY_LICENSES.txt', 'Third-party software included in the collaboration and drag-and-drop browser bundles\n\n' + notices.join('\n\n---\n\n'));
-  const generated=new Map();
+  if (notices.length) shared.set('THIRD_PARTY_LICENSES.txt', 'Third-party software included in the Next.js frontend, collaboration, math and drag-and-drop browser bundles\n\n' + notices.join('\n\n---\n\n'));
   const specification=join(root,'openapi.yaml');
   await rejectLink(dirname(specification));
   await rejectLink(specification);
@@ -120,7 +145,7 @@ export async function buildWeb(root = projectRoot) {
   if(files.includes('sw.js')){
     for(const size of [192,512])generated.set('pwa/icon-'+size+'.png',createPwaIcon(size));
     const digest=createHash('sha256');
-    for(const name of [...files].sort())digest.update(name+'\0').update(['inline-text.js','page-links.js','mentions.js','block-forest.js','chart-model.js','board-order.js','property-conversion.js','simple-table.js','locale-code.js'].includes(name)?shared.get(name):await readFile(join(publicRoot,name)));
+    for(const name of [...files].sort())digest.update(name+'\0').update(['inline-text.js','page-links.js','mentions.js','block-forest.js','chart-model.js','board-order.js','property-conversion.js','simple-table.js','attachment-block-model.js','block-types.js','page-appearance.js','math-renderer.js','web-routes.js','locale-code.js'].includes(name)?shared.get(name):await readFile(join(publicRoot,name)));
     for(const[name,bytes]of [...shared,...generated].sort(([a],[b])=>a.localeCompare(b)))digest.update(name+'\0').update(bytes);
     const paths=offlineAssetPaths([...files,...[...shared.keys()].map(name=>'shared/'+name),...generated.keys()]);
     const template=await readFile(join(publicRoot,'sw.js'),'utf8');
@@ -165,7 +190,7 @@ export async function buildWeb(root = projectRoot) {
     if(generated.has(name))continue;
     const target = join(output, name);
     await mkdir(dirname(target), { recursive: true });
-    if(['inline-text.js','page-links.js','mentions.js','block-forest.js','chart-model.js','board-order.js','property-conversion.js','simple-table.js','locale-code.js'].includes(name))await writeFile(target,shared.get(name));
+    if(['inline-text.js','page-links.js','mentions.js','block-forest.js','chart-model.js','board-order.js','property-conversion.js','simple-table.js','attachment-block-model.js','block-types.js','page-appearance.js','math-renderer.js','web-routes.js','locale-code.js'].includes(name))await writeFile(target,shared.get(name));
     else await cp(join(publicRoot, name), target);
   }
   for (const [name, content] of shared) {
@@ -183,6 +208,8 @@ export async function buildWeb(root = projectRoot) {
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
+  const locales=await syncLocalizations();
+  console.log(`Prepared ${locales.locales} locales across ${locales.namespaces} namespaces.`);
   const result = await buildWeb();
   console.log(`Built ${result.files.length} static files for Node and Workers.`);
 }

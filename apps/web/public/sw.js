@@ -15,8 +15,8 @@ self.addEventListener('fetch',event=>{
   const request=event.request,url=new URL(request.url);
   if(request.method!=='GET'||url.origin!==self.location.origin||/^\/(?:api(?:\/|$)|health$|manifest\.webmanifest$)/.test(url.pathname))return;
   if(cacheableOfflineRequest(request,self.location.origin,ASSETS)){
-    event.respondWith((async()=>{try{return await fetch(request);}catch{const cache=await caches.open(CACHE);return await cache.match(new URL(url.pathname==='/'?'/index.html':url.pathname,self.location.origin).href)??Response.error();}})());
+    event.respondWith((async()=>{try{return await fetch(request);}catch{const cache=await caches.open(CACHE);return await cache.match(new URL(url.pathname==='/'?'/notes':url.pathname,self.location.origin).href)??Response.error();}})());
   }else if(request.mode==='navigate'){
-    event.respondWith((async()=>{try{return await fetch(request);}catch{return await(await caches.open(CACHE)).match(new URL('/offline.html',self.location.origin).href)??Response.error();}})());
+    event.respondWith((async()=>{try{return await fetch(request);}catch{return await(await caches.open(CACHE)).match(new URL('/offline',self.location.origin).href)??Response.error();}})());
   }
 });

@@ -4,6 +4,12 @@ import {compileFormulaProperties,validateFormulaDefinition,parseFormula,FormulaE
 import { validateInlineMarks } from './inline.js';
 import {validateMentions} from './mentions.js';
 import {validateSimpleTableData} from './simple-table.js';
+import {isAttachmentBlock} from './attachment-block-model.js';
+import {RICH_BLOCK_TYPES,GENERATED_BLOCK_TYPES,isBookmarkBlock,validateBlockPresentation} from './block-types.js';
+export * from './block-types.js';
+import {validatePageAppearance} from './page-appearance.js';
+export * from './page-appearance.js';
+export {isAttachmentBlock} from './attachment-block-model.js';
 export * from './simple-table.js';
 export {BLOCK_MOVE_NESTING,BlockForestMoveError,planBlockForestMove,moveBlockForest} from './block-forest.js';
 /**
@@ -155,6 +161,10 @@ export function validateBlocks(blocks) {
       const block = assertPlainObject(items[index], field);
       const id = assertId(block.id, field + ".id");
       assertId(block.type, field + ".type");
+      if(GENERATED_BLOCK_TYPES.includes(block.type)&&Object.hasOwn(block,'children'))invalid(field+'.children','This block cannot contain children.');
+      if(block.type==='bookmark'&&block.data?.format==='web-link-v1'&&!isBookmarkBlock(block))invalid(field+'.data','Invalid web link.');
+      if(block.type==='equation'&&(typeof block.data?.text!=='string'||block.data.text.length>10000||Object.hasOwn(block,'children')))invalid(field+'.data','Invalid equation.');
+      if(['file','image'].includes(block.type)&&block.data?.format==='attachment-v1'&&!isAttachmentBlock(block))invalid(field+'.data','Invalid attachment block.');
       if(block.type==='table'&&block.data?.format==='simple-table-v1'){
         try{validateSimpleTableData(block.data);}catch{invalid(field+'.data','Invalid simple table.');}
         if(Object.hasOwn(block,'children'))invalid(field+'.children','A simple table cannot contain child blocks.');
@@ -168,18 +178,19 @@ export function validateBlocks(blocks) {
       ids.add(id);
       if (Object.hasOwn(block, "data")) {
         assertPlainObject(block.data, field + ".data");
+        if([...RICH_BLOCK_TYPES,'code','equation'].includes(block.type))try{validateBlockPresentation(block.data);}catch{invalid(field+'.data','Invalid block presentation.');}
         if (['columns','column'].includes(block.type) && Object.keys(block.data).length) invalid(field + '.data', 'Column wrapper data must be empty.');
         if (Object.hasOwn(block.data, "links")) {
           try { validatePageLinks(block.data.text, block.data.links, {allowUnavailable:true,allowSourceReferences:true}); }
           catch { invalid(field + ".data.links", "Invalid structured link ranges."); }
         }
         if (Object.hasOwn(block.data, "marks")) {
-          if (!["paragraph", "heading", "heading1", "heading2", "checklist", "bulleted-list", "numbered-list", "quote"].includes(block.type) || block.data.purpose === "import-source") invalid(field + ".data.marks", "Inline formatting is unavailable for this block.");
+          if (!RICH_BLOCK_TYPES.includes(block.type) || block.data.purpose === "import-source") invalid(field + ".data.marks", "Inline formatting is unavailable for this block.");
           try { validateInlineMarks(block.data.text, block.data.marks); }
           catch { invalid(field + ".data.marks", "Invalid inline formatting ranges."); }
         }
         if (Object.hasOwn(block.data, 'mentions')) {
-          if (!["paragraph", "heading", "heading1", "heading2", "checklist", "bulleted-list", "numbered-list", "quote"].includes(block.type) || block.data.purpose === 'import-source') invalid(field + '.data.mentions', 'Mentions are unavailable for this block.');
+          if (!RICH_BLOCK_TYPES.includes(block.type) || block.data.purpose === 'import-source') invalid(field + '.data.mentions', 'Mentions are unavailable for this block.');
           try { validateMentions(block.data.text, block.data.mentions, {allowUnavailable:true,allowMembershipIds:true}); }
           catch { invalid(field + '.data.mentions', 'Invalid inline mention ranges.'); }
         }
@@ -206,6 +217,7 @@ export function validatePage(value) {
   assertTimestamp(page.createdAt, "createdAt");
   assertTimestamp(page.updatedAt, "updatedAt");
   if (page.trashedAt !== null) assertTimestamp(page.trashedAt, "trashedAt");
+  if(Object.hasOwn(page,'appearance'))try{validatePageAppearance(page.appearance);}catch{invalid('appearance','Invalid page appearance.');}
   return /** @type {Page} */ (page);
 }
 

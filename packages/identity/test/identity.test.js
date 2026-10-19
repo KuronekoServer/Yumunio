@@ -31,9 +31,9 @@ async function registerAndVerify(f, email = 'user@studio.example') {
   assert.ok(f.mail.length);
   const url = new URL(f.mail.at(-1).text.split('\n').at(-1));
   assert.equal(url.origin, origin);
-  assert.equal(url.pathname, '/account.html');
+  assert.equal(url.pathname, '/account');
   const token = url.searchParams.get('verify');
-  const verified = await f.request('/verify-email?token=' + encodeURIComponent(token) + '&callbackURL=' + encodeURIComponent(origin + '/account.html'));
+  const verified = await f.request('/verify-email?token=' + encodeURIComponent(token) + '&callbackURL=' + encodeURIComponent(origin + '/account'));
   assert.ok([200, 302].includes(verified.status), 'verification status ' + verified.status);
   return email;
 }
@@ -221,9 +221,9 @@ test('bad verification links fail and a reset token changes the password once wh
   const email = await registerAndVerify(f);
   const login = await f.request('/sign-in/email', { email, password });
   const cookie = cookies(login);
-  const bad = await f.request('/verify-email?token=invalid-fixture-token&callbackURL=' + encodeURIComponent(origin + '/account.html'));
+  const bad = await f.request('/verify-email?token=invalid-fixture-token&callbackURL=' + encodeURIComponent(origin + '/account'));
   assert.equal(bad.status, 400);
-  assert.equal((await f.request('/request-password-reset', { email, redirectTo: origin + '/account.html' })).status, 202);
+  assert.equal((await f.request('/request-password-reset', { email, redirectTo: origin + '/account' })).status, 202);
   await f.identity.flushBackgroundTasks();
   const reset = new URL(f.mail.at(-1).text.split('\n').at(-1)).searchParams.get('reset');
   assert.ok(reset);

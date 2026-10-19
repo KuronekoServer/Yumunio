@@ -44,7 +44,7 @@ test('normal page attachment client preserves page text and binds, downloads and
   await ok(await request('/api/auth/sign-up/email','POST',{name:'Attachments fixture',email,password}),202);
   await identity.flushBackgroundTasks();
   const token=new URL(mail.at(-1).text.split('\n').at(-1)).searchParams.get('verify');
-  await ok(await request('/api/auth/verify-email?token='+encodeURIComponent(token)+'&callbackURL='+encodeURIComponent(origin+'/account.html')));
+  await ok(await request('/api/auth/verify-email?token='+encodeURIComponent(token)+'&callbackURL='+encodeURIComponent(origin+'/account')));
   const login=await request('/api/auth/sign-in/email','POST',{email,password});
   accountId=(await ok(login)).user.id;cookie=login.headers.getSetCookie().map(value=>value.split(';')[0]).join('; ');
   const workspace=await ok(await request('/api/auth/organization/create','POST',{name:'Page attachments fixture',slug:'page-attachments-fixture'}));

@@ -1,5 +1,7 @@
 .git
 node_modules
+**/.next
+apps/web/out
 .wrangler
 design
 fonts

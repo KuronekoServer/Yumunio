@@ -13,8 +13,22 @@ import {createRecoveryArchive,readRecoveryArchive,verifyRecoveryArchive,manifest
 import {prepareRecoverySnapshot,TABLE_BY_NAME,RECOVERY_LIMITS} from '../src/model.js';
 import {restoreRecoveryArchive,assertRecoveryReady} from '../src/restore.js';
 import {database,seed,memoryBlobs,d1,stamp,secret,password} from './fixtures.js';
+import { SETUP_SCHEMA } from '../../identity/src/setup-store.js';
 const key=()=>crypto.getRandomValues(new Uint8Array(32));
 const code=expected=>error=>error?.code===expected&&error.message===expected&&!Object.hasOwn(error,'cause');
+test('recovery captures and restores sealed instance settings as an optional installation table',async t=>{
+  const source=database(t);await seed(source,{blobs:false});source.exec(SETUP_SCHEMA);
+  const sealed=Buffer.alloc(12,1).toString('base64')+'.'+Buffer.alloc(64,2).toString('base64');
+  source.prepare('INSERT INTO yumunio_instance_settings VALUES(1,3,?)').run(sealed);
+  const snapshot=await createSqliteRecoveryStore(source).capture({now:stamp});
+  assert.deepEqual(snapshot.tables.find(table=>table.name==='yumunio_instance_settings').rows,[[1,3,sealed]]);
+  const target=database(t);target.exec(SETUP_SCHEMA);const store=createSqliteRecoveryStore(target);
+  const plan=prepareRecoverySnapshot(snapshot,{objectMapping:new Map(),now:stamp}),options={restoreId:'instance-settings-restore',manifestDigest:'a'.repeat(64),preparedAt:stamp};
+  await store.beginRestore(plan,options);
+  let state;do{state=await store.applyRestoreBatch(plan,options);}while(state.cursor<state.rowCount);
+  await store.finishRestore(plan,options);
+  assert.deepEqual({...target.prepare('SELECT id,revision,sealed FROM yumunio_instance_settings').get()},{id:1,revision:3,sealed});
+});
 async function archive(t,options={}){const db=database(t),fixture=await seed(db,options),store=createSqliteRecoveryStore(db),snapshot=await store.capture({now:stamp}),destination=await memoryBlobs('backup-destination'),encryptionKey=key(),result=await createRecoveryArchive({snapshot,sourceBlobs:fixture.source,destination,key:encryptionKey,authSecret:secret,backupId:'fixture-backup',createdAt:stamp});return{db,...fixture,store,snapshot,destination,key:encryptionKey,result};}
 
 test('SQLite consistent capture declares exclusions, preserves bound Unicode and uses no implicit migration',async t=>{

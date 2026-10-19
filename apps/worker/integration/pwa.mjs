@@ -1,3 +1,4 @@
+import {workerPagePaths} from '../../../packages/prototype/src/web-routes.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {Miniflare,convertV4MiniflareOptions} from 'miniflare';
@@ -44,7 +45,7 @@ test('actual local workerd serves a public read-only branded manifest and valid 
   const request=(path,options={})=>worker.dispatchFetch(origin+path,{redirect:'manual',...options});
   async function manifest(options={}){const response=await request('/manifest.webmanifest',options);assert.equal(response.status,200,await response.clone().text());assert.equal(response.headers.get('content-type').split(';')[0],'application/manifest+json');assert.equal(response.headers.get('cache-control'),'no-store');assert.equal(response.headers.get('x-content-type-options'),'nosniff');assert.equal(response.headers.get('referrer-policy'),'no-referrer');assert.equal(response.headers.get('cross-origin-resource-policy'),'same-origin');assert.deepEqual(response.headers.getSetCookie(),[]);return response.json();}
   worker=start({});await worker.ready;
-  const defaults=await manifest();assert.equal(defaults.name,'Yumunio');assert.equal(defaults.start_url,'/account.html');assert.equal(defaults.scope,'/');assert.equal(defaults.id,'/');assert.equal(defaults.display,'standalone');assert.deepEqual(defaults.icons.map(icon=>icon.src),['/pwa/icon-192.png','/pwa/icon-512.png']);
+  const defaults=await manifest();assert.equal(defaults.name,'Yumunio');assert.equal(defaults.start_url,'/account');assert.equal(defaults.scope,'/');assert.equal(defaults.id,'/');assert.equal(defaults.display,'standalone');assert.deepEqual(defaults.icons.map(icon=>icon.src),['/pwa/icon-192.png','/pwa/icon-512.png']);
   assert.deepEqual(Object.keys(defaults).sort(),['id','name','short_name','lang','start_url','scope','display','background_color','theme_color','icons'].sort());
   await manifest({headers:{Origin:origin,'Sec-Fetch-Site':'same-origin'}});
   const head=await request('/manifest.webmanifest',{method:'HEAD'});assert.equal(head.status,200);assert.equal(head.headers.get('cache-control'),'no-store');assert.equal(await head.text(),'');
@@ -71,7 +72,7 @@ test('actual workerd Cache API removes only retired same-origin static entries w
  const entry=`import {OFFLINE_CACHE_PREFIX,RETIRED_OFFLINE_ASSET_PATHS,purgeRetiredOfflineAssets} from './apps/web/public/offline-policy.js';
  export default {async fetch(request){
   const origin=new URL(request.url).origin,names=[OFFLINE_CACHE_PREFIX+'previous',OFFLINE_CACHE_PREFIX+'current','yumunio-account-private-fixture','another-app-cache'];
-  const retained=['/index.html','/app.js','/api/content/private','/workspace.html','/ai.js?keep=1','/ai-locales/fr.json','/ai-extra.js'];
+  const retained=['/index.html','/app.js','/api/content/private','/workspace','/ai.js?keep=1','/ai-locales/fr.json','/ai-extra.js'];
   const payload=()=>new Response('synthetic-cache-entry',{headers:{'Cache-Control':'public, max-age=3600'}});
   for(const name of names){const cache=await caches.open(name);for(const path of [...RETIRED_OFFLINE_ASSET_PATHS,...retained])await cache.put(new Request(origin+path),payload());await cache.put(new Request('https://foreign-cache.fixture.invalid/ai.js'),payload());}
   const storage={async keys(){return names;},open:name=>caches.open(name)},removed=await purgeRetiredOfflineAssets(storage,origin),second=await purgeRetiredOfflineAssets(storage,origin);let preserved=0,retiredRemaining=0;

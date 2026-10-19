@@ -14,13 +14,13 @@ export function createApiTokenApi({store,contentStore,resolveSession,origin,enab
  const externalActions=actions??createExternalPageActions({store,contentStore,origin,enabled,now});
  if(typeof externalActions.authorize!=='function'||typeof externalActions.execute!=='function')throw new Error('Invalid external page actions.');
  return async request=>{try{
-  const url=new URL(request.url),external=/^\/api\/v1\/pages\/([A-Za-z0-9][A-Za-z0-9._:-]{0,127})(?:\/(document))?$/.exec(url.pathname),managed=/^\/api\/integrations\/tokens(?:\/([a-f0-9]{32}))?$/.exec(url.pathname);
+  const url=new URL(request.url),external=/^\/api\/v1\/pages\/([A-Za-z0-9][A-Za-z0-9._:-]{0,127})(?:\/(document|blocks))?$/.exec(url.pathname),managed=/^\/api\/integrations\/tokens(?:\/([a-f0-9]{32}))?$/.exec(url.pathname);
   if(url.origin!==origin||url.search||url.hash||!external&&!managed)tokenFail('API_TOKEN_NOT_FOUND',404);
   const stamp=tokenTimestamp(now());
   if(external){
-   if(request.method!=='GET'&&!(external[2]&&request.method==='PATCH'))tokenFail('METHOD_NOT_ALLOWED',405);if(!enabled)tokenFail('API_TOKENS_DISABLED',503);
+   if(external[2]==='blocks'?request.method!=='PATCH':request.method!=='GET'&&!(external[2]&&request.method==='PATCH'))tokenFail('METHOD_NOT_ALLOWED',405);if(!enabled)tokenFail('API_TOKENS_DISABLED',503);
    if(request.headers.has('origin')&&request.headers.get('origin')!==origin)tokenFail('ORIGIN_REJECTED',403);
-   const authorization=request.headers.get('authorization'),action=request.method==='PATCH'?'document.write':external[2]?'document.read':'page.read';
+   const authorization=request.headers.get('authorization'),action=request.method==='PATCH'?(external[2]==='blocks'?'blocks.edit':'document.write'):external[2]?'document.read':'page.read';
    // Authenticate before consuming a larger write body; execute reauthorizes the action.
    if(request.method==='PATCH')await externalActions.authorize({authorization,pageId:external[1],scope:'document:write'});
    return json(await externalActions.execute({authorization,pageId:external[1],action,...(request.method==='PATCH'?{input:await readJson(request,API_TOKEN_LIMITS.documentBytes+4096)}:{})}));

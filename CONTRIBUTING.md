@@ -4,6 +4,12 @@
 
 [行動規範](CODE_OF_CONDUCT.md)を守り、[Issueフォーム](https://github.com/KuronekoServer/Yumunio/issues/new/choose)から報告・提案の種類を選んでください。不具合では、環境、操作手順、期待した結果、実際の結果を記載します。実データを含まない短い再現例があると確認しやすくなります。脆弱性の報告は[SECURITY.md](SECURITY.md)の非公開窓口へお願いします。
 
+## ブラウザーから参加する
+
+翻訳とドキュメントの修正はGitHubの編集ボタンからPRで提案できます。Node.jsのインストールは不要です。[翻訳の手順](docs/community-translations.md)（[English](docs/community-translations.en.md)）と[ドキュメント一覧](docs/README.md)から対象を選んでください。一文だけの提案も受け付けます。
+
+ドキュメントを変更するときは、利用者向けの操作手順と運営者向けの設定を区別し、初回導入・更新・復旧のどれに使う説明かを明記します。例には架空のドメインとデータを使ってください。CIでローカルリンクを検査します。
+
 ## 開発環境
 
 Node.js 24.16.0以上とnpmを使います。
@@ -30,6 +36,7 @@ Node.jsとWorkersで同じデータや権限を扱う変更は、共通実装に
 ## 変更時の確認
 
 ```sh
+npm run l10n:sync
 npm run check
 npm test
 npm run test:worker
@@ -43,9 +50,15 @@ PRには、変更の目的、利用者への影響、実行した確認を記載
 
 ## 翻訳
 
-UIの翻訳は`apps/web/public/locales/`と機能別の`*-locales/`にあるJSONで管理します。日本語と英語のキー、置換用変数、意味をそろえ、利用者向けの文言をコードへ直接追加しないようにしてください。
+コミュニティ翻訳は言語ごとのJSONを編集し、Pull Requestで提案してください。翻訳元は日本語です。手順は[コミュニティ翻訳](docs/community-translations.md)を参照してください。Crowdinとの接続は停止中です。
 
-新しい言語を追加する場合は、カタログだけでなく、対応ロケールの検証・選択UI・フォールバックも更新します。
+UIの翻訳は`apps/web/public/locales/`と機能別の`*-locales/`にあるJSONで管理します。日本語と英語のキー、置換用変数、意味をそろえ、利用者向けの文言をコードへ直接追加しないようにしてください。`npm run l10n:check`で検証できます。
+
+新しい言語は翻訳JSONを1ファイル追加するだけで提案できます。CIとビルド時の `l10n:sync` が選択UIとフォールバックに使う一覧を生成します。ローカルでも `npm run l10n:sync`、`npm run l10n:check`、`npm run l10n:report -- --markdown` で確認できます。
+
+## ホスティングと配布の案内を変更する
+
+[導入ガイド](docs/hosting/README.md)と[リリース確認](docs/maintainers/releasing.md)を更新してください。`npm run docs:check` でリンクを検証し、配布ファイルを変えたら `npm run hosting:bundle` で導入ZIPを作り直します。Docker・Workers・CI・公開環境で実際に確認した範囲を区別してください。
 
 ## データとライセンス
 

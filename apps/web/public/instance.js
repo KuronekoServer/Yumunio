@@ -1,6 +1,6 @@
 import {canonicalLocale,isLocaleTag} from './locale-code.js';
 const themes=['paper','light','ocean','lavender','forest','midnight'];
-const defaults={schemaVersion:1,applicationName:'Yumunio',organizationName:null,logos:{light:null,dark:null},favicons:{light:null,dark:null},brandColor:'#385772',initialTheme:'light',defaultLocale:'ja'};
+const defaults={schemaVersion:1,applicationName:'Yumunio',organizationName:null,logos:{light:null,dark:null},favicons:{light:null,dark:null},brandColor:'#3D3D3A',initialTheme:'light',defaultLocale:'ja'};
 const clone=value=>structuredClone(value);
 const safeAsset=value=>typeof value==='string'&&value.length<=512&&/^\/brand\/(?:[A-Za-z0-9][A-Za-z0-9_-]*\/)*[A-Za-z0-9][A-Za-z0-9._-]*\.(?:svg|png|ico)$/.test(value)&&value.split('/').every(part=>!part.includes('..'));
 function object(value,keys){return value&&typeof value==='object'&&!Array.isArray(value)&&Object.keys(value).length===keys.length&&keys.every(key=>Object.hasOwn(value,key));}

@@ -39,7 +39,7 @@ test('Notion ZIP conversion commits one private branch over Node HTTP and preser
   assert.equal((await request('/api/auth/sign-up/email', 'POST', { name: 'Import fixture', email, password })).status, 202);
   await identity.flushBackgroundTasks();
   const token = new URL(mail.at(-1).text.split('\n').at(-1)).searchParams.get('verify');
-  assert.equal((await request('/api/auth/verify-email?token=' + encodeURIComponent(token) + '&callbackURL=' + encodeURIComponent(origin + '/account.html'))).status, 200);
+  assert.equal((await request('/api/auth/verify-email?token=' + encodeURIComponent(token) + '&callbackURL=' + encodeURIComponent(origin + '/account'))).status, 200);
   const login = await request('/api/auth/sign-in/email', 'POST', { email, password });
   assert.equal(login.status, 200);
   expectedAccountId = (await login.json()).user.id;

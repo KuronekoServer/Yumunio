@@ -32,9 +32,9 @@ function icon(name){
 }
 function action(key,onClick,attributes={}){return node('button',{type:'button',class:'button',onClick,...attributes},t(key));}
 function link(key,href,name='page'){return node('a',{class:'settings-link',href},[icon(name),t(key)]);}
-function workspaceHref(){return '/workspace.html?workspace='+encodeURIComponent(state.workspaceId);}
+function workspaceHref(){return '/workspace?workspace='+encodeURIComponent(state.workspaceId);}
 function sectionLink(section,key,name){
- const href='/workspace-settings.html?workspace='+encodeURIComponent(state.workspaceId)+'&section='+section;
+ const href='/workspace-settings?workspace='+encodeURIComponent(state.workspaceId)+'&section='+section;
  return node('a',{class:'settings-link',href,...(state.section===section?{'aria-current':'page'}:{}),onClick:event=>{
   if(event.button!==0||event.ctrlKey||event.metaKey||event.shiftKey||event.altKey)return;
   event.preventDefault();state.section=section;state.navOpen=false;if(!embedded)history.replaceState(null,'',href);focusAfterRender=true;render();
@@ -53,13 +53,13 @@ function setNavigation(open){
  if(open)app.querySelector('.settings-mobile-close')?.focus();else app.querySelector('.settings-mobile-toggle')?.focus();
 }
 function sidebar(){
- const brand=node('a',{class:'settings-brand',href:state.context?workspaceHref():'/account.html','data-instance-label':''},[node('img',{'data-instance-logo':'',hidden:true,alt:''}),icon('book'),node('span',{'data-instance-name':''},'Yumunio')]);
+ const brand=node('a',{class:'settings-brand',href:state.context?workspaceHref():'/account','data-instance-label':''},[node('img',{'data-instance-logo':'',hidden:true,alt:''}),icon('book'),node('span',{'data-instance-name':''},'Yumunio')]);
  brand.querySelector('svg').setAttribute('data-instance-default-logo','');
  const side=node('aside',{class:'settings-sidebar',id:'settings-sidebar','aria-label':t('navigation')},[
   node('div',{},[brand,node('button',{type:'button',class:'button icon-button settings-mobile-close','aria-label':t('closeMenu'),onClick:()=>setNavigation(false)},icon('close'))]),
   node('div',{class:'settings-context'},[node('span',{},t('workspaceLabel')),node('strong',{translate:'no'},state.context?.workspace.name||t('currentWorkspace'))]),
-  node('nav',{class:'settings-group','aria-label':t('workspaceGroup')},[node('h2',{},t('workspaceGroup')),sectionLink('overview','overview','settings'),sectionLink('import','import','import'),...(state.context?[link('members','/share.html?workspace='+encodeURIComponent(state.workspaceId),'people'),link('groups','/workspace-settings.html?workspace='+encodeURIComponent(state.workspaceId)+'&section=groups','people')]:[])]),
-  node('nav',{class:'settings-group','aria-label':t('personalGroup')},[node('h2',{},t('personalGroup')),link('preferences','/preferences.html','settings'),link('account','/account.html#account','people')]),
+  node('nav',{class:'settings-group','aria-label':t('workspaceGroup')},[node('h2',{},t('workspaceGroup')),sectionLink('overview','overview','settings'),sectionLink('import','import','import'),...(state.context?[link('members','/share?workspace='+encodeURIComponent(state.workspaceId),'people'),link('groups','/workspace-settings?workspace='+encodeURIComponent(state.workspaceId)+'&section=groups','people')]:[])]),
+  node('nav',{class:'settings-group','aria-label':t('personalGroup')},[node('h2',{},t('personalGroup')),link('preferences','/preferences','settings'),link('account','/account#account','people')]),
   node('div',{class:'settings-sidebar-footer'},[...(state.context?[link('backWorkspace',workspaceHref(),'back'),node('small',{translate:'no'},state.context.user.name)]:[]),node('a',{class:'settings-license',href:'./LICENSE.txt'},'MIT License')])
  ]);
  return side;
@@ -72,8 +72,8 @@ function overview(){
  ]);
  return [
   node('section',{class:'settings-section'},[node('h2',{},t('general')),facts]),
-  node('section',{class:'settings-section'},[node('h2',{},t('content')),node('div',{class:'settings-action-row'},[node('div',{},[node('h3',{},t('import')),node('p',{},t('importSummary'))]),node('a',{class:'button',href:'/workspace-settings.html?workspace='+encodeURIComponent(state.workspaceId)+'&section=import',onClick:event=>{if(event.button!==0||event.ctrlKey||event.metaKey||event.shiftKey||event.altKey)return;event.preventDefault();if(embedded){onNavigate?.({section:'import'});return;}state.section='import';if(!embedded)history.replaceState(null,'',event.currentTarget.href);focusAfterRender=true;render();}},t('chooseSource'))])]),
-  node('section',{class:'settings-section'},[node('h2',{},t('access')),node('div',{class:'settings-action-row'},[node('div',{},[node('h3',{},t('members')),node('p',{},t('membersHint'))]),node('a',{class:'button',href:'/share.html?workspace='+encodeURIComponent(state.workspaceId)},t('openMembers'))])]),
+  node('section',{class:'settings-section'},[node('h2',{},t('content')),node('div',{class:'settings-action-row'},[node('div',{},[node('h3',{},t('import')),node('p',{},t('importSummary'))]),node('a',{class:'button',href:'/workspace-settings?workspace='+encodeURIComponent(state.workspaceId)+'&section=import',onClick:event=>{if(event.button!==0||event.ctrlKey||event.metaKey||event.shiftKey||event.altKey)return;event.preventDefault();if(embedded){onNavigate?.({section:'import'});return;}state.section='import';if(!embedded)history.replaceState(null,'',event.currentTarget.href);focusAfterRender=true;render();}},t('chooseSource'))])]),
+  node('section',{class:'settings-section'},[node('h2',{},t('access')),node('div',{class:'settings-action-row'},[node('div',{},[node('h3',{},t('members')),node('p',{},t('membersHint'))]),node('a',{class:'button',href:'/share?workspace='+encodeURIComponent(state.workspaceId)},t('openMembers'))])]),
   node('p',{class:'settings-transfer-note'},t('settingsBoundary'))
  ];
 }
@@ -92,7 +92,7 @@ function importSection(){
 }
 function failure(){
  const key=({INVALID_WORKSPACE:'invalidWorkspace',ACCOUNTS_DISABLED:'accountsDisabled',SIGN_IN:'signInRequired',VERIFY_EMAIL:'verifyRequired',CONTENT_DISABLED:'contentDisabled',WORKSPACE_UNAVAILABLE:'workspaceUnavailable',ACCOUNT_CHANGED:'accountChanged',INVALID_RESPONSE:'unavailable'})[state.error]||'unavailable';
- return node('section',{class:'settings-status',role:'alert'},[node('p',{},t(key)),node('div',{class:'settings-actions'},[node('a',{class:'button',href:'/account.html#account'},t('openAccount')),action('retry',()=>void load())])]);
+ return node('section',{class:'settings-status',role:'alert'},[node('p',{},t(key)),node('div',{class:'settings-actions'},[node('a',{class:'button',href:'/account#account'},t('openAccount')),action('retry',()=>void load())])]);
 }
 function render(){
  if(destroyed||!i18n)return;
@@ -139,7 +139,7 @@ function focusSection(value=section){if(destroyed)return;section=value;state.sec
 const keydown=event=>{if(event.key==='Escape'&&state.navOpen)setNavigation(false);};
 const resized=()=>{if(!destroyed){state.navOpen=false;render();}};
 const focused=()=>{if(destroyed||!state.context||state.loading)return;const actorId=state.context.user.id;void request('/api/auth/get-session').then(session=>{if(!destroyed&&state.context?.user.id===actorId&&(session?.user?.id!==actorId||session.user.emailVerified!==true)){state.context=null;state.error='ACCOUNT_CHANGED';render();}}).catch(()=>{if(!destroyed&&state.context?.user.id===actorId){state.context=null;state.error='UNAVAILABLE';render();}});};
-const clicked=event=>{if(!embedded||event.defaultPrevented||event.button!==0||event.ctrlKey||event.metaKey||event.shiftKey||event.altKey)return;const link=event.target.closest?.('a[href]');if(!link)return;const url=new URL(link.href,location.href);if(url.pathname==='/share.html'){event.preventDefault();onNavigate?.({section:'members'});}else if(url.pathname==='/workspace-settings.html'&&url.searchParams.get('workspace')===state.workspaceId&&url.searchParams.get('section')==='groups'){event.preventDefault();onNavigate?.({section:'groups'});}};
+const clicked=event=>{if(!embedded||event.defaultPrevented||event.button!==0||event.ctrlKey||event.metaKey||event.shiftKey||event.altKey)return;const link=event.target.closest?.('a[href]');if(!link)return;const url=new URL(link.href,location.href);if(url.pathname==='/share'){event.preventDefault();onNavigate?.({section:'members'});}else if(url.pathname==='/workspace-settings'&&url.searchParams.get('workspace')===state.workspaceId&&url.searchParams.get('section')==='groups'){event.preventDefault();onNavigate?.({section:'groups'});}};
 const ready=(async()=>{
 try{
  const [config,catalogs]=await Promise.all([loadInstanceConfig(),loadCatalogs({namespace:'workspace-settings'})]);

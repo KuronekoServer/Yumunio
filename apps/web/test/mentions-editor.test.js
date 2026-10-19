@@ -43,7 +43,7 @@ test('pasted and remote text changes rebase or remove whole entity ranges and ne
  const before=input.getInlineState();assert.equal(patchInlineEditor(input,{text:before.text,mentions:[{kind:'page',start:0,end:100,pageId:'p'}]}).applied,false);assert.deepEqual(input.getInlineState(),before);
 });
 test('page/date/unavailable references render literal semantic nodes without leaking target IDs',t=>{
- inlineDomFixture(t);const input=createInlineEditor({text:'<x> date gone',readOnly:true,mentions:[{kind:'page',start:0,end:3,pageId:'p'},{kind:'date',start:4,end:8,date:'2026-10-16'},{kind:'person',start:9,end:13,unavailable:true}],pageHref:ref=>'/workspace.html?page='+ref.pageId});
+ inlineDomFixture(t);const input=createInlineEditor({text:'<x> date gone',readOnly:true,mentions:[{kind:'page',start:0,end:3,pageId:'p'},{kind:'date',start:4,end:8,date:'2026-10-16'},{kind:'person',start:9,end:13,unavailable:true}],pageHref:ref=>'/workspace?page='+ref.pageId});
  assert.equal(input.childNodes[0].nodeName,'A');assert.equal(input.childNodes[0].textContent,'<x>');assert.equal(input.childNodes[2].nodeName,'TIME');assert.equal(input.childNodes[2].getAttribute('datetime'),'2026-10-16');assert.equal(input.childNodes[4].nodeName,'SPAN');assert.equal(input.childNodes[4].getAttribute('data-account-id'),null);
 });
 test('workspace metadata retains dates through text changes and rejects malformed read projections',()=>{

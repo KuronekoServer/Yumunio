@@ -22,14 +22,14 @@ test('the mounted picker preserves editor DOM and restores backward selection, f
 });
 test('workspace choices only delegate safe fixed URLs and a rejected outer draft transition keeps the popup open',async t=>{
  let allowed=false;const f=fixture(t,{navigate:async()=>allowed});await f.picker.ready;
- f.picker.element.querySelectorAll('.workspace-picker-option')[1].dispatch('click');await flush();assert.deepEqual(f.urls,['/workspace.html?workspace=notes']);assert.equal(f.picker.open,true);assert.equal(f.doc.activeElement,f.picker.element.querySelector('.workspace-picker-close'));
+ f.picker.element.querySelectorAll('.workspace-picker-option')[1].dispatch('click');await flush();assert.deepEqual(f.urls,['/workspace?workspace=notes']);assert.equal(f.picker.open,true);assert.equal(f.doc.activeElement,f.picker.element.querySelector('.workspace-picker-close'));
  allowed=true;f.picker.element.querySelectorAll('.workspace-picker-option')[1].dispatch('click');await flush();assert.equal(f.picker.open,false);assert.equal(f.closed.length,1);assert.equal(f.client.destroyed,1);
 });
 test('unsaved creation input guards switching and only explicit discard invokes the captured destination',async t=>{
  const f=fixture(t);await f.picker.ready;f.enter('My notes','my-notes');assert.deepEqual(f.picker.closeState,{busy:false,dirty:true});assert.equal(f.picker.canClose(),false);
  f.picker.element.querySelectorAll('.workspace-picker-option')[1].dispatch('click');assert.deepEqual(f.urls,[]);assert.ok(f.picker.element.querySelector('.workspace-picker-discard'));
  f.button('keepEditing').dispatch('click');assert.equal(f.picker.element.querySelector('#workspace-picker-name').value,'My notes');assert.equal(f.picker.open,true);
- f.picker.element.querySelectorAll('.workspace-picker-option')[1].dispatch('click');f.button('discard').dispatch('click');await flush();assert.deepEqual(f.urls,['/workspace.html?workspace=notes']);assert.equal(f.picker.closeState.dirty,false);assert.equal(f.picker.element.querySelector('form'),null);f.picker.destroy();
+ f.picker.element.querySelectorAll('.workspace-picker-option')[1].dispatch('click');f.button('discard').dispatch('click');await flush();assert.deepEqual(f.urls,['/workspace?workspace=notes']);assert.equal(f.picker.closeState.dirty,false);assert.equal(f.picker.element.querySelector('form'),null);f.picker.destroy();
 });
 test('Escape and unload protect the creation draft while IME Escape does not open or dismiss confirmation',async t=>{
  const f=fixture(t);await f.picker.ready;f.enter('Draft','draft');f.picker.element.dispatch('compositionstart');assert.equal(f.keydown({key:'Escape'}).prevented,false);f.picker.element.dispatch('cancel');assert.equal(f.picker.element.querySelector('.workspace-picker-discard'),null);assert.equal(f.picker.open,true);
@@ -38,7 +38,7 @@ test('Escape and unload protect the creation draft while IME Escape does not ope
 });
 test('pending creation is non-reentrant and cannot be closed; success adds one workspace before guarded navigation',async t=>{
  const pending=deferred(),f=fixture(t,{create:()=>pending.promise});await f.picker.ready;f.enter('New','new').dispatch('submit');assert.equal(f.picker.closeState.busy,true);assert.equal(f.picker.requestClose(),false);f.picker.element.querySelector('form').dispatch('submit');assert.equal(f.calls.filter(item=>item.kind==='create').length,1);assert.equal(f.picker.element.querySelector('#workspace-picker-name').disabled,true);
- pending.resolve({id:'new',name:'New',slug:'new'});await flush();assert.deepEqual(f.urls,['/workspace.html?workspace=new']);assert.equal(f.picker.open,true);assert.deepEqual(f.picker.closeState,{busy:false,dirty:false});assert.equal(f.picker.element.querySelectorAll('.workspace-picker-option').length,3);assert.equal(f.picker.element.querySelector('form'),null);assert.match(f.picker.element.textContent,/label:created/);f.picker.destroy();
+ pending.resolve({id:'new',name:'New',slug:'new'});await flush();assert.deepEqual(f.urls,['/workspace?workspace=new']);assert.equal(f.picker.open,true);assert.deepEqual(f.picker.closeState,{busy:false,dirty:false});assert.equal(f.picker.element.querySelectorAll('.workspace-picker-option').length,3);assert.equal(f.picker.element.querySelector('form'),null);assert.match(f.picker.element.textContent,/label:created/);f.picker.destroy();
 });
 test('a known creation refusal retains the form and an uncertain result hides the private list and prevents another submission',async t=>{
  let uncertain=false;const f=fixture(t,{create:async()=>{if(uncertain){f.client.creationUncertain=true;throw Object.assign(new Error(),{code:'CREATE_UNCONFIRMED'});}throw Object.assign(new Error(),{code:'REQUEST_FAILED',status:400});}});await f.picker.ready;f.enter('New','new').dispatch('submit');await flush();assert.equal(f.picker.element.querySelector('#workspace-picker-name').value,'New');assert.equal(f.picker.element.querySelectorAll('.workspace-picker-option').length,2);assert.equal(f.urls.length,0);
@@ -50,7 +50,7 @@ test('closing during startup destroys its scope and no late response can repopul
 });
 test('revoked current membership and actor errors release no workspace entries and the account link still uses guarded navigation',async t=>{
  const f=fixture(t,{load:async()=>({...model(),workspaces:[other]})});await f.picker.ready;assert.equal(f.picker.element.querySelectorAll('.workspace-picker-option').length,0);assert.match(f.picker.element.textContent,/label:workspaceUnavailable/);
- const account=f.picker.element.querySelector('a');const event=account.dispatch('click',{button:0});assert.equal(event.prevented,true);await flush();assert.deepEqual(f.urls,['/account.html#account']);f.picker.destroy();
+ const account=f.picker.element.querySelector('a');const event=account.dispatch('click',{button:0});assert.equal(event.prevented,true);await flush();assert.deepEqual(f.urls,['/account#account']);f.picker.destroy();
 });
 test('Tab wraps within the current popup or discard guard and another native modal owns its own Escape',async t=>{
  const f=fixture(t);await f.picker.ready;const choices=f.picker.element.querySelectorAll('a[href],button,input');choices.at(-1).focus();assert.equal(f.keydown({key:'Tab'}).prevented,true);assert.equal(f.doc.activeElement,choices[0]);choices[0].focus();assert.equal(f.keydown({key:'Tab',shiftKey:true}).prevented,true);assert.equal(f.doc.activeElement,choices.at(-1));
@@ -62,5 +62,5 @@ test('another open native modal blocks mounting and literal names never become m
 });
 test('account and management links retain native modified-click behavior and dirty ordinary clicks require discard',async t=>{
  const f=fixture(t);await f.picker.ready;f.enter('Draft','draft');const links=f.picker.element.querySelectorAll('a');assert.equal(links[1].dispatch('click',{button:0,ctrlKey:true}).prevented,false);assert.equal(f.urls.length,0);
- assert.equal(links[1].dispatch('click',{button:0}).prevented,true);assert.ok(f.picker.element.querySelector('.workspace-picker-discard'));assert.equal(f.urls.length,0);f.button('discard').dispatch('click');await flush();assert.deepEqual(f.urls,['/share.html?workspace=studio']);f.picker.destroy();
+ assert.equal(links[1].dispatch('click',{button:0}).prevented,true);assert.ok(f.picker.element.querySelector('.workspace-picker-discard'));assert.equal(f.urls.length,0);f.button('discard').dispatch('click');await flush();assert.deepEqual(f.urls,['/share?workspace=studio']);f.picker.destroy();
 });

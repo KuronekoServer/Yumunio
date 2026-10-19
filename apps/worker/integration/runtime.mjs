@@ -331,18 +331,21 @@ test('local workerd serves generated assets with security headers and preserves 
   const home = await f.request('/');
   assert.equal(home.status, 200); checkPolicy(home);
   assert.equal(home.headers.get('location'), null);
-  const homeText = await home.text(); assert.match(homeText, /Yumunio/);
+  const homeText = await home.text(); assert.match(homeText, /<div id="app"><\/div>/);
   const index = await f.request('/index.html');
-  assert.equal(index.status, 200); checkPolicy(index); assert.equal(index.headers.get('location'), null);
-  assert.equal(await index.text(), homeText);
-  const workspace = await f.request('/workspace.html');
+  assert.equal(index.status, 308); checkPolicy(index); assert.equal(index.headers.get('location'), '/notes');
+  const workspace = await f.request('/workspace');
   assert.equal(workspace.status, 200); checkPolicy(workspace); assert.equal(workspace.headers.get('location'), null);
-  assert.match(await workspace.text(), /workspace\.js/);
-  assert.equal((await f.request('/workspace')).status, 404, 'extensionless HTML paths are not implicit aliases');
+  const workspaceHtml=await workspace.text(),nextChunk=workspaceHtml.match(/<script[^>]+src="(\/_next\/static\/[^\"]+\.js)"/)?.[1];
+  assert.ok(nextChunk,'the workspace serves its Next.js application scripts');
+  const workspaceScript=await f.request(nextChunk);assert.equal(workspaceScript.status,200);checkPolicy(workspaceScript);await workspaceScript.arrayBuffer();
+  const legacy=await f.request('/workspace.html?workspace=preview');assert.equal(legacy.status,308);assert.equal(legacy.headers.get('location'),'/workspace?workspace=preview');
+  assert.equal((await f.request('/unknown-page')).status, 404, 'unknown paths must not become HTML fallbacks');
   const script = await f.request('/sw.js'); assert.equal(script.status, 200);
   const precache = JSON.parse((await script.text()).match(/^const ASSETS=(\[.*\]);$/m)?.[1] ?? 'null');
-  assert.ok(Array.isArray(precache) && precache.includes('/index.html') && precache.includes('/offline.html'));
-  for (const path of precache.filter(path => path.endsWith('.html'))) {
+  assert.ok(Array.isArray(precache) && precache.includes('/notes') && precache.includes('/offline'));
+  for (const path of ['/notes','/install','/offline']) {
+    assert.ok(precache.includes(path));
     const cached = await f.request(path);
     assert.equal(cached.status, 200, 'PWA HTML precache target must not redirect: '+path);
     assert.equal(cached.headers.get('location'), null, path);
@@ -521,14 +524,14 @@ test('local workerd open accounts verify through an owned mail relay, sign in, s
   }
   assert.equal(mail.to, email);
   const link = new URL(mail.text.split('\n').at(-1));
-  assert.equal(link.origin, f.origin); assert.equal(link.pathname, '/account.html');
+  assert.equal(link.origin, f.origin); assert.equal(link.pathname, '/account');
   const token = link.searchParams.get('verify'); assert.ok(token);
   const unverified = await f.request('/api/auth/sign-in/email', { method: 'POST', body: { email, password: authPassword } });
   assert.equal(unverified.status, 401); await unverified.arrayBuffer();
   assert.equal(relay.messages.length, 1);
-  const invalidLink = await f.request('/api/auth/verify-email?token=invalid-fixture-token&callbackURL=' + encodeURIComponent(f.origin + '/account.html'));
+  const invalidLink = await f.request('/api/auth/verify-email?token=invalid-fixture-token&callbackURL=' + encodeURIComponent(f.origin + '/account'));
   assert.equal(invalidLink.status, 400); assert.equal((await invalidLink.json()).error.code, 'ACCOUNT_REQUEST_FAILED');
-  const verified = await f.request('/api/auth/verify-email?token=' + encodeURIComponent(token) + '&callbackURL=' + encodeURIComponent(f.origin + '/account.html'));
+  const verified = await f.request('/api/auth/verify-email?token=' + encodeURIComponent(token) + '&callbackURL=' + encodeURIComponent(f.origin + '/account'));
   assert.equal(verified.status, 200); assert.deepEqual(await verified.json(), { status: 'email-verified' });
   const signin = await f.request('/api/auth/sign-in/email', { method: 'POST', body: { email, password: authPassword } });
   assert.equal(signin.status, 200); checkPolicy(signin);
@@ -575,7 +578,7 @@ test('local workerd open accounts verify through an owned mail relay, sign in, s
   assert.equal((await f.request(pagePath, { cookie })).status, 401);
   relay.setStatus(503);
   for (const requestedEmail of [email, 'unknown-reset@studio.example']) {
-    const reset = await f.request('/api/auth/request-password-reset', { method: 'POST', body: { email: requestedEmail, redirectTo: f.origin + '/account.html' } });
+    const reset = await f.request('/api/auth/request-password-reset', { method: 'POST', body: { email: requestedEmail, redirectTo: f.origin + '/account' } });
     assert.equal(reset.status, 202); assert.deepEqual(await reset.json(), { status: 'request-received' });
   }
   const resetMail = await relay.waitForCount(2);
@@ -608,7 +611,7 @@ test('local workerd OAuth start uses PKCE and D1 state while external requests s
   assert.deepEqual(config, { enabled: true, registrationMode: 'closed', emailDelivery: false, workspaceContent: true,
     providers: [{ id: 'google', label: 'Google', type: 'oidc' }], oauthLinking: false });
   assert.doesNotMatch(JSON.stringify(config), /local-workerd-google|clientSecret|issuer|fixture-private-secret/);
-  const start = await f.request('/api/auth/sign-in/social', { method: 'POST', body: { provider: 'google', callbackURL: '/account.html' } });
+  const start = await f.request('/api/auth/sign-in/social', { method: 'POST', body: { provider: 'google', callbackURL: '/account' } });
   assert.equal(start.status, 200); checkPolicy(start);
   const started = await start.json();
   assert.deepEqual(Object.keys(started), ['url', 'redirect']); assert.equal(started.redirect, false);
@@ -636,12 +639,12 @@ test('local workerd OAuth start uses PKCE and D1 state while external requests s
   assert.deepEqual(beforeCallbacks, [{ states: 1, users: 0, sessions: 0, accounts: 0 }]);
   const bogus = await f.request('/api/auth/callback/google?code=fixture-code&state=invalid-fixture-state', { cookie, headers: { 'Sec-Fetch-Site': 'cross-site' } });
   assert.equal(bogus.status, 302);
-  assert.equal(bogus.headers.get('location'), f.origin + '/account.html?oauth=error');
+  assert.equal(bogus.headers.get('location'), f.origin + '/account?oauth=error');
   assert.equal(await bogus.text(), '');
   const deniedQuery = new URLSearchParams({ state: authorization.searchParams.get('state'), error: 'access_denied', error_description: 'Private provider fixture details' });
   const denied = await f.request('/api/auth/callback/google?' + deniedQuery, { cookie, headers: { 'Sec-Fetch-Site': 'cross-site' } });
   assert.equal(denied.status, 302);
-  assert.equal(denied.headers.get('location'), f.origin + '/account.html?oauth=error');
+  assert.equal(denied.headers.get('location'), f.origin + '/account?oauth=error');
   assert.equal(denied.headers.get('referrer-policy'), 'no-referrer');
   assert.equal(await denied.text(), '');
   const session = await f.request('/api/auth/get-session');
@@ -660,7 +663,7 @@ test('local workerd imports a private page bundle atomically and replays the D1 
   assert.equal(signup.status, 202); await signup.arrayBuffer();
   const mail = await relay.waitForCount(1);
   const token = new URL(mail.text.split('\n').at(-1)).searchParams.get('verify');
-  const verified = await f.request('/api/auth/verify-email?token=' + encodeURIComponent(token) + '&callbackURL=' + encodeURIComponent(f.origin + '/account.html'));
+  const verified = await f.request('/api/auth/verify-email?token=' + encodeURIComponent(token) + '&callbackURL=' + encodeURIComponent(f.origin + '/account'));
   assert.equal(verified.status, 200); await verified.arrayBuffer();
   const signin = await f.request('/api/auth/sign-in/email', { method: 'POST', body: { email, password: authPassword } });
   assert.equal(signin.status, 200); const cookie = accountCookies(signin); const signedIn = await signin.json();
@@ -719,7 +722,7 @@ test('local workerd imports native CSV collections and internal links in one D1 
   const signup = await f.request('/api/auth/sign-up/email', { method: 'POST', body: { email, password: authPassword, name: 'Local native CSV fixture' } });
   assert.equal(signup.status, 202); await signup.arrayBuffer();
   const mail = await relay.waitForCount(1); const token = new URL(mail.text.split('\n').at(-1)).searchParams.get('verify');
-  const verified = await f.request('/api/auth/verify-email?token=' + encodeURIComponent(token) + '&callbackURL=' + encodeURIComponent(f.origin + '/account.html'));
+  const verified = await f.request('/api/auth/verify-email?token=' + encodeURIComponent(token) + '&callbackURL=' + encodeURIComponent(f.origin + '/account'));
   assert.equal(verified.status, 200); await verified.arrayBuffer();
   const signin = await f.request('/api/auth/sign-in/email', { method: 'POST', body: { email, password: authPassword } });
   assert.equal(signin.status, 200); const cookie = accountCookies(signin); const identity = await signin.json();
@@ -772,7 +775,7 @@ test('local workerd stages immutable R2 attachments, cancels fenced reservations
   const signup = await f.request('/api/auth/sign-up/email', { method: 'POST', body: { email, password: authPassword, name: 'Local attachment fixture' } });
   assert.equal(signup.status, 202); await signup.arrayBuffer();
   const mail = await relay.waitForCount(1); const token = new URL(mail.text.split('\n').at(-1)).searchParams.get('verify');
-  const verified = await f.request('/api/auth/verify-email?token=' + encodeURIComponent(token) + '&callbackURL=' + encodeURIComponent(f.origin + '/account.html'));
+  const verified = await f.request('/api/auth/verify-email?token=' + encodeURIComponent(token) + '&callbackURL=' + encodeURIComponent(f.origin + '/account'));
   assert.equal(verified.status, 200); await verified.arrayBuffer();
   const signin = await f.request('/api/auth/sign-in/email', { method: 'POST', body: { email, password: authPassword } });
   assert.equal(signin.status, 200); const cookie = accountCookies(signin); const identity = await signin.json();
@@ -826,7 +829,7 @@ test('local workerd moves, trashes, restores and searches account pages with rea
   const signup = await f.request('/api/auth/sign-up/email', { method: 'POST', body: { email, password: authPassword, name: 'Local page lifecycle fixture' } });
   assert.equal(signup.status, 202); await signup.arrayBuffer();
   const mail = await relay.waitForCount(1); const token = new URL(mail.text.split('\n').at(-1)).searchParams.get('verify');
-  const verified = await f.request('/api/auth/verify-email?token=' + encodeURIComponent(token) + '&callbackURL=' + encodeURIComponent(f.origin + '/account.html'));
+  const verified = await f.request('/api/auth/verify-email?token=' + encodeURIComponent(token) + '&callbackURL=' + encodeURIComponent(f.origin + '/account'));
   assert.equal(verified.status, 200); await verified.arrayBuffer();
   const signin = await f.request('/api/auth/sign-in/email', { method: 'POST', body: { email, password: authPassword } });
   assert.equal(signin.status, 200); const cookie = accountCookies(signin); const identity = await signin.json();
@@ -884,7 +887,7 @@ test('local workerd consumes guest invitations with atomic D1 guards and preserv
     const signup=await f.request('/api/auth/sign-up/email',{method:'POST',body:{email,password:authPassword,name:'Local '+name+' fixture'}});
     assert.equal(signup.status,202);await signup.arrayBuffer();
     const mail=await relay.waitForCount(count),token=new URL(mail.text.split('\n').at(-1)).searchParams.get('verify');
-    const verification=await f.request('/api/auth/verify-email?token='+encodeURIComponent(token)+'&callbackURL='+encodeURIComponent(f.origin+'/account.html'));
+    const verification=await f.request('/api/auth/verify-email?token='+encodeURIComponent(token)+'&callbackURL='+encodeURIComponent(f.origin+'/account'));
     assert.equal(verification.status,200);await verification.arrayBuffer();
     const signin=await f.request('/api/auth/sign-in/email',{method:'POST',body:{email,password:authPassword}});
     assert.equal(signin.status,200);const cookie=accountCookies(signin),body=await signin.json();
@@ -944,7 +947,7 @@ test('local workerd durably merges concurrent Yjs page text, rejects revoked gue
     const email='d1-room-'+name+'@studio.example';
     const signup=await f.request('/api/auth/sign-up/email',{method:'POST',body:{email,password:authPassword,name:'Room '+name+' fixture'}});assert.equal(signup.status,202);await signup.arrayBuffer();
     const message=await relay.waitForCount(count),token=new URL(message.text.split('\n').at(-1)).searchParams.get('verify');
-    const verified=await f.request('/api/auth/verify-email?token='+encodeURIComponent(token)+'&callbackURL='+encodeURIComponent(f.origin+'/account.html'));assert.equal(verified.status,200);await verified.arrayBuffer();
+    const verified=await f.request('/api/auth/verify-email?token='+encodeURIComponent(token)+'&callbackURL='+encodeURIComponent(f.origin+'/account'));assert.equal(verified.status,200);await verified.arrayBuffer();
     const signin=await f.request('/api/auth/sign-in/email',{method:'POST',body:{email,password:authPassword}});assert.equal(signin.status,200);return{cookie:accountCookies(signin),user:(await signin.json()).user};
   }
   const owner=await register('owner',1),editor=await register('editor',2);
@@ -988,7 +991,7 @@ test('local workerd durably merges concurrent Yjs page text, rejects revoked gue
 
 test('local workerd persists typed native collections, saved views and row ACL with atomic D1 CAS across restart', {timeout:240000}, async t=>{
   const relay=await localMailRelay(t),f=await fixture(t,{database:true,accounts:'open',relay});
-  async function register(name,count){const email='d1-typed-'+name+'@studio.example',signup=await f.request('/api/auth/sign-up/email',{method:'POST',body:{email,password:authPassword,name:'Typed '+name+' fixture'}});assert.equal(signup.status,202);await signup.arrayBuffer();const message=await relay.waitForCount(count),token=new URL(message.text.split('\n').at(-1)).searchParams.get('verify');const verified=await f.request('/api/auth/verify-email?token='+encodeURIComponent(token)+'&callbackURL='+encodeURIComponent(f.origin+'/account.html'));assert.equal(verified.status,200);await verified.arrayBuffer();const signin=await f.request('/api/auth/sign-in/email',{method:'POST',body:{email,password:authPassword}});assert.equal(signin.status,200);return{cookie:accountCookies(signin),user:(await signin.json()).user};}
+  async function register(name,count){const email='d1-typed-'+name+'@studio.example',signup=await f.request('/api/auth/sign-up/email',{method:'POST',body:{email,password:authPassword,name:'Typed '+name+' fixture'}});assert.equal(signup.status,202);await signup.arrayBuffer();const message=await relay.waitForCount(count),token=new URL(message.text.split('\n').at(-1)).searchParams.get('verify');const verified=await f.request('/api/auth/verify-email?token='+encodeURIComponent(token)+'&callbackURL='+encodeURIComponent(f.origin+'/account'));assert.equal(verified.status,200);await verified.arrayBuffer();const signin=await f.request('/api/auth/sign-in/email',{method:'POST',body:{email,password:authPassword}});assert.equal(signin.status,200);return{cookie:accountCookies(signin),user:(await signin.json()).user};}
   const owner=await register('owner',1),reader=await register('reader',2);owner.headers={'X-Yumunio-Expected-Account':owner.user.id};reader.headers={'X-Yumunio-Expected-Account':reader.user.id};
   const organization=await f.request('/api/auth/organization/create',{method:'POST',cookie:owner.cookie,body:{name:'Typed D1 fixture',slug:'typed-d1-fixture'}});assert.equal(organization.status,200);const workspace=await organization.json(),base='/api/content/workspaces/'+workspace.id,collaboration='/api/collaboration/workspaces/'+workspace.id;
   const props=[{id:'memo',name:'Memo',type:'text'},{id:'count',name:'Count',type:'number'},{id:'done',name:'Done',type:'checkbox'},{id:'date',name:'Date',type:'date'},{id:'status',name:'Status',type:'select',options:['New','Done']},{id:'tags',name:'Tags',type:'multi_select',options:['A','B']},{id:'person',name:'Person',type:'person'},{id:'related',name:'Related',type:'relation'}];
@@ -1009,7 +1012,7 @@ test('local workerd persists typed native collections, saved views and row ACL w
 });
 test('local workerd persists page comments and private mention inbox with live D1 permissions and safe people labels', {timeout:240000},async t=>{
   const relay=await localMailRelay(t),f=await fixture(t,{database:true,accounts:'open',relay});
-  async function register(name,count){const email='d1-comments-'+name+'@studio.example';const signup=await f.request('/api/auth/sign-up/email',{method:'POST',body:{email,password:authPassword,name:'Comments '+name+' fixture'}});assert.equal(signup.status,202);await signup.arrayBuffer();const mail=await relay.waitForCount(count),token=new URL(mail.text.split('\n').at(-1)).searchParams.get('verify');const verified=await f.request('/api/auth/verify-email?token='+encodeURIComponent(token)+'&callbackURL='+encodeURIComponent(f.origin+'/account.html'));assert.equal(verified.status,200);await verified.arrayBuffer();const login=await f.request('/api/auth/sign-in/email',{method:'POST',body:{email,password:authPassword}});assert.equal(login.status,200);return{cookie:accountCookies(login),user:(await login.json()).user};}
+  async function register(name,count){const email='d1-comments-'+name+'@studio.example';const signup=await f.request('/api/auth/sign-up/email',{method:'POST',body:{email,password:authPassword,name:'Comments '+name+' fixture'}});assert.equal(signup.status,202);await signup.arrayBuffer();const mail=await relay.waitForCount(count),token=new URL(mail.text.split('\n').at(-1)).searchParams.get('verify');const verified=await f.request('/api/auth/verify-email?token='+encodeURIComponent(token)+'&callbackURL='+encodeURIComponent(f.origin+'/account'));assert.equal(verified.status,200);await verified.arrayBuffer();const login=await f.request('/api/auth/sign-in/email',{method:'POST',body:{email,password:authPassword}});assert.equal(login.status,200);return{cookie:accountCookies(login),user:(await login.json()).user};}
   const owner=await register('owner',1),recipient=await register('recipient',2);owner.headers={'X-Yumunio-Expected-Account':owner.user.id};recipient.headers={'X-Yumunio-Expected-Account':recipient.user.id};
   const organization=await f.request('/api/auth/organization/create',{method:'POST',cookie:owner.cookie,body:{name:'D1 comments fixture',slug:'d1-comments-fixture'}});assert.equal(organization.status,200);const workspace=await organization.json(),base='/api/content/workspaces/'+workspace.id,collaboration='/api/collaboration/workspaces/'+workspace.id;
   const created=await f.request(base+'/pages',{method:'POST',cookie:owner.cookie,headers:owner.headers,body:{expectedRevision:0,title:'Comments fixture',blocks:[{id:'paragraph',type:'paragraph',data:{text:'Synthetic body'}},{id:'source',type:'code',data:{text:'Original source',purpose:'import-source'}}]}});assert.equal(created.status,201);const page=(await created.json()).page,path=base+'/pages/'+page.id;
@@ -1035,7 +1038,7 @@ test('local workerd persists page comments and private mention inbox with live D
 test('local workerd persists create-only assigned form responses exactly once across D1 restart without granting response read', {timeout:240000},async t=>{
   const relay=await localMailRelay(t),f=await fixture(t,{database:true,accounts:'open',relay});
   async function ok(response,status=200){assert.equal(response.status,status,await response.clone().text());return response.json();}
-  async function register(name,count){const email='d1-forms-'+name+'@studio.example';await ok(await f.request('/api/auth/sign-up/email',{method:'POST',body:{email,password:authPassword,name:'Forms '+name+' fixture'}}),202);const mail=await relay.waitForCount(count),token=new URL(mail.text.split('\n').at(-1)).searchParams.get('verify');await ok(await f.request('/api/auth/verify-email?token='+encodeURIComponent(token)+'&callbackURL='+encodeURIComponent(f.origin+'/account.html')));const login=await f.request('/api/auth/sign-in/email',{method:'POST',body:{email,password:authPassword}}),cookie=accountCookies(login),user=(await ok(login)).user;return{cookie,user,headers:{'X-Yumunio-Expected-Account':user.id}};}
+  async function register(name,count){const email='d1-forms-'+name+'@studio.example';await ok(await f.request('/api/auth/sign-up/email',{method:'POST',body:{email,password:authPassword,name:'Forms '+name+' fixture'}}),202);const mail=await relay.waitForCount(count),token=new URL(mail.text.split('\n').at(-1)).searchParams.get('verify');await ok(await f.request('/api/auth/verify-email?token='+encodeURIComponent(token)+'&callbackURL='+encodeURIComponent(f.origin+'/account')));const login=await f.request('/api/auth/sign-in/email',{method:'POST',body:{email,password:authPassword}}),cookie=accountCookies(login),user=(await ok(login)).user;return{cookie,user,headers:{'X-Yumunio-Expected-Account':user.id}};}
   const owner=await register('owner',1),respondent=await register('respondent',2),workspace=await ok(await f.request('/api/auth/organization/create',{method:'POST',cookie:owner.cookie,body:{name:'D1 forms fixture',slug:'d1-forms-fixture'}})),base='/api/content/workspaces/'+workspace.id,collaboration='/api/collaboration/workspaces/'+workspace.id;
   const collection=await ok(await f.request(base+'/collections',{method:'POST',cookie:owner.cookie,headers:owner.headers,body:{expectedRevision:0,title:'Private form responses',parentId:null,properties:[{id:'rating',name:'Rating',type:'number',required:true}]}}),201),path=base+'/collections/'+collection.collectionId+'/forms';
   await ok(await f.request(collaboration+'/invitations',{method:'POST',cookie:owner.cookie,headers:owner.headers,body:{expectedRevision:1,requestId:'forms-member',purpose:'workspace-member',email:respondent.user.email,role:'member',pageId:null}}),201);const mail=await relay.waitForCount(3),link=new URL(mail.text.split('\n').at(-1));await ok(await f.request('/api/collaboration/accept',{method:'POST',cookie:respondent.cookie,headers:respondent.headers,body:{invitationId:link.searchParams.get('invite'),token:link.searchParams.get('token')}}));
@@ -1052,7 +1055,7 @@ test('local workerd persists create-only assigned form responses exactly once ac
 test('local workerd binds normal page uploads to private R2 attachments and deletes fenced bytes across D1 restart',{timeout:240000},async t=>{
   const relay=await localMailRelay(t),f=await fixture(t,{database:true,accounts:'open',relay,blobs:'r2'});
   async function ok(response,status=200){assert.equal(response.status,status,await response.clone().text());return response.json();}
-  const email='d1-page-upload@studio.example';await ok(await f.request('/api/auth/sign-up/email',{method:'POST',body:{email,password:authPassword,name:'Page upload fixture'}}),202);const mail=await relay.waitForCount(1),token=new URL(mail.text.split('\n').at(-1)).searchParams.get('verify');await ok(await f.request('/api/auth/verify-email?token='+encodeURIComponent(token)+'&callbackURL='+encodeURIComponent(f.origin+'/account.html')));const signin=await f.request('/api/auth/sign-in/email',{method:'POST',body:{email,password:authPassword}}),cookie=accountCookies(signin),user=(await ok(signin)).user,headers={'X-Yumunio-Expected-Account':user.id};
+  const email='d1-page-upload@studio.example';await ok(await f.request('/api/auth/sign-up/email',{method:'POST',body:{email,password:authPassword,name:'Page upload fixture'}}),202);const mail=await relay.waitForCount(1),token=new URL(mail.text.split('\n').at(-1)).searchParams.get('verify');await ok(await f.request('/api/auth/verify-email?token='+encodeURIComponent(token)+'&callbackURL='+encodeURIComponent(f.origin+'/account')));const signin=await f.request('/api/auth/sign-in/email',{method:'POST',body:{email,password:authPassword}}),cookie=accountCookies(signin),user=(await ok(signin)).user,headers={'X-Yumunio-Expected-Account':user.id};
   const workspace=await ok(await f.request('/api/auth/organization/create',{method:'POST',cookie,body:{name:'Page upload fixture',slug:'page-upload-fixture'}})),base='/api/content/workspaces/'+workspace.id;const page=await ok(await f.request(base+'/pages',{method:'POST',cookie,headers,body:{expectedRevision:0,title:'Normal page',blocks:[{id:'plain',type:'paragraph',data:{text:'Keep this body'}}]}}),201),path=base+'/pages/'+page.page.id,upload=path+'/uploads/ordinary-upload/assets';
   const bytes=new TextEncoder().encode('Normal page upload 日本語 😀'),checksum=Buffer.from(await crypto.subtle.digest('SHA-256',bytes)).toString('hex');const reservation=await ok(await f.request(upload,{method:'POST',cookie,headers,body:{expectedRevision:1,sourceId:'file',name:'架空.txt',mediaType:'text/plain',size:bytes.length,checksum}}),201);
   const listed=await ok(await f.request(path+'/uploads',{cookie,headers}));assert.equal(listed.uploads.length,1);assert.equal(listed.uploads[0].uploadId,'ordinary-upload');assert.doesNotMatch(JSON.stringify(listed),/objectKey|profileId|membershipId/);assert.deepEqual((await ok(await f.request(base+'/imports/ordinary-upload/assets',{cookie,headers}))).assets,[]);
@@ -1065,7 +1068,7 @@ test('local workerd binds normal page uploads to private R2 attachments and dele
 test('local workerd serves only explicit public snapshots without cookies and fences source changes and stopped URLs across D1 restart',{timeout:240000},async t=>{
   const relay=await localMailRelay(t),f=await fixture(t,{database:true,accounts:'open',relay});
   async function ok(response,status=200){assert.equal(response.status,status,await response.clone().text());return response.json();}
-  const email='d1-publication@studio.example';await ok(await f.request('/api/auth/sign-up/email',{method:'POST',body:{email,password:authPassword,name:'Publication fixture'}}),202);const mail=await relay.waitForCount(1),token=new URL(mail.text.split('\n').at(-1)).searchParams.get('verify');await ok(await f.request('/api/auth/verify-email?token='+encodeURIComponent(token)+'&callbackURL='+encodeURIComponent(f.origin+'/account.html')));const signed=await f.request('/api/auth/sign-in/email',{method:'POST',body:{email,password:authPassword}}),cookie=accountCookies(signed),user=(await ok(signed)).user,headers={'X-Yumunio-Expected-Account':user.id};
+  const email='d1-publication@studio.example';await ok(await f.request('/api/auth/sign-up/email',{method:'POST',body:{email,password:authPassword,name:'Publication fixture'}}),202);const mail=await relay.waitForCount(1),token=new URL(mail.text.split('\n').at(-1)).searchParams.get('verify');await ok(await f.request('/api/auth/verify-email?token='+encodeURIComponent(token)+'&callbackURL='+encodeURIComponent(f.origin+'/account')));const signed=await f.request('/api/auth/sign-in/email',{method:'POST',body:{email,password:authPassword}}),cookie=accountCookies(signed),user=(await ok(signed)).user,headers={'X-Yumunio-Expected-Account':user.id};
   const workspace=await ok(await f.request('/api/auth/organization/create',{method:'POST',cookie,body:{name:'Publication fixture',slug:'publication-fixture'}})),base='/api/content/workspaces/'+workspace.id;
   const created=await ok(await f.request(base+'/pages',{method:'POST',cookie,headers,body:{expectedRevision:0,title:'Published snapshot',blocks:[{id:'paragraph',type:'paragraph',data:{text:'Literal <b>public text</b>'}},{id:'source',type:'code',data:{text:'Private original source',purpose:'import-source'}}]}}),201),pagePath=base+'/pages/'+created.page.id,path=pagePath+'/publication';
   await ok(await f.request(base+'/pages',{method:'POST',cookie,headers,body:{expectedRevision:1,parentId:created.page.id,title:'Private child',blocks:[{id:'hidden',type:'paragraph',data:{text:'Private child contents'}}]}}),201);
@@ -1079,7 +1082,7 @@ test('local workerd serves only explicit public snapshots without cookies and fe
 test('local workerd persists bounded formula projections and nonmutating previews with D1 CAS and row ACL across restart',{timeout:240000},async t=>{
   const relay=await localMailRelay(t),f=await fixture(t,{database:true,accounts:'open',relay});
   async function ok(response,status=200){assert.equal(response.status,status,await response.clone().text());return response.json();}
-  async function register(name,count){const email='d1-formula-'+name+'@studio.example';await ok(await f.request('/api/auth/sign-up/email',{method:'POST',body:{email,password:authPassword,name:'Formula '+name+' fixture'}}),202);const message=await relay.waitForCount(count),token=new URL(message.text.split('\n').at(-1)).searchParams.get('verify');await ok(await f.request('/api/auth/verify-email?token='+encodeURIComponent(token)+'&callbackURL='+encodeURIComponent(f.origin+'/account.html')));const response=await f.request('/api/auth/sign-in/email',{method:'POST',body:{email,password:authPassword}}),cookie=accountCookies(response),user=(await ok(response)).user;return{cookie,user,headers:{'X-Yumunio-Expected-Account':user.id}};}
+  async function register(name,count){const email='d1-formula-'+name+'@studio.example';await ok(await f.request('/api/auth/sign-up/email',{method:'POST',body:{email,password:authPassword,name:'Formula '+name+' fixture'}}),202);const message=await relay.waitForCount(count),token=new URL(message.text.split('\n').at(-1)).searchParams.get('verify');await ok(await f.request('/api/auth/verify-email?token='+encodeURIComponent(token)+'&callbackURL='+encodeURIComponent(f.origin+'/account')));const response=await f.request('/api/auth/sign-in/email',{method:'POST',body:{email,password:authPassword}}),cookie=accountCookies(response),user=(await ok(response)).user;return{cookie,user,headers:{'X-Yumunio-Expected-Account':user.id}};}
   const owner=await register('owner',1),reader=await register('reader',2),workspace=await ok(await f.request('/api/auth/organization/create',{method:'POST',cookie:owner.cookie,body:{name:'Formula D1 fixture',slug:'formula-d1-fixture'}})),base='/api/content/workspaces/'+workspace.id;
   const prop=(id,type='number')=>({id,name:id,type}),formula=(id,expression,resultType='number')=>({id,name:id,type:'formula',formula:{version:1,expression,resultType}});
   const properties=[prop('price'),prop('quantity'),prop('due','date'),formula('total','field("price") * field("quantity")'),formula('caption','concat("Total ", toText(field("total")))','text'),formula('later','dateAdd(field("due"), 1)','date'),formula('division','field("price") / 0')];
@@ -1109,7 +1112,7 @@ test('local workerd persists bounded formula projections and nonmutating preview
 test('local workerd persists one-hop rollups with complete target ACL checks and readonly D1 projections across restart',{timeout:240000},async t=>{
   const relay=await localMailRelay(t),f=await fixture(t,{database:true,accounts:'open',relay,isolatedAssets:true});
   async function ok(response,status=200){assert.equal(response.status,status,await response.clone().text());return response.json();}
-  async function register(name,count){const email='d1-rollup-'+name+'@studio.example';await ok(await f.request('/api/auth/sign-up/email',{method:'POST',body:{email,password:authPassword,name:'Rollup '+name+' fixture'}}),202);const message=await relay.waitForCount(count),token=new URL(message.text.split('\n').at(-1)).searchParams.get('verify');await ok(await f.request('/api/auth/verify-email?token='+encodeURIComponent(token)+'&callbackURL='+encodeURIComponent(f.origin+'/account.html')));const response=await f.request('/api/auth/sign-in/email',{method:'POST',body:{email,password:authPassword}}),cookie=accountCookies(response),user=(await ok(response)).user;return{cookie,user,headers:{'X-Yumunio-Expected-Account':user.id}};}
+  async function register(name,count){const email='d1-rollup-'+name+'@studio.example';await ok(await f.request('/api/auth/sign-up/email',{method:'POST',body:{email,password:authPassword,name:'Rollup '+name+' fixture'}}),202);const message=await relay.waitForCount(count),token=new URL(message.text.split('\n').at(-1)).searchParams.get('verify');await ok(await f.request('/api/auth/verify-email?token='+encodeURIComponent(token)+'&callbackURL='+encodeURIComponent(f.origin+'/account')));const response=await f.request('/api/auth/sign-in/email',{method:'POST',body:{email,password:authPassword}}),cookie=accountCookies(response),user=(await ok(response)).user;return{cookie,user,headers:{'X-Yumunio-Expected-Account':user.id}};}
   const owner=await register('owner',1),reader=await register('reader',2),workspace=await ok(await f.request('/api/auth/organization/create',{method:'POST',cookie:owner.cookie,body:{name:'Rollup D1 fixture',slug:'rollup-d1-fixture'}})),base='/api/content/workspaces/'+workspace.id;
   const call=(path,{method='GET',body,account=owner}={})=>f.request(path,{method,body,cookie:account.cookie,headers:account.headers});
   const target=await ok(await call(base+'/collections',{method:'POST',body:{expectedRevision:0,title:'Private target',parentId:null,properties:[{id:'amount',name:'Amount',type:'number'},{id:'due',name:'Due',type:'date'}]}}),201),targetPath=base+'/collections/'+target.collectionId;
@@ -1131,7 +1134,7 @@ test('local workerd persists one-hop rollups with complete target ACL checks and
 test('local workerd authors body page references with hidden span recovery and D1 persistence across restart',{timeout:240000},async t=>{
  const relay=await localMailRelay(t),f=await fixture(t,{database:true,accounts:'open',relay,isolatedAssets:true});
  async function ok(response,status=200){assert.equal(response.status,status,await response.clone().text());return response.json();}
- async function register(name,count){const email='d1-body-ref-'+name+'@studio.example';await ok(await f.request('/api/auth/sign-up/email',{method:'POST',body:{email,password:authPassword,name:'Body reference '+name+' fixture'}}),202);const message=await relay.waitForCount(count),token=new URL(message.text.split('\n').at(-1)).searchParams.get('verify');await ok(await f.request('/api/auth/verify-email?token='+encodeURIComponent(token)+'&callbackURL='+encodeURIComponent(f.origin+'/account.html')));const response=await f.request('/api/auth/sign-in/email',{method:'POST',body:{email,password:authPassword}}),cookie=accountCookies(response),user=(await ok(response)).user;return{cookie,user,headers:{'X-Yumunio-Expected-Account':user.id}};}
+ async function register(name,count){const email='d1-body-ref-'+name+'@studio.example';await ok(await f.request('/api/auth/sign-up/email',{method:'POST',body:{email,password:authPassword,name:'Body reference '+name+' fixture'}}),202);const message=await relay.waitForCount(count),token=new URL(message.text.split('\n').at(-1)).searchParams.get('verify');await ok(await f.request('/api/auth/verify-email?token='+encodeURIComponent(token)+'&callbackURL='+encodeURIComponent(f.origin+'/account')));const response=await f.request('/api/auth/sign-in/email',{method:'POST',body:{email,password:authPassword}}),cookie=accountCookies(response),user=(await ok(response)).user;return{cookie,user,headers:{'X-Yumunio-Expected-Account':user.id}};}
  const owner=await register('owner',1),editor=await register('editor',2),workspace=await ok(await f.request('/api/auth/organization/create',{method:'POST',cookie:owner.cookie,body:{name:'Body references D1 fixture',slug:'body-references-d1-fixture'}})),base='/api/content/workspaces/'+workspace.id;
  const call=(path,{method='GET',body,account=owner,headers={}}={})=>f.request(path,{method,body,cookie:account.cookie,headers:{...account.headers,...headers}});
  const target=await ok(await call(base+'/pages',{method:'POST',body:{expectedRevision:0,title:'Private target'}}),201),reference={start:0,end:6,label:'Target',pageId:target.page.id},block={id:'body',type:'paragraph',data:{text:'Target now',links:[reference]}},source=await ok(await call(base+'/pages',{method:'POST',body:{expectedRevision:1,title:'Reference source',blocks:[block]}}),201),path=base+'/pages/'+source.page.id;
@@ -1151,7 +1154,7 @@ test('local workerd authors body page references with hidden span recovery and D
 test('local workerd production factories fence scoped API tokens with real D1, SQL revocation and no external-read mail drain',{timeout:240000},async t=>{
  const relay=await localMailRelay(t),f=await fixture(t,{database:true,accounts:'open',relay,isolatedAssets:true,apiTokens:true});
  async function ok(response,status=200){assert.equal(response.status,status,await response.clone().text());return response.json();}
- const email='d1-api-token-owner@studio.example';await ok(await f.request('/api/auth/sign-up/email',{method:'POST',body:{email,password:authPassword,name:'API token D1 fixture'}}),202);const mail=await relay.waitForCount(1),verify=new URL(mail.text.split('\n').at(-1)).searchParams.get('verify');await ok(await f.request('/api/auth/verify-email?token='+encodeURIComponent(verify)+'&callbackURL='+encodeURIComponent(f.origin+'/account.html')));const signed=await f.request('/api/auth/sign-in/email',{method:'POST',body:{email,password:authPassword}}),cookie=accountCookies(signed),user=(await ok(signed)).user,headers={'X-Yumunio-Expected-Account':user.id};
+ const email='d1-api-token-owner@studio.example';await ok(await f.request('/api/auth/sign-up/email',{method:'POST',body:{email,password:authPassword,name:'API token D1 fixture'}}),202);const mail=await relay.waitForCount(1),verify=new URL(mail.text.split('\n').at(-1)).searchParams.get('verify');await ok(await f.request('/api/auth/verify-email?token='+encodeURIComponent(verify)+'&callbackURL='+encodeURIComponent(f.origin+'/account')));const signed=await f.request('/api/auth/sign-in/email',{method:'POST',body:{email,password:authPassword}}),cookie=accountCookies(signed),user=(await ok(signed)).user,headers={'X-Yumunio-Expected-Account':user.id};
  const call=(path,{method='GET',body,extra={}}={})=>f.request(path,{method,body,cookie,headers:{...headers,...extra}}),workspace=await ok(await call('/api/auth/organization/create',{method:'POST',body:{name:'Scoped API D1 fixture',slug:'scoped-api-d1-fixture'}})),base='/api/content/workspaces/'+workspace.id;
  const page=await ok(await call(base+'/pages',{method:'POST',body:{expectedRevision:0,title:'API scoped page',blocks:[{id:'primary',type:'paragraph',data:{text:'Primary literal <b>body</b>',email:'private@studio.example'}},{id:'source',type:'code',data:{text:'Private original source',purpose:'import-source'}}]}}),201);
  const manage='/api/integrations/tokens',input={requestId:crypto.randomUUID(),expectedRevision:1,workspaceId:workspace.id,pageId:page.page.id,name:'Synthetic D1 reader',scopes:['page:read','document:read'],expiresAt:new Date(Date.now()+86400000).toISOString(),confirmPageAccess:true};
@@ -1174,7 +1177,7 @@ test('local workerd production factories fence scoped API tokens with real D1, S
 test('local workerd personal templates copy authorized literals into private pages exactly once across D1 restart',{timeout:240000},async t=>{
  const relay=await localMailRelay(t),f=await fixture(t,{database:true,accounts:'open',relay,isolatedAssets:true});
  async function ok(response,status=200){assert.equal(response.status,status,await response.clone().text());return response.json();}
- const email='d1-personal-templates@studio.example';await ok(await f.request('/api/auth/sign-up/email',{method:'POST',body:{email,password:authPassword,name:'Personal template fixture'}}),202);const mail=await relay.waitForCount(1),token=new URL(mail.text.split('\n').at(-1)).searchParams.get('verify');await ok(await f.request('/api/auth/verify-email?token='+encodeURIComponent(token)+'&callbackURL='+encodeURIComponent(f.origin+'/account.html')));const signed=await f.request('/api/auth/sign-in/email',{method:'POST',body:{email,password:authPassword}}),cookie=accountCookies(signed),user=(await ok(signed)).user,headers={'X-Yumunio-Expected-Account':user.id};
+ const email='d1-personal-templates@studio.example';await ok(await f.request('/api/auth/sign-up/email',{method:'POST',body:{email,password:authPassword,name:'Personal template fixture'}}),202);const mail=await relay.waitForCount(1),token=new URL(mail.text.split('\n').at(-1)).searchParams.get('verify');await ok(await f.request('/api/auth/verify-email?token='+encodeURIComponent(token)+'&callbackURL='+encodeURIComponent(f.origin+'/account')));const signed=await f.request('/api/auth/sign-in/email',{method:'POST',body:{email,password:authPassword}}),cookie=accountCookies(signed),user=(await ok(signed)).user,headers={'X-Yumunio-Expected-Account':user.id};
  const workspace=await ok(await f.request('/api/auth/organization/create',{method:'POST',cookie,body:{name:'Personal templates fixture',slug:'personal-templates-fixture'}})),base='/api/content/workspaces/'+workspace.id;
  const source=await ok(await f.request(base+'/pages',{method:'POST',cookie,headers,body:{expectedRevision:0,title:'Source template',blocks:[{id:'literal-source-id',type:'paragraph',data:{text:'Literal <b>safe</b>',marks:[{start:0,end:7,styles:['bold']}]}},{id:'private-original',type:'code',data:{text:'Do not copy raw source',purpose:'import-source'}}]}}),201),review=await ok(await f.request(base+'/pages/'+source.page.id+'/template-review',{method:'POST',cookie,headers,body:{expectedRevision:1}}));assert.equal(review.summary.blocksOmitted,1);assert.doesNotMatch(JSON.stringify(review.snapshot),/literal-source-id|private-original|Do not copy/);
  const createBody={expectedRevision:1,requestId:'11111111-1111-4111-8111-111111111111',sourcePageId:source.page.id,sourceVersion:1,reviewDigest:review.reviewDigest,name:'Personal copy',confirmSnapshot:true},created=await ok(await f.request(base+'/templates',{method:'POST',cookie,headers,body:createBody}),201),applyBody={expectedRevision:2,requestId:'22222222-2222-4222-8222-222222222222',title:'New private page',confirmPrivatePage:true},applied=await ok(await f.request(base+'/templates/'+created.templateId+'/applications',{method:'POST',cookie,headers,body:applyBody}),201);assert.equal(applied.deleted,false);

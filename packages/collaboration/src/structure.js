@@ -1,11 +1,11 @@
 import * as Y from 'yjs';
-import {assertTitle,validateBlocks,validateInlineMarks,INLINE_STYLES,safeInlineHref,isInlineBoundary} from '@yumunio/domain';
+import {assertTitle,validateBlocks,validateInlineMarks,INLINE_STYLES,safeInlineHref,isInlineBoundary,TEXT_BLOCK_TYPES,BLOCK_PARENT_TYPES,validateBlockPresentation} from '@yumunio/domain';
 import {CollaborationError,ROOM_LIMITS,inspectUpdate,inspectStateVector} from './index.js';
 import {createTextFlows,textFlowDelta,textFlowValue,textFlowAnchor,splitTextFlow,crossingFlowReferences,replaceTextFlow,formatTextFlow,textFlowPosition,textFlowOffset,clearTextFlows} from './structure-flow.js';
 
 export const STRUCTURED_ROOM_LIMITS=Object.freeze({operations:1000,nodes:1000,depth:8});
 export const STRUCTURED_ROOM_FEATURES=Object.freeze(['check-state','block-transforms']);
-const encoder=new TextEncoder(),known=new Set(['paragraph','heading','heading1','heading2','checklist','bulleted-list','numbered-list','quote','code','divider']),parents=new Set(['paragraph','checklist','bulleted-list','numbered-list','quote','column']);
+const encoder=new TextEncoder(),known=new Set([...TEXT_BLOCK_TYPES,'divider']),parents=new Set(BLOCK_PARENT_TYPES);
 const fail=(code='ROOM_CONTENT_UNSUPPORTED',status=400)=>{throw new CollaborationError(code,status);};
 const id=value=>typeof value==='string'&&/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(value);
 const json=value=>JSON.stringify(value),clone=value=>structuredClone(value);
@@ -20,7 +20,7 @@ function seed(value){exact(value,['title','blocks']);assertTitle(value.title);va
 function allNodes(doc,base){const result=index(clone(base.blocks)),nodes=doc.getMap('nodes');if(nodes.size+result.size>STRUCTURED_ROOM_LIMITS.nodes)fail('ROOM_CAPACITY',409);
  for(const[key,value]of nodes){let record;try{record=JSON.parse(value);}catch{fail();}exact(record,['id','type',...(Object.hasOwn(record,'data')?['data']:[]),...(Object.hasOwn(record,'split')?['split']:[])]);if(!id(key)||record.id!==key||!known.has(record.type)||result.has(key)||json(record)!==value)fail();const properties=typeData(record.type,record.data??{});if(record.split){exact(record.split,['source','cut']);if(!id(record.split.source)||typeof record.split.cut!=='string'||record.split.cut.length>684)fail();}else if(Object.hasOwn(record,'split'))fail();const data={...(record.type==='divider'?{}:{text:''}),...(record.type==='checklist'?{checked:false}:{}),...(record.type==='heading'?{level:1}:{}),...(record.type==='numbered-list'?{start:1}:{}),...properties};result.set(key,{block:{id:key,type:record.type,data},...(record.split?{split:record.split}:{}),parent:null,ancestors:[],items:[],index:0,depth:0});}
  for(const row of result.values())if(row.split&&!mutable(result.get(row.split.source)))fail();return result;}
-function typeData(type,data){const allowed=type==='heading'?['level']:type==='checklist'?['checked']:type==='numbered-list'?['start']:type==='code'?['language']:[];if(!data||typeof data!=='object'||Array.isArray(data)||Object.keys(data).some(key=>!allowed.includes(key))||Object.hasOwn(data,'level')&&![1,2,3].includes(data.level)||Object.hasOwn(data,'checked')&&typeof data.checked!=='boolean'||Object.hasOwn(data,'start')&&(!Number.isSafeInteger(data.start)||data.start<1||data.start>999999999)||Object.hasOwn(data,'language')&&(typeof data.language!=='string'||data.language.length>100))fail();return data;}
+function typeData(type,data){const allowed=[...(type==='heading'?['level']:type==='checklist'?['checked']:type==='numbered-list'?['start']:type==='code'?['language']:[]),...(type==='divider'?[]:['color','background','icon'])];try{validateBlockPresentation(data);}catch{fail();}if(!data||typeof data!=='object'||Array.isArray(data)||Object.keys(data).some(key=>!allowed.includes(key))||Object.hasOwn(data,'level')&&![1,2,3].includes(data.level)||Object.hasOwn(data,'checked')&&typeof data.checked!=='boolean'||Object.hasOwn(data,'start')&&(!Number.isSafeInteger(data.start)||data.start<1||data.start>999999999)||Object.hasOwn(data,'language')&&(typeof data.language!=='string'||data.language.length>100))fail();return data;}
 const textIds=nodes=>[...nodes].filter(([,row])=>mutable(row)&&known.has(row.block.type)).map(([key])=>key);
 function parseOperations(doc,nodes){const array=doc.getArray('operations');if(array.length>STRUCTURED_ROOM_LIMITS.operations)fail('ROOM_CAPACITY',409);const seen=new Set();return array.toArray().map(encoded=>{let op;try{if(typeof encoded!=='string'||encoded.length>8192)fail();op=JSON.parse(encoded);}catch{fail();}if(!id(op.id)||seen.has(op.id)||json(op)!==encoded)fail();seen.add(op.id);
  if(op.kind==='add'){exact(op,['id','kind','blockId','parentId','beforeId']);if(!id(op.blockId)||!doc.getMap('nodes').has(op.blockId))fail();}
@@ -37,7 +37,7 @@ function replay(doc,base){seed(base);const nodes=allNodes(doc,base),tree=clone(b
   if(op.kind==='split'){
    if(!mutable(nodes.get(op.blockId)))fail();if(active.has(op.newBlockId))fail();
    const source=rows.get(op.blockId),located=source&&splitTextFlow(flows.get(op.blockId)??[],op.newBlockId)?[op.blockId,source]:[...rows].find(([key,row])=>mutable(row)&&splitTextFlow(flows.get(key)??[],op.newBlockId));
-   if(!located||['code','divider','columns','column'].includes(located[1].block.type)){conflicts.push({id:op.id,code:'ROOM_OPERATION_CONFLICT'});continue;}
+   if(!located||['code','equation','divider','columns','column'].includes(located[1].block.type)){conflicts.push({id:op.id,code:'ROOM_OPERATION_CONFLICT'});continue;}
    const[targetId,target]=located,flow=flows.get(targetId),parts=splitTextFlow(flow,op.newBlockId);for(const token of crossingFlowReferences(doc,flow,op.newBlockId))blockedReferences.add(token);
    const added=clone(nodes.get(op.newBlockId).block);target.items.splice(target.index+1,0,added);flows.set(targetId,parts.left);flows.set(op.newBlockId,parts.right);active.add(op.newBlockId);continue;
   }
@@ -47,8 +47,8 @@ function replay(doc,base){seed(base);const nodes=allNodes(doc,base),tree=clone(b
    flows.set(op.previousId,[...(flows.get(op.previousId)??[]),...(flows.get(op.blockId)??[])]);flows.set(op.blockId,[]);removed.add(op.blockId);continue;
   }
   if(op.kind==='convert'){
-   if(!mutable(nodes.get(op.blockId))||['code','divider'].includes(nodes.get(op.blockId).block.type))fail();const row=rows.get(op.blockId),flow=flows.get(op.blockId)??[],rich=textFlowDelta(doc,flow).some(run=>Object.keys(run.attributes??{}).length);
-   if(!row||removed.has(op.blockId)||row.block.children?.length&&!parents.has(op.type)||op.type==='divider'&&(textFlowValue(doc,flow).length||row.block.children?.length)||op.type==='code'&&rich){conflicts.push({id:op.id,code:'ROOM_OPERATION_CONFLICT'});continue;}
+   if(!mutable(nodes.get(op.blockId))||['code','equation','divider'].includes(nodes.get(op.blockId).block.type))fail();const row=rows.get(op.blockId),flow=flows.get(op.blockId)??[],rich=textFlowDelta(doc,flow).some(run=>Object.keys(run.attributes??{}).length);
+   if(!row||removed.has(op.blockId)||row.block.children?.length&&!parents.has(op.type)||op.type==='divider'&&(textFlowValue(doc,flow).length||row.block.children?.length)||['code','equation'].includes(op.type)&&rich){conflicts.push({id:op.id,code:'ROOM_OPERATION_CONFLICT'});continue;}
    row.block.type=op.type;row.block.data={...row.block.data,...op.data,...(op.type==='checklist'&&!Object.hasOwn(op.data,'checked')?{checked:false}:{}),...(op.type==='heading'&&!Object.hasOwn(op.data,'level')?{level:1}:{}),...(op.type==='numbered-list'&&!Object.hasOwn(op.data,'start')?{start:1}:{})};continue;
   }
   if(op.kind==='check'){
@@ -83,7 +83,7 @@ function replay(doc,base){seed(base);const nodes=allNodes(doc,base),tree=clone(b
  const visible=items=>items.flatMap(block=>{const children=block.children?visible(block.children):undefined;if(removed.has(block.id))return children??[];return[{...block,...(children?{children}:{})}];});
  const blocks=visible(tree);return{blocks,nodes,conflicts,flows,blockedReferences};
 }
-function mergeable(block,source){return !['code','divider','columns','column'].includes(block.type)&&!block.children?.length&&(!source||Object.keys(block).every(key=>['id','type','data','children'].includes(key))&&Object.keys(block.data??{}).every(key=>['text','marks','links','mentions','level','checked','start'].includes(key)));}
+function mergeable(block,source){return !['code','equation','divider','columns','column'].includes(block.type)&&!block.children?.length&&(!source||Object.keys(block).every(key=>['id','type','data','children'].includes(key))&&Object.keys(block.data??{}).every(key=>['text','marks','links','mentions','level','checked','start'].includes(key)));}
 function mutableParent(row){return row.block.type==='column'?layout(row.block)&&row.ancestors.some(parent=>parent.type==='columns')&&row.ancestors.every(parent=>parent.data?.purpose!=='import-source'&&(parents.has(parent.type)||parent.type==='columns'&&layout(parent))):mutable(row);}
 function metadata(base){const map=new Map();for(const[key,row]of index(base.blocks)){const text=row.block.data?.text;if(typeof text!=='string')continue;for(const kind of ['links','mentions'])for(const[value,entry]of (row.block.data?.[kind]??[]).entries())map.set(kind+':'+key+':'+value,{blockId:key,kind,entry,text:text.slice(entry.start,entry.end)});}return map;}
 function attributes(mark){return{...Object.fromEntries(mark.styles.map(style=>[style,true])),...(mark.href?{href:mark.href}:{})};}
@@ -98,7 +98,7 @@ function validateStructuredRoomUnsafe(doc,base){if(!(doc instanceof Y.Doc)||doc.
  for(const items of doc.store.clients.values())for(const item of items)if(item.content instanceof Y.ContentFormat){const{key,value}=item.content;if(INLINE_STYLES.includes(key)){if(value!==true&&value!==null)fail();}else if(key==='href'){if(value!==null&&(typeof value!=='string'||safeInlineHref(value)!==value))fail();}else if(['links','mentions'].includes(key)){if(value!==null&&(!refs.has(value)||refs.get(value).kind!==key||Y.findRootTypeKey(item.parent)!=='block:'+refs.get(value).blockId))fail();}else fail();}
  const title=doc.getText('title');if(title.toDelta().some(part=>typeof part.insert!=='string'||part.attributes))fail();assertTitle(title.toString());
  // Every physical field is validated, including inactive split slots and removed blocks.
- for(const key of allowed){if(['nodes','operations','title'].includes(key))continue;const text=doc.getText(key);if(text.length>100000)fail('ROOM_TOO_LARGE',413);for(const run of text.toDelta())if(typeof run.insert!=='string'||projected.nodes.get(key.slice(6))?.block.type==='code'&&run.attributes)fail();if(projected.nodes.get(key.slice(6))?.block.type==='divider'&&text.length)fail();}
+ for(const key of allowed){if(['nodes','operations','title'].includes(key))continue;const text=doc.getText(key);if(text.length>100000)fail('ROOM_TOO_LARGE',413);for(const run of text.toDelta())if(typeof run.insert!=='string'||['code','equation'].includes(projected.nodes.get(key.slice(6))?.block.type)&&run.attributes)fail();if(projected.nodes.get(key.slice(6))?.block.type==='divider'&&text.length)fail();}
  const patch=items=>{for(const block of items){const row=projected.nodes.get(block.id);if(mutable(row)&&known.has(row.block.type)){
    const delta=textFlowDelta(doc,projected.flows.get(block.id)??[]);let offset=0;const marks=[],references=new Map();
    for(const part of delta){if(typeof part.insert!=='string')fail();const attrs=part.attributes??{};for(const[key,value]of Object.entries(attrs)){if(INLINE_STYLES.includes(key)){if(value!==true)fail();}else if(key==='href'){if(typeof value!=='string'||safeInlineHref(value)!==value)fail();}else if(['links','mentions'].includes(key)){const ref=refs.get(value);if(!ref||part.root!=='block:'+ref.blockId||ref.kind!==key)fail();const entries=references.get(value)??[];entries.push({start:offset,end:offset+part.insert.length});references.set(value,entries);}else fail();}
@@ -120,7 +120,7 @@ export function structuredRoomOperation(doc,base,operation,{origin='local',creat
  if(op.kind==='add'){if(!id(op.blockId)||!known.has(op.type)||rows.has(op.blockId)||doc.getMap('nodes').has(op.blockId))fail();const type=op.type,data=op.data;delete op.type;delete op.data;recordId=op.blockId;record=json({id:op.blockId,type,...(data&&Object.keys(data).length?{data}:{})});}
  if(op.kind==='split'){
   exact(operation,['kind','blockId','newBlockId','start','end']);const row=rows.get(op.blockId),value=row?.block.data?.text;
-  if(!mutable(row)||['code','divider','columns'].includes(row.block.type)||!id(op.newBlockId)||rows.has(op.newBlockId)||doc.getMap('nodes').has(op.newBlockId)||typeof value!=='string'||!isInlineBoundary(value,op.start)||!isInlineBoundary(value,op.end)||op.end<op.start)fail();
+  if(!mutable(row)||['code','equation','divider','columns'].includes(row.block.type)||!id(op.newBlockId)||rows.has(op.newBlockId)||doc.getMap('nodes').has(op.newBlockId)||typeof value!=='string'||!isInlineBoundary(value,op.start)||!isInlineBoundary(value,op.end)||op.end<op.start)fail();
   const type=['checklist','bulleted-list','numbered-list','quote'].includes(row.block.type)?row.block.type:'paragraph',data=type==='checklist'?{checked:false}:type==='numbered-list'?{start:Math.min(999999999,(row.block.data.start??1)+1)}:{};
   const flow=replay(doc,base).flows.get(op.blockId);recordId=op.newBlockId;record=json({id:recordId,type,...(Object.keys(data).length?{data}:{}),split:{source:op.blockId,cut:textFlowAnchor(doc,flow,op.start)}});erase={blockId:op.blockId,start:op.start,end:op.end};delete op.start;delete op.end;
  }
@@ -133,7 +133,7 @@ export function structuredRoomOperation(doc,base,operation,{origin='local',creat
  if(record)doc.transact(()=>scaffold(doc),'scaffold');doc.transact(()=>apply(doc),origin);return validateStructuredRoom(doc,base);
 }
 export function structuredRoomFormat(doc,base,{blockId,start,end,marks},{origin='local'}={}){
- const rows=index(validateStructuredRoom(doc,base).blocks),row=rows.get(blockId);if(!mutable(row)||row.block.type==='code'||!known.has(row.block.type))fail();const flow=replay(doc,base).flows.get(blockId),value=textFlowValue(doc,flow),valid=validateInlineMarks(value,marks);if(!isInlineBoundary(value,start)||!isInlineBoundary(value,end)||end<=start)fail();
+ const rows=index(validateStructuredRoom(doc,base).blocks),row=rows.get(blockId);if(!mutable(row)||['code','equation'].includes(row.block.type)||!known.has(row.block.type))fail();const flow=replay(doc,base).flows.get(blockId),value=textFlowValue(doc,flow),valid=validateInlineMarks(value,marks);if(!isInlineBoundary(value,start)||!isInlineBoundary(value,end)||end<=start)fail();
  doc.transact(()=>{formatTextFlow(doc,flow,start,end,Object.fromEntries([...INLINE_STYLES,'href'].map(key=>[key,null])));for(const mark of valid){const left=Math.max(start,mark.start),right=Math.min(end,mark.end);if(right>left)formatTextFlow(doc,flow,left,right,{...attributes(mark),...(mark.href?{links:null}:{})});}},origin);return validateStructuredRoom(doc,base);
 }
 export function structuredRoomText(doc,key,value,{origin='local',marks=[],base}={}){

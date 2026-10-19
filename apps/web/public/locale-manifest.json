@@ -23,6 +23,7 @@
     "preferences": "prefs-locales",
     "publication": "publication-locales",
     "share": "share-locales",
+    "setup": "setup-locales",
     "teamspace": "teamspace-locales",
     "templates": "templates-locales",
     "webhooks": "webhooks-locales",

@@ -1,0 +1,70 @@
+import {workerPagePaths} from '../../../packages/prototype/src/web-routes.js';
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { Miniflare, convertV4MiniflareOptions } from 'miniflare';
+import { build } from 'esbuild';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { resolve, relative, isAbsolute, sep, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { createD1SetupStore } from '../../../packages/identity/src/setup-store.js';
+import { initialSetupAuthorization } from '../../../packages/identity/src/setup.js';
+
+const root = fileURLToPath(new URL('../../../', import.meta.url)), prefix = 'yumunio-worker-setup-';
+const origin = 'https://setup.fixture.invalid', instanceSecret = 'synthetic-worker-install-key-2026-'.repeat(3), password = 'Synthetic-worker-owner-password-2026!';
+const token = await initialSetupAuthorization({ YUMUNIO_INSTANCE_SECRET: instanceSecret });
+test('actual workerd installs D1/R2 from the deploy schema, atomically claims one owner and preserves web settings across restart', { timeout: 90000 }, async t => {
+  const directory = await mkdtemp(join(tmpdir(), prefix)), bundle = join(directory, 'worker.mjs'); let worker;
+  t.after(async () => { await worker?.dispose(); const rel = relative(resolve(tmpdir()), resolve(directory)); assert.ok(!isAbsolute(rel) && !rel.includes(sep) && rel.startsWith(prefix)); await rm(directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }); });
+  await build({ entryPoints: [join(root, 'apps/worker/worker.js')], outfile: bundle, bundle: true, format: 'esm', platform: 'browser', target: 'es2022', external: ['node:*'], logLevel: 'silent' });
+  const start = (overrides = {}) => new Miniflare(convertV4MiniflareOptions({ modules: true, scriptPath: bundle, compatibilityDate: '2026-10-01', compatibilityFlags: ['nodejs_compat'],
+    d1Databases: { DB: 'installation-fixture' }, r2Buckets: { BLOBS: 'attachment-fixture' }, resourcePersistencePath: join(directory, 'state'), telemetry: { enabled: false },
+    assets: { directory: join(root, '.build/web'), binding: 'ASSETS', assetConfig: { html_handling: 'none' }, routerConfig: { has_user_worker: true }, run_worker_first: [...workerPagePaths(),'/api','/api/*','/health','/manifest.webmanifest'] },
+    bindings: { YUMUNIO_INSTANCE_SECRET: instanceSecret, YUMUNIO_WEB_SETUP: 'true', YUMUNIO_BLOB_DRIVER: 'r2', ...overrides } }));
+  worker = start(); await worker.ready;
+  const db = await worker.getD1Database('DB');
+  const schema = (await readFile(join(root, 'apps/worker/install-migrations/0001_install.sql'), 'utf8')).replace(/^\s*--[^\r\n]*$/gm, '');
+  await db.batch(schema.split(';').map(sql => sql.trim()).filter(Boolean).map(sql => db.prepare(sql)));
+  const request = (path, { method = 'GET', body, cookie, key, headers = {} } = {}) => worker.dispatchFetch(origin + path, { method, redirect: 'manual', headers: { ...(body ? { Origin: origin, 'Content-Type': 'application/json' } : {}), ...(key ? { 'X-Yumunio-Setup-Token': key } : {}), ...(cookie ? { Cookie: cookie } : {}), ...headers }, ...(body ? { body: JSON.stringify(body) } : {}) });
+  const owner = { name: 'Worker owner', email: 'worker-owner@example.invalid', password, settings: { YUMUNIO_BRAND_NAME: 'Cloud notes', YUMUNIO_DEFAULT_LOCALE: 'en' } };
+  assert.equal((await request('/')).headers.get('location'), '/setup');
+  assert.equal((await request('/index.html')).headers.get('location'),'/notes');
+  assert.equal((await request('/notes')).status,200);
+  assert.equal((await request('/setup')).status, 200);
+  assert.equal((await request('/api/auth/get-session')).status, 503);
+  assert.equal((await request('/api/setup', { method: 'POST', key: 'wrong', body: owner })).status, 403);
+  assert.equal((await request('/api/setup', { method: 'POST', key: token, body: owner, headers: { Origin: 'https://other.invalid' } })).status, 403);
+  assert.equal((await request('/api/setup', { method: 'POST', key: token, body: { ...owner, settings: { YUMUNIO_MAIL_DRIVER: 'smtp' } } })).status, 400);
+  const claims = await Promise.all([1, 2].map(() => request('/api/setup', { method: 'POST', key: token, body: owner })));
+  assert.deepEqual(claims.map(response => response.status).sort(), [201, 409], await Promise.all(claims.map(response => response.clone().text())));
+  assert.equal((await request('/')).headers.get('location'), '/account');
+  assert.equal((await db.prepare('SELECT COUNT(*) AS total FROM yumunio_users').first()).total, 1);
+  assert.equal((await request('/api/setup', { method: 'POST', key: token, body: owner })).status, 409);
+  const signIn = await request('/api/auth/sign-in/email', { method: 'POST', body: { email: owner.email, password } });
+  assert.equal(signIn.status, 200, await signIn.clone().text());
+  const account = await signIn.json(), cookie = signIn.headers.getSetCookie().map(value => value.split(';')[0]).join('; ');
+  assert.equal((await request('/api/admin/config', { cookie })).status, 200);
+  assert.equal((await request('/api/admin/settings')).status, 404);
+  const config = await (await request('/api/admin/settings', { cookie })).json();
+  const update = { revision: config.revision, settings: { YUMUNIO_BRAND_NAME: 'Updated cloud', YUMUNIO_MAIL_DRIVER: 'http', YUMUNIO_SMTP_FROM: 'notes@example.invalid', YUMUNIO_MAIL_HTTP_ENDPOINT: 'https://relay.example.invalid/send', YUMUNIO_MAIL_HTTP_TOKEN: 'synthetic-relay-credential' } };
+  assert.equal((await request('/api/admin/settings', { method: 'PUT', cookie, body: update })).status, 404);
+  assert.equal((await request('/api/admin/settings', { method: 'PUT', cookie, body: update, headers: { 'X-Yumunio-Expected-Account': account.user.id } })).status, 200);
+  assert.equal((await request('/api/admin/settings', { method: 'PUT', cookie, body: update, headers: { 'X-Yumunio-Expected-Account': account.user.id } })).status, 409);
+  assert.ok(!(await db.prepare('SELECT sealed FROM yumunio_instance_settings').first()).sealed.includes('synthetic-relay-credential'));
+  await worker.dispose(); worker = start(); await worker.ready;
+  assert.equal((await (await request('/api/setup')).json()).required, false);
+  assert.equal((await (await request('/api/instance')).json()).applicationName, 'Updated cloud');
+  const stored = await (await request('/api/admin/settings', { cookie })).json();
+  assert.equal(stored.secrets.YUMUNIO_MAIL_HTTP_TOKEN, true);
+  assert.ok(!JSON.stringify(stored).includes('synthetic-relay-credential'));
+  await worker.dispose(); worker = start({ YUMUNIO_PUBLIC_ORIGIN: origin }); await worker.ready;
+  const canonical = await worker.dispatchFetch('https://alias.fixture.invalid/setup', { redirect: 'manual' });
+  assert.equal(canonical.status, 302); assert.equal(canonical.headers.get('location'), origin + '/setup');
+  // A D1 atomic batch must reject nonempty legacy state even without the public fresh() precheck.
+  const installed = await worker.getD1Database('DB');
+  await installed.prepare('DELETE FROM yumunio_instance_settings').run();
+  const rejected = await request('/api/setup', { method: 'POST', key: token, body: owner });
+  assert.equal(rejected.status, 409);
+  await assert.rejects(() => createD1SetupStore(installed).initialize({ sealed: 'fixture', owner: { id: 'intruder', name: 'No', email: 'intruder@example.invalid' }, passwordHash: 'fixture', workspaceName: 'No' }));
+  assert.equal((await installed.prepare('SELECT COUNT(*) AS total FROM yumunio_instance_settings').first()).total, 0);
+});

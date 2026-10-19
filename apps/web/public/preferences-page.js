@@ -20,7 +20,7 @@ const lifetime=new AbortController();
 const sync=new AccountPreferenceSync();
 const routeQuery=new URL(embedded?'https://local.invalid/?workspace='+encodeURIComponent(workspaceId):location.href).searchParams;
 const routeWorkspace=routeQuery.getAll('workspace').length===1&&/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(routeQuery.get('workspace'))?routeQuery.get('workspace'):'';
-const workspaceReturn=routeWorkspace?'/workspace.html?workspace='+encodeURIComponent(routeWorkspace):'/account.html#account';
+const workspaceReturn=routeWorkspace?'/workspace?workspace='+encodeURIComponent(routeWorkspace):'/account#account';
 let preferences,draft,actor=null,i18n,brand,busy=false,blocked=false,message='',lastValid=null;
 const node=(tag,attributes={},children=[])=>{
   const result=document.createElement(tag);
@@ -130,7 +130,7 @@ function renderRemote(){
     node('div',{class:'panel-header'},[node('h2',{id:'sync-heading'},t('remoteTitle')),node('p',{class:'intro'},t('syncIntro'))]),
     node('div',{class:'identity'},[node('strong',{},actor?.name??t('localProfile')),node('span',{},actor?.email??t('localProfileHint'))]),
   ]);
-  if(!actor){panel.append(node('a',{href:'/account.html',class:'button'},t('loginToSync')),node('p',{class:'hint boundary'},t('syncBoundary')));return panel;}
+  if(!actor){panel.append(node('a',{href:'/account',class:'button'},t('loginToSync')),node('p',{class:'hint boundary'},t('syncBoundary')));return panel;}
   panel.append(button('load-account',sync.revision===null?'loadRemote':'reloadRemote',async()=>{await sync.load();message='loadSuccess';},false,busy||blocked));
   if(sync.revision===null)panel.append(node('p',{class:'hint'},t('remoteNotLoaded')));
   else if(sync.remote===null)panel.append(node('h3',{},t('remoteEmpty')),node('p',{class:'hint'},t('remoteEmptyHint')));
@@ -150,7 +150,7 @@ function render(){
   if(destroyed||!i18n)return;
   root.lang=i18n.locale;root.dir=i18n.dir;
   if(!embedded){applyLocaleDocument(document,i18n);const skip=document.querySelector('.skip-link');if(skip)skip.textContent=t('skip');}nav.setAttribute('aria-label',t('navigation'));
-  nav.replaceChildren(node('a',{href:workspaceReturn},t('workspace')),node('a',{href:'/account.html'},t('account')));
+  nav.replaceChildren(node('a',{href:workspaceReturn},t('workspace')),node('a',{href:'/account'},t('account')));
   main.replaceChildren(node('div',{class:'page-heading'},[node('p',{class:'eyebrow'},t('eyebrow')),node('h1',{},t('title')),node('p',{class:'intro'},t('intro'))]));
   main.append(node('p',{id:'preferences-status',class:'status',role:'status','aria-live':'polite'},message?t(message):''),node('div',{class:'settings-layout'},[renderEditor(),renderRemote()]));
   refreshPreview();if(!embedded)brand.apply({titleSuffix:t('title')});

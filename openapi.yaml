@@ -74,7 +74,7 @@ x-mcp-transport:
   requiredApplicationScope: mcp:connect
   maxRequestUtf8Bytes: 256000
   description: "Intentionally excluded from REST paths. Every initialize/discovery/tool/resource request
-    authenticates a page-bound personal token. tools: get_page, get_document, update_page, filtered by scopes.
+    authenticates a page-bound personal token. tools: get_page, get_document, update_page, edit_blocks, filtered by scopes.
     Document resource exists only with document:read. GET/DELETE return 405; no reusable server session ID or
     model execution."
 paths:
@@ -1798,6 +1798,60 @@ paths:
           application/json:
             schema:
               $ref: "#/components/schemas/DocumentWriteRequest"
+        x-max-utf8-bytes: 204096
+  /api/v1/pages/{pageId}/blocks:
+    parameters:
+      - $ref: "#/components/parameters/PageId"
+    patch:
+      operationId: editExternalBlocks
+      summary: Append, update or delete supported text blocks atomically
+      tags:
+        - Public page API
+      security:
+        - PersonalToken: []
+      x-audience: public-bearer
+      x-reject-query: true
+      responses:
+        "200":
+          description: Successful response.
+          headers:
+            Cache-Control:
+              schema:
+                const: no-store
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExternalDocumentResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+      description: Apply operations in order as one transaction and one document version. Update accepts only data
+        fields of the existing supported block type. Omitted and unrelated blocks are preserved. Omitted
+        descendants cannot be targeted; deleting a subtree with omitted blocks fails. Read the current version
+        before editing. Never automatically retry a conflict or an uncertain response.
+      x-required-scopes:
+        - document:write
+      x-required-page-capability: editBody
+      requestBody:
+        required: true
+        description: Strict JSON object; maximum 204096 UTF-8 bytes.
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BlockEditRequest"
         x-max-utf8-bytes: 204096
   /api/integrations/tokens:
     parameters:
@@ -6953,6 +7007,170 @@ components:
       description: At most 200000 UTF-8 bytes. Unknown and import-source subtrees are omitted. Metadata such as
         formatting, structured references and attachment locators is never returned. page.version equals
         document.version.
+    ExternalAppendBlock:
+      type: object
+      additionalProperties: false
+      required:
+        - type
+      properties:
+        id:
+          $ref: "#/components/schemas/Id"
+        type:
+          type: string
+          enum:
+            - paragraph
+            - heading
+            - heading1
+            - heading2
+            - checklist
+            - bulleted-list
+            - numbered-list
+            - quote
+            - divider
+            - code
+        data:
+          type: object
+          additionalProperties: false
+          required: []
+          properties:
+            text:
+              type: string
+              maxLength: 100000
+            level:
+              type: integer
+              enum:
+                - 1
+                - 2
+                - 3
+            checked:
+              type: boolean
+        children:
+          type: array
+          items:
+            $ref: "#/components/schemas/ExternalAppendBlock"
+          maxItems: 1000
+      allOf:
+        - if:
+            properties:
+              type:
+                const: divider
+          then:
+            properties:
+              data:
+                maxProperties: 0
+          else:
+            required:
+              - data
+            properties:
+              data:
+                required:
+                  - text
+        - if:
+            properties:
+              type:
+                const: heading
+          then:
+            properties:
+              data:
+                required:
+                  - level
+          else:
+            properties:
+              data:
+                not:
+                  required:
+                    - level
+        - if:
+            properties:
+              type:
+                const: checklist
+          then:
+            properties:
+              data:
+                required:
+                  - checked
+          else:
+            properties:
+              data:
+                not:
+                  required:
+                    - checked
+      description: New supported text block. The server generates the ID when omitted. Existing IDs cannot be reused.
+      x-max-tree-depth: 20
+      x-max-total-blocks: 1000
+    BlockEditRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - expectedVersion
+        - operations
+      properties:
+        expectedVersion:
+          $ref: "#/components/schemas/MutableVersion"
+        operations:
+          type: array
+          minItems: 1
+          maxItems: 100
+          items:
+            oneOf:
+              - type: object
+                additionalProperties: false
+                required:
+                  - type
+                  - blocks
+                properties:
+                  type:
+                    const: append
+                  parentId:
+                    anyOf:
+                      - $ref: "#/components/schemas/Id"
+                      - type: "null"
+                  blocks:
+                    type: array
+                    minItems: 1
+                    maxItems: 1000
+                    items:
+                      $ref: "#/components/schemas/ExternalAppendBlock"
+              - type: object
+                additionalProperties: false
+                required:
+                  - type
+                  - blockId
+                  - data
+                properties:
+                  type:
+                    const: update
+                  blockId:
+                    $ref: "#/components/schemas/Id"
+                  data:
+                    type: object
+                    additionalProperties: false
+                    minProperties: 1
+                    properties:
+                      text:
+                        type: string
+                        maxLength: 100000
+                      level:
+                        enum:
+                          - 1
+                          - 2
+                          - 3
+                      checked:
+                        type: boolean
+              - type: object
+                additionalProperties: false
+                required:
+                  - type
+                  - blockId
+                properties:
+                  type:
+                    const: delete
+                  blockId:
+                    $ref: "#/components/schemas/Id"
+      description: Apply operations in order as one transaction and one document version. Update accepts only data
+        fields of the existing supported block type. Omitted and unrelated blocks are preserved. Omitted
+        descendants cannot be targeted; deleting a subtree with omitted blocks fails. Read the current version
+        before editing. Never automatically retry a conflict or an uncertain response.
     DocumentWriteRequest:
       type: object
       additionalProperties: false

@@ -1,5 +1,11 @@
 blank_issues_enabled: true
 contact_links:
+  - name: 導入・更新・困ったときの案内
+    url: https://github.com/KuronekoServer/Yumunio/blob/master/docs/README.md
+    about: Docker・Cloudflare Workersでの導入、バックアップ、メール設定を確認できます。
+  - name: 翻訳に参加 / Community translations
+    url: https://github.com/KuronekoServer/Yumunio/blob/master/docs/community-translations.md
+    about: GitHubの画面から一文だけの翻訳や新しい言語を提案できます。English guide is linked inside.
   - name: 開発・貢献の案内
     url: https://github.com/KuronekoServer/Yumunio/blob/master/CONTRIBUTING.md
     about: ローカルでの開発、テスト、変更の提案について確認できます。

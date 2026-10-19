@@ -186,7 +186,7 @@ test('links are retained as original strings without guessed server URLs and sam
   assert.equal(bundle.summary.unconvertedLinks,1);
   assert.equal(bundle.body.pages.length,3);
   assert.equal(bundle.body.pages[1].blocks[0].data.text,'[Database](Database.csv)');
-  assert.doesNotMatch(JSON.stringify(bundle.body),/\/workspace\.html|workspaceId|accountId/);
+  assert.doesNotMatch(JSON.stringify(bundle.body),/\/workspace|workspaceId|accountId/);
   assert.ok(bundle.warnings.some(warning=>warning.code==='MATCHES_NOT_MERGED'));
 });
 

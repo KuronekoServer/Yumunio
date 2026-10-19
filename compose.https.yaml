@@ -1,0 +1,20 @@
+services:
+  caddy:
+    image: caddy:2-alpine
+    environment:
+      YUMUNIO_PUBLIC_ORIGIN: "${YUMUNIO_PUBLIC_ORIGIN:?Set the public HTTPS URL in .env before starting}"
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - yumunio-caddy-data:/data
+      - yumunio-caddy-config:/config
+    depends_on:
+      yumunio:
+        condition: service_healthy
+    restart: unless-stopped
+volumes:
+  yumunio-caddy-data:
+  yumunio-caddy-config:

@@ -2,6 +2,7 @@ import { pathToFileURL } from 'node:url';
 import { resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { readServerConfig } from '../config.mjs';
+import { readNodeInstanceEnvironment } from '../setup.mjs';
 import { createNodeBackupService } from '../backup.mjs';
 import { verifyRecoveryArchive } from '@yumunio/backup/archive';
 import { restoreRecoveryArchive } from '@yumunio/backup/restore';
@@ -36,6 +37,7 @@ function options(argv) {
 
 /** Explicit operator command. Does not load an env file or print secrets itself. */
 export async function runBackupCommand(argv, env = process.env) {
+  env = await readNodeInstanceEnvironment(env);
   const { command, values, steps } = options(argv);
   const inspection = ['status', 'verify', 'restore'].includes(command);
   const service = await createNodeBackupService(env, readServerConfig(env), { forRestore: inspection });

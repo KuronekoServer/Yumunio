@@ -33,7 +33,7 @@ test('Node account pages persist separately, filter private pages, enforce shari
     assert.equal((await request('/api/auth/sign-up/email', 'POST', { name, email, password })).status, 202);
     await identity.flushBackgroundTasks();
     const token = new URL(mail.at(-1).text.split('\n').at(-1)).searchParams.get('verify');
-    assert.equal((await request('/api/auth/verify-email?token=' + encodeURIComponent(token) + '&callbackURL=' + encodeURIComponent(origin + '/account.html'))).status, 200);
+    assert.equal((await request('/api/auth/verify-email?token=' + encodeURIComponent(token) + '&callbackURL=' + encodeURIComponent(origin + '/account'))).status, 200);
     const login = await request('/api/auth/sign-in/email', 'POST', { email, password });
     assert.equal(login.status, 200);
     return { user: (await login.json()).user, cookie: login.headers.getSetCookie().map(value => value.split(';')[0]).join('; ') };

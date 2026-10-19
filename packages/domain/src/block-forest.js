@@ -3,9 +3,11 @@ export const BLOCK_MOVE_NESTING=8;
 export class BlockForestMoveError extends TypeError{constructor(code='INVALID_BLOCK_MOVE',status=400){super(code);this.code=code;this.status=status;}}
 const fail=(code,status)=>{throw new BlockForestMoveError(code,status);};
 import {isSimpleTableData} from './simple-table.js';
+import {isAttachmentBlock} from './attachment-block-model.js';
+import {TEXT_BLOCK_TYPES,BLOCK_PARENT_TYPES,GENERATED_BLOCK_TYPES,isBookmarkBlock} from './block-types.js';
 const id=value=>typeof value==='string'&&/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(value);
-const editable=new Set(['paragraph','heading','heading1','heading2','checklist','bulleted-list','numbered-list','quote','divider','code']);
-const parents=new Set(['paragraph','bulleted-list','numbered-list','quote','checklist','column']);
+const editable=new Set([...TEXT_BLOCK_TYPES,...GENERATED_BLOCK_TYPES,'divider']);
+const parents=new Set(BLOCK_PARENT_TYPES);
 const layout=block=>block&&Object.keys(block).every(key=>['id','type','data','children'].includes(key))&&(block.data===undefined||block.data&&typeof block.data==='object'&&!Array.isArray(block.data)&&!Object.keys(block.data).length)&&Array.isArray(block.children);
 const group=block=>block?.type==='columns'&&layout(block)&&[2,3].includes(block.children.length)&&block.children.every(child=>child?.type==='column'&&layout(child));
 function locations(blocks){
@@ -17,7 +19,7 @@ function locations(blocks){
  }};visit(blocks);return result;
 }
 function writablePath(location){const path=[...location.ancestors,location.block];return location.ancestors.every((parent,index)=>parent.data?.purpose!=='import-source'&&(parent.type==='columns'?group(parent)&&path[index+1]?.type==='column':parent.type==='column'?layout(parent)&&path[index-1]?.type==='columns':parents.has(parent.type)));}
-function writableRoot(location){return location&&location.depth<BLOCK_MOVE_NESTING&&location.block.data?.purpose!=='import-source'&&(editable.has(location.block.type)||group(location.block)||location.block.type==='table'&&isSimpleTableData(location.block.data)&&!Object.hasOwn(location.block,'children'))&&writablePath(location);}
+function writableRoot(location){return location&&location.depth<BLOCK_MOVE_NESTING&&location.block.data?.purpose!=='import-source'&&(editable.has(location.block.type)||isBookmarkBlock(location.block)||group(location.block)||isAttachmentBlock(location.block)||location.block.type==='table'&&isSimpleTableData(location.block.data)&&!Object.hasOwn(location.block,'children'))&&writablePath(location);}
 function writableParent(location){return location&&location.depth<BLOCK_MOVE_NESTING&&parents.has(location.block.type)&&location.block.data?.purpose!=='import-source'&&writablePath(location)&&(location.block.type!=='column'||layout(location.block)&&location.ancestors.at(-1)?.type==='columns');}
 const height=block=>block.children?.length?1+Math.max(...block.children.map(height)):0;
 function selection(map,blockIds){

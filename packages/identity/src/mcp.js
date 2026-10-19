@@ -24,11 +24,13 @@ async function readMessage(request){
 const pageIdSchema={type:'string',pattern:'^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$'};
 const inputSchema={type:'object',properties:{pageId:pageIdSchema},additionalProperties:false};
 const writeSchema={type:'object',properties:{pageId:pageIdSchema,expectedVersion:{type:'integer',minimum:1,maximum:Number.MAX_SAFE_INTEGER-1},title:{type:'string',maxLength:240},blocks:{type:'array',maxItems:1000,items:{type:'object'}}},required:['expectedVersion'],anyOf:[{required:['title']},{required:['blocks']}],additionalProperties:false};
+const editSchema={type:'object',properties:{pageId:pageIdSchema,expectedVersion:{type:'integer',minimum:1,maximum:Number.MAX_SAFE_INTEGER-1},operations:{type:'array',minItems:1,maxItems:100,items:{oneOf:[{type:'object',properties:{type:{const:'append'},parentId:{anyOf:[pageIdSchema,{type:'null'}]},blocks:{type:'array',minItems:1,maxItems:1000,items:{type:'object'}}},required:['type','blocks'],additionalProperties:false},{type:'object',properties:{type:{const:'update'},blockId:pageIdSchema,data:{type:'object'}},required:['type','blockId','data'],additionalProperties:false},{type:'object',properties:{type:{const:'delete'},blockId:pageIdSchema},required:['type','blockId'],additionalProperties:false}]}}},required:['expectedVersion','operations'],additionalProperties:false};
 function tool(name,title,description,schema,{readOnly=true}={}){return{name,title,description,inputSchema:schema,annotations:{readOnlyHint:readOnly,destructiveHint:!readOnly,idempotentHint:readOnly,openWorldHint:false}};}
 const definitions=Object.freeze([
  tool('get_page','Read page','Read the title and current version of the single page authorized by this token.',inputSchema),
  tool('get_document','Read document','Read supported text blocks of the authorized page. Omitted blocks are reported; source and private metadata are not returned.',inputSchema),
- tool('update_page','Update page','Update the authorized page title or supported text blocks. Read the current version first and provide expectedVersion. Conflicts are never retried automatically. Body replacement is refused when hidden or unsupported blocks would be lost.',writeSchema,{readOnly:false})
+ tool('update_page','Update page','Update the authorized page title or supported text blocks. Read the current version first and provide expectedVersion. Conflicts are never retried automatically. Body replacement is refused when hidden or unsupported blocks would be lost.',writeSchema,{readOnly:false}),
+ tool('edit_blocks','Edit page blocks','Atomically append, update or delete supported text blocks of the authorized page. Read the version first. New block IDs are generated when omitted. Unrelated and unsupported blocks are preserved; deleting a subtree containing omitted blocks is refused.',editSchema,{readOnly:false})
 ]);
 const safeError=error=>({error:{code:typeof error?.code==='string'&&/^[A-Z_]{1,80}$/.test(error.code)?error.code:'MCP_UNAVAILABLE',message:'The requested page operation could not be completed.'},status:Number.isSafeInteger(error?.status)&&error.status>=400&&error.status<=599?error.status:503});
 
@@ -58,7 +60,7 @@ export function createMcpApi({actions,origin,enabled=false,resolveSession}={}){
    const version=request.headers.get('mcp-protocol-version');
    if(version&&!['2025-03-26','2025-06-18',MCP_PROTOCOL_VERSION].includes(version))return json({error:{code:'MCP_UNSUPPORTED_PROTOCOL_VERSION'}},400);
    const message=await readMessage(request),validator=new CfWorkerJsonSchemaValidator();
-   const allowed=definitions.filter(row=>row.name==='get_page'||row.name==='get_document'&&capability.scopes.includes('document:read')||row.name==='update_page'&&capability.scopes.includes('document:write'));
+   const allowed=definitions.filter(row=>row.name==='get_page'||row.name==='get_document'&&capability.scopes.includes('document:read')||['update_page','edit_blocks'].includes(row.name)&&capability.scopes.includes('document:write'));
    const resource='yumunio://pages/'+encodeURIComponent(capability.pageId)+'/document';
    const output=value=>({content:[{type:'text',text:JSON.stringify(value)}],structuredContent:value});
    const execute=(action,pageId,input)=>actions.execute({authorization,pageId:pageId??capability.pageId,action,input,requiredScopes:['mcp:connect']});
@@ -68,7 +70,7 @@ export function createMcpApi({actions,origin,enabled=false,resolveSession}={}){
    server.setRequestHandler(CallToolRequestSchema,async rpc=>{
     const selected=allowed.find(row=>row.name===rpc.params.name),args=rpc.params.arguments??{};
     if(!selected||!validators.get(selected.name)(args).valid)throw new McpError(ErrorCode.InvalidParams,'Invalid tool or arguments.');
-    try{if(selected.name==='get_page')return output(await execute('page.read',args.pageId));if(selected.name==='get_document')return output(await execute('document.read',args.pageId));const{pageId,...input}=args;return output(await execute('document.write',pageId,input));}
+    try{if(selected.name==='get_page')return output(await execute('page.read',args.pageId));if(selected.name==='get_document')return output(await execute('document.read',args.pageId));const{pageId,...input}=args;return output(await execute(selected.name==='edit_blocks'?'blocks.edit':'document.write',pageId,input));}
     catch(error){return{...output(safeError(error)),isError:true};}
    });
    if(capability.scopes.includes('document:read')){

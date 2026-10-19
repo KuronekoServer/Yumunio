@@ -2,7 +2,7 @@ import {assertId,assertPlainObject,assertJsonSerializable,validateInlineMarks,re
 import {CONTENT_STORAGE_LIMITS} from './content-codec.js';
 
 export const TEMPLATE_LIMITS=Object.freeze({templates:50,snapshotBytes:32768,blocks:200,depth:20,receipts:1000,aggregateBytes:CONTENT_STORAGE_LIMITS.logicalBytes});
-export const TEMPLATE_TYPES=Object.freeze(['paragraph','heading','heading1','heading2','checklist','bulleted-list','numbered-list','quote','code','divider']);
+export const TEMPLATE_TYPES=Object.freeze(['paragraph','heading','heading1','heading2','checklist','bulleted-list','numbered-list','quote','callout','toggle','code','divider']);
 export const TEMPLATE_EXCLUSIONS=Object.freeze(['child-pages','database-records','attachments','comments','authors','import-source','unsupported-subtrees','mentions','structured-links','external-links']);
 const types=new Set(TEMPLATE_TYPES),marked=new Set(TEMPLATE_TYPES.filter(type=>!['code','divider'].includes(type))),encoder=new TextEncoder();
 export class PersonalTemplatesError extends Error{constructor(code='INVALID_TEMPLATE',status=400){super(code);this.name='PersonalTemplatesError';this.code=code;this.status=status;}}

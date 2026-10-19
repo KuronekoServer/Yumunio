@@ -51,7 +51,7 @@ export function createIdentity({ database, origin, secret, registrationMode = 'c
     if (!sendMail && !enqueueMail) return;
     const to = user.email;
     const makeMessage = () => {
-      const link = new URL('/account.html', origin); link.searchParams.set(purpose, token);
+      const link = new URL('/account', origin); link.searchParams.set(purpose, token);
       return { to, subject: purpose === 'verify' ? 'Yumunio: メールアドレスの確認' : 'Yumunio: パスワードの再設定', text: '本人が操作を続ける場合だけ、次の画面で確認してください。\n' + link.href };
     };
     if (enqueueMail) {
@@ -60,7 +60,7 @@ export function createIdentity({ database, origin, secret, registrationMode = 'c
       return;
     }
     const task = Promise.resolve().then(async () => {
-      const link = new URL('/account.html', origin);
+      const link = new URL('/account', origin);
       link.searchParams.set(purpose, token);
       const result = await sendMail({ to, subject: purpose === 'verify' ? 'Yumunio: メールアドレスの確認' : 'Yumunio: パスワードの再設定', text: '本人が操作を続ける場合だけ、次の画面で確認してください。\n' + link.href });
       if (result?.status !== 'accepted') throw new Error('Email submission was not accepted.');
@@ -77,7 +77,7 @@ export function createIdentity({ database, origin, secret, registrationMode = 'c
     appName: 'Yumunio', baseURL: origin, basePath: '/api/auth', secret, database,
     trustedOrigins: [origin], logger: { disabled: true },
     socialProviders: external.socialProviders,
-    onAPIError: { errorURL: origin + '/account.html?oauth=error' },
+    onAPIError: { errorURL: origin + '/account?oauth=error' },
     emailAndPassword: {
       enabled: true, disableSignUp: registrationMode !== 'open', requireEmailVerification: true,
       minPasswordLength: 12, maxPasswordLength: 128, autoSignIn: false,
@@ -155,11 +155,11 @@ export function createIdentity({ database, origin, secret, registrationMode = 'c
             if (!/^application\/json(?:\s*;|$)/i.test(bounded.headers.get('content-type') || '')) throw new Error();
             data = await bounded.json();
             if (!data || typeof data !== 'object' || Array.isArray(data) || Object.keys(data).some(key => !['provider','callbackURL','requestSignUp'].includes(key)) ||
-                !providerIds.has(data.provider) || (data.callbackURL !== undefined && data.callbackURL !== '/account.html') ||
+                !providerIds.has(data.provider) || (data.callbackURL !== undefined && data.callbackURL !== '/account') ||
                 (data.requestSignUp !== undefined && typeof data.requestSignUp !== 'boolean')) throw new Error();
           } catch { return reply({ error: { code: 'INVALID_ACCOUNT_REQUEST', message: 'Invalid external sign-in request.' } }, 400); }
           bounded = new Request(bounded.url, { method:'POST', headers:bounded.headers, body:JSON.stringify({provider:data.provider,
-            callbackURL:origin+'/account.html',newUserCallbackURL:origin+'/account.html',errorCallbackURL:origin+'/account.html?oauth=error',
+            callbackURL:origin+'/account',newUserCallbackURL:origin+'/account',errorCallbackURL:origin+'/account?oauth=error',
             disableRedirect:true,...(data.requestSignUp === undefined ? {} : {requestSignUp:data.requestSignUp})}) });
         }
         const headers = new Headers(bounded.headers);
@@ -172,9 +172,9 @@ export function createIdentity({ database, origin, secret, registrationMode = 'c
           let target;
           try { target = new URL(result.headers.get('location'),origin); } catch {}
           const success = result.status >= 300 && result.status < 400 && target?.origin === origin &&
-            target.pathname === '/account.html' && !target.searchParams.has('error') && !target.searchParams.has('oauth');
+            target.pathname === '/account' && !target.searchParams.has('error') && !target.searchParams.has('oauth');
           safeHeaders.delete('content-length'); safeHeaders.delete('content-type');
-          safeHeaders.set('location',origin+'/account.html?oauth='+(success ? 'success' : 'error'));
+          safeHeaders.set('location',origin+'/account?oauth='+(success ? 'success' : 'error'));
           return new Response(null,{status:302,headers:safeHeaders});
         }
         if (result.status >= 400) {

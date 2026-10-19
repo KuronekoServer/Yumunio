@@ -3,7 +3,7 @@ services:
   yumunio:
     environment:
       YUMUNIO_STORAGE: postgres
-      YUMUNIO_ACCESS_KEY: "${YUMUNIO_ACCESS_KEY:?Set a random access key of at least 32 characters}"
+      YUMUNIO_ACCESS_KEY: "${YUMUNIO_ACCESS_KEY:-}"
       YUMUNIO_PUBLIC_ORIGIN: "${YUMUNIO_PUBLIC_ORIGIN:-http://127.0.0.1:8788}"
       YUMUNIO_DATABASE_URL: "${YUMUNIO_DATABASE_URL:?Set postgres://yumunio:encoded-password@database:5432/yumunio}"
       YUMUNIO_DATABASE_TLS: "${YUMUNIO_DATABASE_TLS:-verify-full}"

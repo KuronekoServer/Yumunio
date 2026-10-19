@@ -47,7 +47,7 @@ test('a synthetic Notion ZIP preserves native rows, links and private attachment
   assert.equal((await request('/api/auth/sign-up/email','POST',{name:'Native fixture',email,password})).status,202);
   await identity.flushBackgroundTasks();
   const token=new URL(mail.at(-1).text.split('\n').at(-1)).searchParams.get('verify');
-  assert.equal((await request('/api/auth/verify-email?token='+encodeURIComponent(token)+'&callbackURL='+encodeURIComponent(origin+'/account.html'))).status,200);
+  assert.equal((await request('/api/auth/verify-email?token='+encodeURIComponent(token)+'&callbackURL='+encodeURIComponent(origin+'/account'))).status,200);
   const login=await request('/api/auth/sign-in/email','POST',{email,password});assert.equal(login.status,200);
   accountId=(await login.json()).user.id;cookie=login.headers.getSetCookie().map(value=>value.split(';')[0]).join('; ');
   const workspaceResponse=await request('/api/auth/organization/create','POST',{name:'Native assets fixture',slug:'native-assets-fixture'});

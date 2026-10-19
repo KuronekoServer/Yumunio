@@ -5,7 +5,7 @@ import {SharingClient} from '../public/share-data.js';
 import {InvitationFlow,readInvitationLink} from '../public/invitation-flow.js';
 import {validateCatalogParity} from '../public/i18n.js';
 const token='A'.repeat(46)+'-_',invitationId='invite-fixture',accountId='account-a';
-const link=()=>readInvitationLink(new URL('https://local.example/account.html?invite='+invitationId+'&token='+token));
+const link=()=>readInvitationLink(new URL('https://local.example/account?invite='+invitationId+'&token='+token));
 const preview={invitationId,purpose:'page-guest',workspaceId:'workspace',workspaceName:'Private workspace',pageId:'page',pageTitle:'Private page',role:'editor',includeDescendants:false,expiresAt:'2026-10-16T00:00:00.000Z'};
 function invitationFixture(){const calls=[];let actor=accountId,verified=true,previewStatus=200;const flow=new InvitationFlow(link(),{fetcher:async(path,options)=>{calls.push({path,options});if(path==='/api/auth/get-session')return Response.json({user:{id:actor,emailVerified:verified,email:actor+'@example.invalid'}});if(path==='/api/collaboration/preview')return Response.json(previewStatus===200?{...preview,privateToken:'must not escape'}:{error:{message:token}},{status:previewStatus});if(path==='/api/collaboration/accept')return Response.json({revision:7,workspaceId:'workspace',pageId:'page',role:'guest'});throw new Error();}});return{flow,calls,actor:value=>actor=value,verified:value=>verified=value,previewStatus:value=>previewStatus=value};}
 test('invitation tokens are validated, retained only in private memory and sent in JSON bodies rather than request URLs',async()=>{
@@ -22,7 +22,7 @@ test('actor changes or lost verification clear invitation previews and never sen
   for(const change of ['actor','verified']){const f=invitationFixture();await f.flow.preview(accountId);if(change==='actor')f.actor('account-b');else f.verified(false);await assert.rejects(f.flow.accept(accountId,{confirmed:true}));assert.equal(f.flow.snapshot.preview,null);assert.equal(f.calls.filter(call=>call.path.endsWith('/accept')).length,0);}
 });
 test('malformed or unauthenticated invitation links reveal no details and backend error messages are discarded',async()=>{
-  for(const search of ['?invite=x','?token='+token,'?invite=x&token=bad','?invite=x&invite=y&token='+token]){const value=readInvitationLink(new URL('https://local.example/account.html'+search));const flow=new InvitationFlow(value);assert.equal(flow.valid,false);}
+  for(const search of ['?invite=x','?token='+token,'?invite=x&token=bad','?invite=x&invite=y&token='+token]){const value=readInvitationLink(new URL('https://local.example/account'+search));const flow=new InvitationFlow(value);assert.equal(flow.valid,false);}
   const f=invitationFixture();f.previewStatus(404);await assert.rejects(f.flow.preview(accountId),error=>error.code==='INVITATION_UNAVAILABLE'&&!error.message.includes(token));assert.equal(f.flow.snapshot.preview,null);assert.doesNotMatch(JSON.stringify(f.flow.snapshot),/Private workspace/);
 });
 function sharingFixture({role='member',pageManage=true,changed=false,conflict=false}={}){

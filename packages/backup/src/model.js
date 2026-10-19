@@ -30,6 +30,7 @@ export const TABLES=Object.freeze([
   table('yumunio_mail_jobs','id dedupe_key payload_ciphertext payload_digest status attempts available_at lease_id lease_until created_at updated_at expires_at invitation_id invitation_generation',{integers:['attempts','invitation_generation'],nullable:['lease_id','lease_until','invitation_id','invitation_generation']}),
   table('yumunio_transaction_guards','id ok',{integers:['ok']}),
   table('yumunio_prototype_snapshots','id revision payload_json updated_at',{integers:['id','revision'],group:'prototype'}),
+  table('yumunio_instance_settings','id revision sealed',{integers:['id','revision'],group:'instance'}),
   table('yumunio_api_tokens','id account_id workspace_id page_id membership_id actor_role name scopes_json token_hash expires_at created_at revoked_at version request_id request_digest active_slot metadata_slot',{dates:['expires_at','created_at','revoked_at'],integers:['version','active_slot','metadata_slot'],nullable:['revoked_at','active_slot'],group:'api-tokens'}),
   table('yumunio_webhook_approvals','profile_hash approved_by approved_at revoked_at version',{dates:['approved_at','revoked_at'],isoDates:['approved_at','revoked_at'],integers:['version'],nullable:['revoked_at'],group:'webhooks'}),
   table('yumunio_webhook_subscriptions','id workspace_id page_id issuer_account_id membership_id actor_role profile_hash authority_fingerprint start_version status reason missed_from_version missed_through_version gap_acknowledged_at created_at updated_at version',{dates:['gap_acknowledged_at','created_at','updated_at'],isoDates:['gap_acknowledged_at','created_at','updated_at'],integers:['start_version','missed_from_version','missed_through_version','version'],nullable:['reason','missed_from_version','missed_through_version','gap_acknowledged_at'],group:'webhooks'}),
@@ -69,6 +70,7 @@ export function validateDatabaseSnapshot(value){
   if(byteSize(value)>RECOVERY_LIMITS.databaseBytes)fail('RECOVERY_TOO_LARGE');
   const data=name=>(present.get(name)?.rows??[]).map(row=>Object.fromEntries(TABLE_BY_NAME.get(name).columns.map((column,index)=>[column,row[index]])));
   const users=new Set(data('yumunio_users').map(row=>row.id)),workspaces=new Set(data('yumunio_workspaces').map(row=>row.id));
+  const instance=data('yumunio_instance_settings');if(instance.length>1||instance.some(row=>row.id!==1||row.revision<1||row.sealed.length>100000||!/^[-A-Za-z0-9+/=]+\.[-A-Za-z0-9+/=]+$/.test(row.sealed)))fail('INVALID_RECOVERY_DATA');
   for(const name of ['yumunio_auth_accounts','yumunio_auth_sessions','yumunio_memberships'])for(const row of data(name))if(!users.has(row.userId))fail('INVALID_RECOVERY_DATA');
   for(const name of ['yumunio_memberships','yumunio_workspace_invitations'])for(const row of data(name))if(!workspaces.has(row.organizationId))fail('INVALID_RECOVERY_DATA');
   for(const row of data('yumunio_workspace_invitations'))if(!users.has(row.inviterId))fail('INVALID_RECOVERY_DATA');

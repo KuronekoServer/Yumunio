@@ -18,8 +18,8 @@ export function renderInlineText(element, text, marks = [], links = [], {pageHre
     const mark=source[markIndex]?.start<=start?source[markIndex]:null,reference=references[linkIndex]?.start<=start?references[linkIndex]:null,mention=tagged[mentionIndex]?.start<=start?tagged[mentionIndex]:null;
     let child=element.ownerDocument.createTextNode(text.slice(start,end));
     for(const style of mark?.styles??[]){const wrapper=element.ownerDocument.createElement(({bold:'strong',italic:'em',strike:'s',underline:'u',code:'code'})[style]);wrapper.append(child);child=wrapper;}
-    if(mention){const href=mention.kind==='page'&&!mention.unavailable&&pageHref?.(mention),wrapper=element.ownerDocument.createElement(href?'a':mention.kind==='date'?'time':'span');wrapper.className='inline-mention inline-mention-'+mention.kind+(mention.unavailable?' is-unavailable':'');if(href){if(typeof href!=='string'||!href.startsWith('/workspace.html?'))throw new TypeError('INVALID_MENTIONS');wrapper.href=href;}if(mention.kind==='date'&&!mention.unavailable)wrapper.setAttribute('datetime',mention.date);wrapper.append(child);child=wrapper;}
-    else if(reference){const href=!reference.unavailable&&!reference.attachmentId&&pageHref?.(reference);const wrapper=element.ownerDocument.createElement(href?'a':'span');wrapper.className='inline-page-reference'+(reference.unavailable?' is-unavailable':'');if(href){if(typeof href!=='string'||!href.startsWith('/workspace.html?'))throw new TypeError('INVALID_PAGE_LINKS');wrapper.href=href;}wrapper.append(child);child=wrapper;}
+    if(mention){const href=mention.kind==='page'&&!mention.unavailable&&pageHref?.(mention),wrapper=element.ownerDocument.createElement(href?'a':mention.kind==='date'?'time':'span');wrapper.className='inline-mention inline-mention-'+mention.kind+(mention.unavailable?' is-unavailable':'');if(href){if(typeof href!=='string'||!href.startsWith('/workspace?'))throw new TypeError('INVALID_MENTIONS');wrapper.href=href;}if(mention.kind==='date'&&!mention.unavailable)wrapper.setAttribute('datetime',mention.date);wrapper.append(child);child=wrapper;}
+    else if(reference){const href=!reference.unavailable&&!reference.attachmentId&&pageHref?.(reference);const wrapper=element.ownerDocument.createElement(href?'a':'span');wrapper.className='inline-page-reference'+(reference.unavailable?' is-unavailable':'');if(href){if(typeof href!=='string'||!href.startsWith('/workspace?'))throw new TypeError('INVALID_PAGE_LINKS');wrapper.href=href;}wrapper.append(child);child=wrapper;}
     else if(mark?.href){const link=element.ownerDocument.createElement('a');link.href=safeInlineHref(mark.href);link.target='_blank';link.rel='noopener noreferrer';link.referrerPolicy='no-referrer';link.append(child);child=link;}
     nodes.push(child);
   }
@@ -224,8 +224,9 @@ function plainPatchOperations(element,before,after) {
   return {operations,append:!nodes.length?inserted:null};
 }
 
-export function createInlineEditor({ text = '', marks = [], links = [], mentions = [], pageHref, label, placeholder = '', readOnly = false, formatEnabled = true, preserveInsertedFormatting = true, className = '',
-  onChange = () => {}, onBeforeFormat = () => {}, onFormatError = () => onLimit(), onSplit, onMerge, onSlash, onNavigate, onShortcut, onHistory, onIndent, onStructureError = () => {}, onLimit = () => {} } = {}) {
+export function createInlineEditor({ text = '', marks = [], links = [], mentions = [], pageHref, label, placeholder = '', readOnly = false, maxTextLength = MAX_INLINE_TEXT, formatEnabled = true, preserveInsertedFormatting = true, className = '',
+  onChange = () => {}, onBeforeFormat = () => {}, onFormatError = () => onLimit(), onClipboard, onSplit, onMerge, onSlash, onNavigate, onShortcut, onHistory, onIndent, onStructureError = () => {}, onLimit = () => {} } = {}) {
+  if(!Number.isSafeInteger(maxTextLength)||maxTextLength<1||maxTextLength>maxTextLength)throw new RangeError('INVALID_TEXT_LIMIT');
   const element = document.createElement('div');
   element.className = 'inline-editor ' + className;
   element.setAttribute('role', 'textbox');
@@ -282,7 +283,7 @@ export function createInlineEditor({ text = '', marks = [], links = [], mentions
     try {
       if(!snapshot||typeof snapshot!=='object'||Array.isArray(snapshot)||![Object.prototype,null].includes(Object.getPrototypeOf(snapshot)))throw new TypeError();
       const descriptors=Object.getOwnPropertyDescriptors(snapshot);if(Reflect.ownKeys(descriptors).some(key=>typeof key!=='string'||!['text','marks','links','mentions'].includes(key)||!Object.hasOwn(descriptors[key],'value'))||!Object.hasOwn(descriptors,'text'))throw new TypeError();
-      const value=snapshot.text;if(typeof value!=='string'||value.length>MAX_INLINE_TEXT||normalizePlainText(value)!==value)throw new TypeError();
+      const value=snapshot.text;if(typeof value!=='string'||value.length>maxTextLength||normalizePlainText(value)!==value)throw new TypeError();
       const nextMarks=snapshot.marks!==undefined?validateInlineMarks(value,snapshot.marks):rebaseInlineMarks(lastText,value,lastMarks);
       const nextLinks=snapshot.links!==undefined?validatePageLinks(value,snapshot.links,{allowUnavailable:true}):rebasePageLinks(lastText,value,lastLinks);
       const nextMentions=snapshot.mentions!==undefined?validateMentions(value,snapshot.mentions,{allowUnavailable:true}):rebaseMentions(lastText,value,lastMentions);
@@ -312,6 +313,7 @@ export function createInlineEditor({ text = '', marks = [], links = [], mentions
   });
   if(readOnly)return element;
   function changed(value, metadata, selection, kind='text') {
+    if(value.length>maxTextLength)throw new RangeError('TEXT_TOO_LONG');
     lastText = value; lastMarks = metadata.marks;lastLinks=metadata.links;lastMentions=metadata.mentions;
     paint();
     if (selection) focusInlineEditor(element, { ...selection, scroll: false });
@@ -337,7 +339,7 @@ export function createInlineEditor({ text = '', marks = [], links = [], mentions
     if (composing) return;
     const value = readInlineText(element);
     const selection = captureInlineSelection(element);
-    if (value.length > MAX_INLINE_TEXT) {
+    if (value.length > maxTextLength) {
       paint(); focusInlineEditor(element, selection || { start: lastText.length }); pendingEdit = null; onLimit(); return;
     }
     // Only our canonical runs survive browser DOM edits; pasted/browser HTML is never saved.
@@ -381,13 +383,13 @@ export function createInlineEditor({ text = '', marks = [], links = [], mentions
       return;
     }
     tabNavigation = false;
-    if ((event.ctrlKey || event.metaKey) && !event.altKey && ['b', 'i', 'u', 'k'].includes(event.key.toLowerCase())) {
+    if ((event.ctrlKey || event.metaKey) && !event.altKey && (['b', 'i', 'u', 'k','e'].includes(event.key.toLowerCase())||event.shiftKey&&event.key.toLowerCase()==='s')) {
       if (event.key.toLowerCase()==='k' && (!selection || selection.start===selection.end)) return;
       event.preventDefault(); event.stopPropagation();
       if (formatEnabled && selection && selection.start !== selection.end) {
         controller.savedSelection = selection;
         if (event.key.toLowerCase() === 'k') controller.openLink?.();
-        else controller.format({ style: ({ b: 'bold', i: 'italic', u: 'underline' })[event.key.toLowerCase()] });
+        else controller.format({ style: ({ b: 'bold', i: 'italic', u: 'underline',e:'code',s:'strike' })[event.key.toLowerCase()] });
       }
       return;
     }
@@ -424,7 +426,7 @@ export function createInlineEditor({ text = '', marks = [], links = [], mentions
     else if (event.inputType === 'insertText' && event.data === '/' && readInlineText(element) === '' && onSlash) { event.preventDefault(); pendingEdit=null; onSlash(); }
     else if (event.inputType === 'insertText' && typeof event.data === 'string') {
       const selection = captureInlineSelection(element);
-      if (selection && readInlineText(element).length - (selection.end - selection.start) + event.data.length > MAX_INLINE_TEXT) { event.preventDefault(); pendingEdit=null; onLimit(); }
+      if (selection && readInlineText(element).length - (selection.end - selection.start) + event.data.length > maxTextLength) { event.preventDefault(); pendingEdit=null; onLimit(); }
     } else if (event.inputType === 'deleteContentBackward' && onMerge) {
       const selection = captureInlineSelection(element);
       if (selection?.start === 0 && selection.end === 0 && onMerge(readInlineText(element)) === true) { event.preventDefault(); pendingEdit=null; }
@@ -432,13 +434,18 @@ export function createInlineEditor({ text = '', marks = [], links = [], mentions
   });
   element.addEventListener('paste', event => {
     event.preventDefault();
+    if(composing||event.isComposing)return;
+    if(onClipboard?.(event.clipboardData,captureInlineSelection(element),{kind:'paste'})===true)return;
     const text = event.clipboardData?.getData('text/plain');
     if (text) insertText(text);
   });
   element.addEventListener('drop', event => {
     event.preventDefault();
+    if(composing||event.isComposing)return;
+    if(onClipboard?.(event.dataTransfer,captureInlineSelection(element),{kind:'drop'})===true)return;
     const text = event.dataTransfer?.getData('text/plain');
     if (text) insertText(text);
   });
+  element.addEventListener('dragover',event=>{if(onClipboard&&Array.from(event.dataTransfer?.types??[]).includes('Files'))event.preventDefault();});
   return element;
 }

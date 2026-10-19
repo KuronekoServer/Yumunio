@@ -11,6 +11,10 @@ const manifest=JSON.parse(await readFile(new URL('manifest.json',fixture),'utf8'
 const fixtures=Object.fromEntries(await Promise.all(['ja','en','qaa','qab'].map(async code=>[code,JSON.parse(await readFile(new URL(code+'.json',fixture),'utf8'))])));
 const copy=value=>structuredClone(value);
 function fetchFixture(overrides={},calls=[]){return async(url,options)=>{calls.push({url,options});if(url.pathname.endsWith('/locale-manifest.json'))return Response.json(copy(manifest));const code=url.pathname.split('/').at(-1).replace(/\.json$/,'');return overrides[code]?overrides[code](url,options):Response.json(copy(fixtures[code]));};}
+
+test('bundled React views load catalogs from the public asset base instead of the bundle directory',async()=>{
+ const calls=[],catalogs=await loadCatalogs({namespace:'app',baseUrl:new URL('https://locale.fixture.invalid/i18n.js'),fetcher:fetchFixture({},calls)});assert.ok(catalogs.ja);assert.ok(calls.every(call=>call.url.origin==='https://locale.fixture.invalid'&&!call.url.pathname.startsWith('/shared/')));assert.equal(calls[0].url.pathname,'/locale-manifest.json');
+});
 class MemoryStorage{data=new Map();getItem(key){return this.data.get(key)??null;}setItem(key,value){this.data.set(key,value);}}
 test('a third locale requires only fixture manifest and JSON, safely falls back and persists across client and server validation',async()=>{
  const calls=[],catalogs=await loadCatalogs({locale:'qaa',fetcher:fetchFixture({},calls)}),i18n=createI18n(catalogs,'qaa');

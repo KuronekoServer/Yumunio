@@ -575,7 +575,7 @@ function openJSONBackup() {
       body.append(element('h3', {}, 'JSONを書き出す'), element('div', { class: 'modal-actions' }, [button('現在の内容をダウンロード', () => downloadSnapshot(store.snapshot()), { class: 'quiet' }), button('切替前のバックアップをダウンロード', () => downloadSnapshot(backup.snapshot, 'yumunio-before-import'), { class: 'quiet', disabled: backup === null })]));
       if (backup) body.append(element('p', { class: 'subtitle' }, `切替前の保存日時: ${new Date(backup.createdAt).toLocaleString('ja-JP')}`));
       body.append(element('h3', {}, 'JSONを読み込む'), element('p', { class: 'subtitle' }, 'schemaVersion 1 · 900,000バイト以下。Yumunioのバックアップが対象です。Notionのエクスポート形式には対応していません。'));
-      body.append(element('a', { class: 'button quiet', href: '/import.html', target: '_blank', rel: 'noopener' }, 'NotionのZIPを検査する'));
+      body.append(element('a', { class: 'button quiet', href: '/import', target: '_blank', rel: 'noopener' }, 'NotionのZIPを検査する'));
       const input = element('input', { class: 'field-input', type: 'file', accept: '.json,application/json', disabled: reading, 'aria-label': '読み込むJSONファイル' });
       input.addEventListener('change', async () => {
         const file = input.files?.[0];
@@ -731,7 +731,7 @@ function openSettings() {
         colorInputs.append(field(label, input));
       }
       body.append(element('section', { class: 'settings-section' }, [element('h3', {}, '個人の色'), element('p', { class: 'subtitle' }, 'HEX または rgb(56, 87, 114) を入力できます。背景色はページ・カード・ナビにも適用します。'), colorInputs, colorError, preview, ratios, element('p', { class: 'settings-contrast-note' }, '表示値は指定色の組合せの計算結果です。画面全体のアクセシビリティ適合を示すものではありません。'), element('div', { class: 'modal-actions' }, [button('個人色をリセット', () => { draft = {}; update({ customColors: {} }, 'colors:accent'); }, { class: 'quiet', disabled: !Object.keys(current.customColors).length }), save])]), element('section', { class: 'settings-reset' }, [element('p', { class: 'subtitle' }, 'Light・システムフォント・日本語へ戻します。ページやサーバーの設定は変更しません。'), button('個人設定を初期化', () => { try { preferences.reset(); draft = {}; saveError = ''; } catch { saveError = '個人設定を保存できませんでした。現在の設定を維持しています。'; } draw(); }, { class: 'quiet' })]));
-      body.append(element('section', { class: 'settings-section' }, [element('h3', {}, 'アカウント'), element('p', { class: 'subtitle' }, 'ログイン・登録はアカウント画面で行います。アカウントを切り替えても、この端末のページを自動送信・削除しません。個人設定の保存先は次の読み込み時に切り替わります。'), element('a', { class: 'button quiet', href: '/account.html' }, 'アカウントを開く')]));
+      body.append(element('section', { class: 'settings-section' }, [element('h3', {}, 'アカウント'), element('p', { class: 'subtitle' }, 'ログイン・登録はアカウント画面で行います。アカウントを切り替えても、この端末のページを自動送信・削除しません。個人設定の保存先は次の読み込み時に切り替わります。'), element('a', { class: 'button quiet', href: '/account' }, 'アカウントを開く')]));
       checkColors();
       if (focus) requestAnimationFrame(() => [...body.querySelectorAll('[data-pref-focus]')].find(node => node.dataset.prefFocus === focus)?.focus());
     }

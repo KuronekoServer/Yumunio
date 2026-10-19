@@ -25,13 +25,13 @@ test('resource sharing exposes people and roles without workspace administration
 });
 
 test('only the same-origin current-workspace setting URLs become dialog routes',()=>{
- const base='https://local.invalid/workspace.html?workspace=studio';
- assert.equal(settingsHrefSection('/preferences.html?workspace=studio#font','studio',base),'font');
- assert.equal(settingsHrefSection('/workspace-settings.html?workspace=studio&section=import','studio',base),'import');
- assert.equal(settingsHrefSection('/workspace-settings.html?workspace=studio&section=teamspaces','studio',base),'teamspaces');
- assert.equal(settingsHrefSection('/workspace-settings.html?workspace=studio&section=groups','studio',base),'groups');
- assert.equal(settingsHrefSection('/share.html?workspace=studio','studio',base),'members');
- for(const href of ['https://other.invalid/preferences.html','/workspace-settings.html?workspace=other','/share.html?workspace=studio&workspace=other','/preferences.html?workspace=other','/import.html?workspace=studio'])assert.equal(settingsHrefSection(href,'studio',base),null);
+ const base='https://local.invalid/workspace?workspace=studio';
+ assert.equal(settingsHrefSection('/preferences?workspace=studio#font','studio',base),'font');
+ assert.equal(settingsHrefSection('/workspace-settings?workspace=studio&section=import','studio',base),'import');
+ assert.equal(settingsHrefSection('/workspace-settings?workspace=studio&section=teamspaces','studio',base),'teamspaces');
+ assert.equal(settingsHrefSection('/workspace-settings?workspace=studio&section=groups','studio',base),'groups');
+ assert.equal(settingsHrefSection('/share?workspace=studio','studio',base),'members');
+ for(const href of ['https://other.invalid/preferences','/workspace-settings?workspace=other','/share?workspace=studio&workspace=other','/preferences?workspace=other','/import?workspace=studio'])assert.equal(settingsHrefSection(href,'studio',base),null);
 });
 
 test('dialog preserves editor nodes, backward text selection and prior focus/inert/scroll state across category navigation',async t=>{
@@ -122,9 +122,9 @@ test('mounted preferences use the current account store, retain unsaved changes,
 test('IME Escape does not close settings and external import navigation reaches the outer draft guard only after discard',async t=>{
  const f=fixture(t),m=mounts(f,{dirty:true}),destinations=[],dialog=mountSettingsDialog({...options(f),mounts:m.value,onNavigateOut:href=>destinations.push(href)});await dialog.ready;
  const event=f.keydown({key:'Escape',isComposing:true});assert.equal(event.prevented,false);assert.equal(dialog.open,true);assert.equal(dialog.element.querySelector('.settings-dialog-discard'),null);
- const link=f.doc.createElement('a');link.setAttribute('href','/import.html?workspace=studio&source=notion');dialog.element.querySelector('.settings-dialog-panel').append(link);
+ const link=f.doc.createElement('a');link.setAttribute('href','/import?workspace=studio&source=notion');dialog.element.querySelector('.settings-dialog-panel').append(link);
  const click=dialog.element.dispatch('click',{target:link,button:0});assert.equal(click.prevented,true);assert.deepEqual(destinations,[]);assert.ok(dialog.element.querySelector('.settings-dialog-discard'));
- dialog.element.querySelector('.settings-dialog-discard').querySelectorAll('button')[1].dispatch('click');assert.deepEqual(destinations,['https://local.invalid/import.html?workspace=studio&source=notion']);assert.equal(dialog.open,false);assert.equal(f.editor.textContent,'Unchanged body draft');
+ dialog.element.querySelector('.settings-dialog-discard').querySelectorAll('button')[1].dispatch('click');assert.deepEqual(destinations,['https://local.invalid/import?workspace=studio&source=notion']);assert.equal(dialog.open,false);assert.equal(f.editor.textContent,'Unchanged body draft');
 });
 
 test('unsaved settings protect browser unload and remove the protection after the dialog closes',async t=>{

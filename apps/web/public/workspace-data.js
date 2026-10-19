@@ -1,5 +1,7 @@
 import {validateMentions,rebaseMentions} from './mentions.js';
 import {validateSimpleTableData} from './simple-table.js';
+import {isAttachmentBlock} from './attachment-block-model.js';
+import {RICH_BLOCK_TYPES,validateBlockPresentation} from './block-types.js';
 import {validateCollectionEnvelope,validateCollectionValue,parseCollectionValue,isComputedProperty,recordPatch} from './collections-model.js';
 import {validatePageLinks,rebasePageLinks} from './page-links.js';
 import { validateInlineMarks, rebaseInlineMarks } from './inline-text.js';
@@ -12,11 +14,13 @@ export function validateInlineBlockMetadata(blocks) {
     if(!Array.isArray(items)||depth>64)throw new Error('INVALID_INLINE_BLOCKS');
     for(const block of items) {
       if(!block || typeof block!=='object' || ++count>10000)throw new Error('INVALID_INLINE_BLOCKS');
+      validateBlockPresentation(block.data);
       if(block.type==='table'&&block.data?.format==='simple-table-v1'){validateSimpleTableData(block.data);if(Object.hasOwn(block,'children'))throw new Error('INVALID_INLINE_BLOCKS');}
-      if(block.data && Object.hasOwn(block.data,'mentions')){if(!['paragraph','heading','heading1','heading2','checklist','bulleted-list','numbered-list','quote'].includes(block.type)||block.data.purpose==='import-source')throw new Error('INVALID_INLINE_BLOCKS');validateMentions(block.data.text,block.data.mentions,{allowUnavailable:true});}
+      if(['file','image'].includes(block.type)&&block.data?.format==='attachment-v1'&&!isAttachmentBlock(block))throw new Error('INVALID_INLINE_BLOCKS');
+      if(block.data && Object.hasOwn(block.data,'mentions')){if(!RICH_BLOCK_TYPES.includes(block.type)||block.data.purpose==='import-source')throw new Error('INVALID_INLINE_BLOCKS');validateMentions(block.data.text,block.data.mentions,{allowUnavailable:true});}
       if(block.data && Object.hasOwn(block.data,'links'))validatePageLinks(block.data.text,block.data.links,{allowUnavailable:true});
       if(block.data && Object.hasOwn(block.data,'marks')) {
-        if(!['paragraph','heading','heading1','heading2','checklist','bulleted-list','numbered-list','quote'].includes(block.type)||block.data.purpose==='import-source')throw new Error('INVALID_INLINE_BLOCKS');
+        if(!RICH_BLOCK_TYPES.includes(block.type)||block.data.purpose==='import-source')throw new Error('INVALID_INLINE_BLOCKS');
         validateInlineMarks(block.data.text,block.data.marks);
       }
       if(block.children!==undefined)visit(block.children,depth+1);

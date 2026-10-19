@@ -67,7 +67,7 @@ for (const [dialect, envName] of [['mysql','YUMUNIO_TEST_MYSQL_URL'], ['postgres
       const message = mail.at(-1);
       assert.equal(message.to, email);
       const token = new URL(message.text.split('\n').at(-1)).searchParams.get('verify');
-      assert.equal((await request('/verify-email?token='+encodeURIComponent(token)+'&callbackURL='+encodeURIComponent(origin+'/account.html'))).status,200);
+      assert.equal((await request('/verify-email?token='+encodeURIComponent(token)+'&callbackURL='+encodeURIComponent(origin+'/account'))).status,200);
       const login = await request('/sign-in/email',{email,password});
       assert.equal(login.status,200);
       const data = await login.json();

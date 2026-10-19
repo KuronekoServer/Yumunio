@@ -28,7 +28,7 @@ test('Node HTTP backup admin route uses ordinary verified account login and queu
   assert.equal((await request('/api/admin/backups')).status, 404);
   const email = 'backup-http@example.invalid', password = 'Synthetic-backup-password-123!';
   await ok(await request('/api/auth/sign-up/email', { method: 'POST', body: { name: 'Synthetic backup admin', email, password } }), 202); await identity.flushBackgroundTasks();
-  const token = new URL(mail.at(-1).text.split('\n').at(-1)).searchParams.get('verify'); await ok(await request('/api/auth/verify-email?token=' + encodeURIComponent(token) + '&callbackURL=' + encodeURIComponent(origin + '/account.html')));
+  const token = new URL(mail.at(-1).text.split('\n').at(-1)).searchParams.get('verify'); await ok(await request('/api/auth/verify-email?token=' + encodeURIComponent(token) + '&callbackURL=' + encodeURIComponent(origin + '/account')));
   const signIn = await request('/api/auth/sign-in/email', { method: 'POST', body: { email, password } }); accountId = (await ok(signIn)).user.id; cookie = signIn.headers.getSetCookie().map(value => value.split(';')[0]).join('; ');
   assert.equal((await request('/api/admin/backups')).status, 404); instanceEnvironment.YUMUNIO_SERVER_ADMIN_IDS = accountId;
   const status = await ok(await request('/api/admin/backups')); assert.equal(status.configuration.enabled, true); assert.equal(status.destination.driver, 'local');

@@ -1,4 +1,4 @@
-import {assertId,assertJsonSerializable,assertPlainObject,assertTitle,rebaseInlineMarks,rebasePageLinks,rebaseMentions} from '@yumunio/domain';
+import {assertId,assertJsonSerializable,assertPlainObject,assertTitle,rebaseInlineMarks,rebasePageLinks,rebaseMentions,BLOCK_PARENT_TYPES} from '@yumunio/domain';
 import {createAccountContentApi,validateContentPayload} from './content.js';
 import {API_TOKEN_SCOPES,API_TOKEN_LIMITS,tokenFail,tokenTimestamp,parseApiToken,tokenDigest,validateTokenRow,tokenPageContext,projectTokenPage} from './api-token-model.js';
 import {createExternalTokenGuard} from './external-token-guard.js';
@@ -28,6 +28,42 @@ function editableBlocks(blocks,current){
   return next;
  });};return visit(blocks,1);
 }
+/** Apply explicit edits without replacing blocks omitted from the external projection. */
+function editBlocks(operations,current,createId){
+ if(!Array.isArray(operations)||!operations.length||operations.length>100)invalid();
+ const blocks=structuredClone(current.document.blocks),allIds=new Set();
+ const index=()=>{const locations=new Map();const walk=items=>{for(const block of items){locations.set(block.id,{block,items});if(block.children)walk(block.children);}};walk(blocks);return locations;};
+ for(const key of index().keys())allIds.add(key);
+ const single=block=>({...current,document:{...current.document,blocks:[block]}});
+ const exposed=()=>{const ids=new Set(),walk=items=>{for(const block of items){ids.add(block.id);if(block.children)walk(block.children);}};walk(projectTokenPage({...current,document:{...current.document,blocks}},{document:true}).document.blocks);return ids;};
+ let addedCount=0;
+ const mint=(items,depth=1)=>{
+  if(!Array.isArray(items)||depth>API_TOKEN_LIMITS.depth)invalid();return items.map(block=>{if(++addedCount>API_TOKEN_LIMITS.blocks)invalid();exact(block,['id','type','data','children'],['type']);const value=structuredClone(block);if(!Object.hasOwn(value,'id'))value.id=createId();try{assertId(value.id);}catch{invalid();}if(allIds.has(value.id))invalid();allIds.add(value.id);if(value.children)value.children=mint(value.children,depth+1);return value;});
+ };
+ for(const operation of operations){
+  exact(operation,['type','blockId','parentId','blocks','data'],['type']);const locations=index(),readable=exposed();
+  if(operation.type==='append'){
+   exact(operation,['type','parentId','blocks'],['type','blocks']);let target=blocks;
+   if(operation.parentId!==undefined&&operation.parentId!==null){try{assertId(operation.parentId);}catch{invalid();}const parent=locations.get(operation.parentId)?.block;if(!parent||!readable.has(parent.id)||!BLOCK_PARENT_TYPES.includes(parent.type))readonly();target=parent.children??=[];}
+   if(!Array.isArray(operation.blocks)||!operation.blocks.length)invalid();
+   const added=mint(operation.blocks),empty={...current,document:{...current.document,blocks:[]}};
+   target.push(...editableBlocks(added,empty));
+  }else if(operation.type==='update'||operation.type==='delete'){
+   exact(operation,operation.type==='update'?['type','blockId','data']:['type','blockId']);try{assertId(operation.blockId);}catch{invalid();}
+   const location=locations.get(operation.blockId),old=location?.block;if(!old||!readable.has(old.id))readonly();
+   if(operation.type==='delete'){
+    if(projectTokenPage(single(old),{document:true}).omittedBlocks)readonly();location.items.splice(location.items.indexOf(old),1);
+   }else{
+    exact(operation.data,dataKeys(old.type),[]);if(!Object.keys(operation.data).length)invalid();
+    const before=structuredClone(old);delete before.children;
+    const projected=projectTokenPage(single(before),{document:true}).document.blocks[0];
+    const updated=editableBlocks([{id:old.id,type:old.type,data:{...projected.data,...operation.data}}],single(before))[0];
+    if(old.children)updated.children=old.children;location.items[location.items.indexOf(old)]=updated;
+   }
+  }else invalid();
+ }
+ return blocks;
+}
 /** Shared Bearer authorization and actions for REST and MCP. No cookie/session fallback. */
 export function createExternalPageActions({store,contentStore,origin,enabled=false,now=()=>new Date().toISOString(),createId=()=>crypto.randomUUID()}={}){
  if(new URL(origin).origin!==origin||typeof enabled!=='boolean'||typeof now!=='function'||typeof createId!=='function'||enabled&&(typeof store?.readExternal!=='function'||typeof contentStore?.read!=='function'||typeof contentStore?.write!=='function'))throw Error('Invalid external page action configuration.');
@@ -45,14 +81,15 @@ export function createExternalPageActions({store,contentStore,origin,enabled=fal
  return Object.freeze({
   async authorize(options){const{row,scopes}=await resolve(options);return Object.freeze({pageId:row.pageId,scopes:Object.freeze([...scopes])});},
   async execute({authorization,pageId,action,input,requiredScopes=[]}={}){
-   const scope={'page.read':'page:read','document.read':'document:read','document.write':'document:write'}[action];if(!scope)invalid();
+   const scope={'page.read':'page:read','document.read':'document:read','document.write':'document:write','blocks.edit':'document:write'}[action];if(!scope)invalid();
    const {row,context}=await resolve({authorization,pageId,scope,requiredScopes});
-   if(action!=='document.write'){if(input!==undefined)invalid();return projectTokenPage(context.page,{document:action==='document.read'});}
-   exact(input,['expectedVersion','title','blocks'],['expectedVersion']);if(!Number.isSafeInteger(input.expectedVersion)||input.expectedVersion<1||input.expectedVersion>=Number.MAX_SAFE_INTEGER||!Object.hasOwn(input,'title')&&!Object.hasOwn(input,'blocks'))invalid();
+   if(!['document.write','blocks.edit'].includes(action)){if(input!==undefined)invalid();return projectTokenPage(context.page,{document:action==='document.read'});}
+   exact(input,action==='blocks.edit'?['expectedVersion','operations']:['expectedVersion','title','blocks'],action==='blocks.edit'?['expectedVersion','operations']:['expectedVersion']);if(!Number.isSafeInteger(input.expectedVersion)||input.expectedVersion<1||input.expectedVersion>=Number.MAX_SAFE_INTEGER||action==='document.write'&&!Object.hasOwn(input,'title')&&!Object.hasOwn(input,'blocks'))invalid();
    if(input.expectedVersion!==context.page.document.version)tokenFail('CONTENT_CONFLICT',409);
    const body={expectedRevision:context.revision,expectedVersion:input.expectedVersion};
    if(Object.hasOwn(input,'title')){try{assertTitle(input.title);}catch{invalid();}body.title=input.title;}
    if(Object.hasOwn(input,'blocks'))body.blocks=editableBlocks(input.blocks,context.page);
+   if(action==='blocks.edit')body.blocks=editBlocks(input.operations,context.page,createId);
    // Ensure a successful mutation can always return the stable bounded external DTO.
    projectTokenPage({page:{...context.page.page,...(Object.hasOwn(body,'title')?{title:body.title}:{})},document:{...context.page.document,version:input.expectedVersion+1,...(body.blocks?{blocks:body.blocks}:{})}},{document:true});
    const guardedStore={read:contentStore.read.bind(contentStore),write:(workspaceId,accountId,options)=>contentStore.write(workspaceId,accountId,{...options,tokenGuard:createExternalTokenGuard(row,{now:tokenTimestamp(now()),requiredScopes:[scope,...requiredScopes]})})};

@@ -1,10 +1,12 @@
 import { readFile } from 'node:fs/promises';
 import { readServerConfig } from '../config.mjs';
+import { readNodeInstanceEnvironment } from '../setup.mjs';
 import { createNodeBackupService } from '../backup.mjs';
 
 let service;
 try {
-  service = await createNodeBackupService(process.env, readServerConfig(process.env), { forRestore: true, verifySchema: false });
+  const environment = await readNodeInstanceEnvironment(process.env);
+  service = await createNodeBackupService(environment, readServerConfig(environment), { forRestore: true, verifySchema: false });
   if (!service) throw new Error('SQL storage is required.');
   const dialect = service.client?.dialect ?? 'sqlite';
   const sql = await readFile(new URL(import.meta.resolve('@yumunio/backup/schema/' + dialect)), 'utf8');

@@ -22,21 +22,41 @@
   ],
   "scripts": {
     "dev": "node --env-file-if-exists=.env apps/server/server.mjs",
-    "start": "node --env-file-if-exists=.env apps/server/server.mjs",
+    "start": "node --env-file-if-exists=.env --import ./apps/server/production.mjs apps/server/server.mjs",
     "test": "node packages/tooling/run-tests.mjs",
     "check": "node packages/tooling/check-syntax.mjs",
+    "docs:check": "node packages/tooling/documentation.mjs",
     "test:worker": "node packages/tooling/test-worker.mjs",
     "build": "node packages/tooling/build-web.mjs",
     "predev": "npm run build",
     "prestart": "npm run build",
     "pretest": "npm run build",
     "dev:worker": "wrangler dev --local --config apps/worker/wrangler.jsonc",
+    "deploy": "node packages/tooling/deploy-worker.mjs",
+    "db:worker:local": "wrangler d1 migrations apply DB --local",
     "db:migrate": "node --env-file-if-exists=.env apps/server/cli/migrate-database.mjs",
     "test:databases": "node packages/tooling/test-databases.mjs",
     "auth:migrate": "node --env-file-if-exists=.env apps/server/cli/migrate-identity.mjs",
     "auth:schema:d1": "node apps/worker/generate-auth-schema.mjs",
+    "hosting:prepare": "node packages/tooling/prepare-hosting.mjs",
+    "hosting:bundle": "node packages/tooling/hosting-bundle.mjs",
     "backup:migrate": "node --env-file-if-exists=.env apps/server/cli/migrate-backup.mjs",
-    "backup": "node --env-file-if-exists=.env apps/server/cli/backup.mjs"
+    "backup": "node --env-file-if-exists=.env apps/server/cli/backup.mjs",
+    "l10n:check": "node packages/tooling/localization.mjs check",
+    "l10n:sync": "node packages/tooling/localization.mjs sync",
+    "l10n:report": "node packages/tooling/localization.mjs report",
+    "l10n:import": "node packages/tooling/localization.mjs import",
+    "l10n:export": "node packages/tooling/localization.mjs export"
+  },
+  "cloudflare": {
+    "bindings": {
+      "DB": {
+        "description": "Private database for accounts, pages and encrypted instance settings. Created automatically."
+      },
+      "BLOBS": {
+        "description": "Private R2 bucket for attachments. Enable R2 on your Cloudflare account before deploying."
+      }
+    }
   },
   "devDependencies": {
     "esbuild": "0.28.1",
