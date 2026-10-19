@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {Miniflare,convertV4MiniflareOptions} from 'miniflare';
+import {Miniflare} from 'miniflare';
+import {workerFixtureOptions} from '../../../packages/tooling/worker-fixture.mjs';
 import {build} from 'esbuild';
 import {mkdtemp,readFile,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
@@ -18,7 +19,7 @@ test('actual workerd persists clipboard image/file/table blocks in D1 and privat
  t.after(async()=>{await worker?.dispose();const rel=relative(resolve(tmpdir()),resolve(directory));assert.ok(!isAbsolute(rel)&&!rel.includes(sep)&&rel.startsWith(prefix));await rm(directory,{recursive:true,force:true,maxRetries:10,retryDelay:100});});
  await build({entryPoints:[join(root,'apps/worker/worker.js')],outfile:bundle,bundle:true,format:'esm',platform:'browser',target:'es2022',external:['node:*'],logLevel:'silent'});
  const instanceSecret='Synthetic-worker-clipboard-install-2026!'.repeat(2);
- worker=new Miniflare(convertV4MiniflareOptions({modules:true,scriptPath:bundle,compatibilityDate:'2026-10-01',compatibilityFlags:['nodejs_compat'],d1Databases:{DB:'clipboard'},r2Buckets:{BLOBS:'clipboard'},resourcePersistencePath:join(directory,'state'),telemetry:{enabled:false},bindings:{YUMUNIO_INSTANCE_SECRET:instanceSecret,YUMUNIO_WEB_SETUP:'true',YUMUNIO_BLOB_DRIVER:'r2'}}));await worker.ready;
+ worker=new Miniflare(workerFixtureOptions({modules:true,scriptPath:bundle,compatibilityDate:'2026-10-01',compatibilityFlags:['nodejs_compat'],d1Databases:{DB:'clipboard'},r2Buckets:{BLOBS:'clipboard'},resourcePersistencePath:join(directory,'state'),telemetry:{enabled:false},bindings:{YUMUNIO_INSTANCE_SECRET:instanceSecret,YUMUNIO_WEB_SETUP:'true',YUMUNIO_BLOB_DRIVER:'r2'}}));await worker.ready;
  const db=await worker.getD1Database('DB'),schema=(await readFile(join(root,'apps/worker/install-migrations/0001_install.sql'),'utf8')).replace(/^\s*--[^\r\n]*$/gm,'');await db.batch(schema.split(';').map(sql=>sql.trim()).filter(Boolean).map(sql=>db.prepare(sql)));
  let cookie='',accountId='';
  const fetch=({path,method='GET',body,headers={}})=>worker.dispatchFetch(origin+path,{method,redirect:'manual',headers:{...(cookie?{Cookie:cookie,'X-Yumunio-Expected-Account':accountId}:{}),...(body===undefined?{}:{Origin:origin,'Content-Type':body instanceof Uint8Array?'application/octet-stream':'application/json'}),...headers},...(body===undefined?{}:{body:body instanceof Uint8Array?body:JSON.stringify(body)})});

@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {Miniflare,convertV4MiniflareOptions} from 'miniflare';
+import {Miniflare} from 'miniflare';
+import {workerFixtureOptions} from '../../../packages/tooling/worker-fixture.mjs';
 import {build} from 'esbuild';
 import {mkdtemp,readFile,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
@@ -13,7 +14,7 @@ test('actual local workerd backup administration queues encrypted D1/R2 recovery
   const directory=await mkdtemp(join(tmpdir(),prefix)),bundle=join(directory,'fixture-worker.mjs'),key=Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString('base64');let worker,enabled=false,schedule=false;
   t.after(async()=>{await worker?.dispose();const absolute=resolve(directory),parent=resolve(tmpdir()),rel=relative(parent,absolute);assert.ok(!isAbsolute(rel)&&!rel.includes(sep)&&rel.startsWith(prefix));await rm(absolute,{recursive:true,force:true,maxRetries:10,retryDelay:100});});
   await build({entryPoints:[join(root,'apps/worker/integration/backup-fixture.js')],outfile:bundle,bundle:true,format:'esm',platform:'browser',target:'es2022',external:['node:*'],logLevel:'silent'});
-  const start=()=>new Miniflare(convertV4MiniflareOptions({modules:true,scriptPath:bundle,compatibilityDate:'2026-10-01',compatibilityFlags:['nodejs_compat'],d1Databases:{DB:'backup-runtime-source',TARGET:'backup-runtime-target'},r2Buckets:{LIVE:'backup-runtime-live',BACKUPS:'backup-runtime-destination',RESTORED:'backup-runtime-restored'},resourcePersistencePath:join(directory,'state'),telemetry:{enabled:false},bindings:{
+  const start=()=>new Miniflare(workerFixtureOptions({modules:true,scriptPath:bundle,compatibilityDate:'2026-10-01',compatibilityFlags:['nodejs_compat'],d1Databases:{DB:'backup-runtime-source',TARGET:'backup-runtime-target'},r2Buckets:{LIVE:'backup-runtime-live',BACKUPS:'backup-runtime-destination',RESTORED:'backup-runtime-restored'},resourcePersistencePath:join(directory,'state'),telemetry:{enabled:false},bindings:{
     FIXTURE_KEY:key,YUMUNIO_PUBLIC_ORIGIN:origin,YUMUNIO_ACCESS_KEY:'synthetic-legacy-backup-fixture-'.repeat(2),YUMUNIO_ACCOUNTS_ENABLED:'true',YUMUNIO_AUTH_SECRET:authSecret,YUMUNIO_REGISTRATION_MODE:'closed',YUMUNIO_MAIL_DRIVER:'disabled',YUMUNIO_SERVER_ADMIN_IDS:'backup-admin',YUMUNIO_BLOB_DRIVER:'r2',YUMUNIO_R2_BINDING:'LIVE',
     ...(enabled?{YUMUNIO_BACKUP_DRIVER:'r2',YUMUNIO_BACKUP_R2_BINDING:'BACKUPS',YUMUNIO_BACKUP_ENCRYPTION_KEY:key,YUMUNIO_BACKUP_SCHEDULE:schedule?'0 0 * * *':''}:{YUMUNIO_BACKUP_ENCRYPTION_KEY:'ignored-invalid-disabled-fixture-key'})
   }}));

@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {Miniflare,convertV4MiniflareOptions} from 'miniflare';
+import {Miniflare} from 'miniflare';
+import {workerFixtureOptions} from '../../../packages/tooling/worker-fixture.mjs';
 import {build} from 'esbuild';
 import {mkdtemp,readFile,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
@@ -11,7 +12,7 @@ test('actual local workerd D1/R2 creates a durable encrypted recovery archive an
   const directory=await mkdtemp(join(tmpdir(),prefix)),bundle=join(directory,'worker.mjs');let worker;
   t.after(async()=>{await worker?.dispose();const absolute=resolve(directory),rel=relative(resolve(tmpdir()),absolute);assert.ok(!isAbsolute(rel)&&!rel.includes(sep)&&rel.startsWith(prefix));await rm(absolute,{recursive:true,force:true,maxRetries:10,retryDelay:100});});
   await build({entryPoints:[join(root,'packages/backup/integration/fixture-worker.js')],outfile:bundle,bundle:true,format:'esm',platform:'browser',target:'es2022',logLevel:'silent'});
-  const key=Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString('base64');const start=()=>new Miniflare(convertV4MiniflareOptions({modules:true,scriptPath:bundle,compatibilityDate:'2026-10-01',d1Databases:{SOURCE:'source-fixture',TARGET:'target-fixture'},r2Buckets:{LIVE:'live-fixture',BACKUPS:'backup-fixture',RESTORED:'restored-fixture'},resourcePersistencePath:join(directory,'state'),telemetry:{enabled:false},bindings:{FIXTURE_KEY:key}}));worker=start();await worker.ready;
+  const key=Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString('base64');const start=()=>new Miniflare(workerFixtureOptions({modules:true,scriptPath:bundle,compatibilityDate:'2026-10-01',d1Databases:{SOURCE:'source-fixture',TARGET:'target-fixture'},r2Buckets:{LIVE:'live-fixture',BACKUPS:'backup-fixture',RESTORED:'restored-fixture'},resourcePersistencePath:join(directory,'state'),telemetry:{enabled:false},bindings:{FIXTURE_KEY:key}}));worker=start();await worker.ready;
   const schema=(await Promise.all(['apps/worker/auth-schema.sql','apps/worker/snapshot-schema.sql','packages/backup/schema/backup.sqlite.sql','packages/identity/schema/webhooks.sqlite.sql'].map(path=>readFile(join(root,path),'utf8')))).join('\n').replace(/^\s*--.*$/gm,'');
   for(const binding of ['SOURCE','TARGET']){const db=await worker.getD1Database(binding);await db.batch(schema.split(';').map(sql=>sql.trim()).filter(Boolean).map(sql=>db.prepare(sql)));}
   const call=async path=>{const response=await worker.dispatchFetch('http://fixture.invalid'+path);assert.equal(response.status,200,await response.clone().text());return response.json();};

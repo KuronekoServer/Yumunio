@@ -6,7 +6,8 @@ import {tmpdir} from 'node:os';
 import {isAbsolute,join,relative,resolve,sep} from 'node:path';
 import {fileURLToPath,pathToFileURL} from 'node:url';
 import {build} from 'esbuild';
-import {Miniflare,convertV4MiniflareOptions} from 'miniflare';
+import {Miniflare} from 'miniflare';
+import {workerFixtureOptions} from '../../../packages/tooling/worker-fixture.mjs';
 import {initialSetupAuthorization} from '../../../packages/identity/src/setup.js';
 
 const root=fileURLToPath(new URL('../../../',import.meta.url)),prefix='yumunio-worker-mail-',origin='https://email.fixture.invalid',secret='Synthetic-worker-email-instance-2026-'.repeat(3);
@@ -15,7 +16,7 @@ test('actual workerd persists native Email Service settings and routes administr
  t.after(async()=>{await worker?.dispose();const rel=relative(resolve(tmpdir()),resolve(folder));assert.ok(!isAbsolute(rel)&&!rel.includes(sep)&&rel.startsWith(prefix));await rm(folder,{recursive:true,force:true,maxRetries:10,retryDelay:100});});
  await writeFile(entry,`import app from ${JSON.stringify(pathToFileURL(join(root,'apps/worker/worker.js')).href)};const sent=[];const mail={async send(value){sent.push(value);return{messageId:'fixture-native-email-'+sent.length};}};export default{fetch(request,env,ctx){if(new URL(request.url).pathname==='/__fixture_mail')return Response.json(sent);if(new URL(request.url).pathname==='/__fixture_drain')return(async()=>{const pending=[];await app.scheduled({},{...env,EMAIL:mail},{waitUntil:task=>pending.push(task)});await Promise.all(pending);return Response.json({done:true});})();return app.fetch(request,{...env,EMAIL:mail},ctx);},scheduled(event,env,ctx){return app.scheduled(event,{...env,EMAIL:mail},ctx);}};`);
  await build({stdin:{contents:await readFile(entry,'utf8'),resolveDir:root,sourcefile:'worker-mail-fixture.mjs'},outfile:bundle,bundle:true,format:'esm',platform:'browser',target:'es2022',external:['node:*'],logLevel:'silent',plugins:[{name:'fixture-file-url',setup(builder){builder.onResolve({filter:/^file:/},args=>({path:fileURLToPath(args.path)}));}}]});
- worker=new Miniflare(convertV4MiniflareOptions({modules:true,scriptPath:bundle,compatibilityDate:'2026-10-01',compatibilityFlags:['nodejs_compat'],d1Databases:{DB:'mail-installation'},r2Buckets:{BLOBS:'mail-assets'},telemetry:{enabled:false},bindings:{YUMUNIO_INSTANCE_SECRET:secret,YUMUNIO_WEB_SETUP:'true',YUMUNIO_BLOB_DRIVER:'r2'}}));await worker.ready;
+ worker=new Miniflare(workerFixtureOptions({modules:true,scriptPath:bundle,compatibilityDate:'2026-10-01',compatibilityFlags:['nodejs_compat'],d1Databases:{DB:'mail-installation'},r2Buckets:{BLOBS:'mail-assets'},telemetry:{enabled:false},bindings:{YUMUNIO_INSTANCE_SECRET:secret,YUMUNIO_WEB_SETUP:'true',YUMUNIO_BLOB_DRIVER:'r2'}}));await worker.ready;
  const db=await worker.getD1Database('DB'),schema=(await readFile(join(root,'apps/worker/install-migrations/0001_install.sql'),'utf8')).replace(/^\s*--[^\r\n]*$/gm,'');await db.batch(schema.split(';').map(sql=>sql.trim()).filter(Boolean).map(sql=>db.prepare(sql)));
  let cookie='',accountId='';const request=(path,method='GET',body,headers={})=>worker.dispatchFetch(origin+path,{method,headers:{...(cookie?{Cookie:cookie,'X-Yumunio-Expected-Account':accountId}:{}),...(body?{Origin:origin,'Content-Type':'application/json'}:{}),...headers},...(body?{body:JSON.stringify(body)}:{})});
  const owner={name:'Email fixture owner',email:'owner@example.invalid',password:'Synthetic-mail-owner-password-2026!',settings:{YUMUNIO_MAIL_DRIVER:'cloudflare',YUMUNIO_SMTP_FROM:'notes@example.invalid'}};

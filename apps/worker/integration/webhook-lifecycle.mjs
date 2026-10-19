@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {Miniflare,convertV4MiniflareOptions} from 'miniflare';
+import {Miniflare} from 'miniflare';
+import {workerFixtureOptions} from '../../../packages/tooling/worker-fixture.mjs';
 import {build} from 'esbuild';
 import {createServer} from 'node:http';
 import {once} from 'node:events';
@@ -18,7 +19,7 @@ test('actual workerd/D1 production webhook lifecycle preserves consent current s
  t.after(async()=>{try{await worker?.dispose();await new Promise(resolve=>relay.close(resolve));}finally{const absolute=resolve(directory),rel=relative(resolve(tmpdir()),absolute);assert.ok(!isAbsolute(rel)&&!rel.includes(sep)&&rel.startsWith(prefix));await rm(absolute,{recursive:true,force:true,maxRetries:10,retryDelay:100});}});
  await build({entryPoints:[join(root,'apps/worker/integration/webhooks-fixture.js')],outfile:bundle,bundle:true,format:'esm',platform:'browser',target:'es2022',external:['node:*'],logLevel:'silent'});
  const bindings={YUMUNIO_PUBLIC_ORIGIN:origin,YUMUNIO_ACCESS_KEY:'Synthetic-worker-lifecycle-legacy-key-2026!',YUMUNIO_ACCOUNTS_ENABLED:'true',YUMUNIO_AUTH_SECRET:'Synthetic-worker-lifecycle-authentication-secret-2026!',YUMUNIO_REGISTRATION_MODE:'closed',YUMUNIO_MAIL_DRIVER:'disabled',YUMUNIO_WEBHOOK_ENABLED:'true',YUMUNIO_WEBHOOK_ENDPOINT:'https://receiver.webhook-fixture.invalid/events',YUMUNIO_WEBHOOK_SIGNING_KEY:key.toString('base64'),YUMUNIO_WEBHOOK_EVENTS:'page.updated,page.title.updated,page.document.updated,page.created,page.moved,page.trashed,page.restored',YUMUNIO_WEBHOOK_INCLUDE_DESCENDANTS:'true',YUMUNIO_SERVER_ADMIN_IDS:'webhook-admin',YUMUNIO_FIXTURE_WEBHOOK_RELAY:'http://127.0.0.1:'+relay.address().port+'/events'};
- const start=()=>new Miniflare(convertV4MiniflareOptions({modules:true,scriptPath:bundle,compatibilityDate:'2026-10-01',compatibilityFlags:['nodejs_compat'],d1Databases:{DB:'webhook-lifecycle-runtime'},resourcePersistencePath:join(directory,'state'),telemetry:{enabled:false},bindings}));
+ const start=()=>new Miniflare(workerFixtureOptions({modules:true,scriptPath:bundle,compatibilityDate:'2026-10-01',compatibilityFlags:['nodejs_compat'],d1Databases:{DB:'webhook-lifecycle-runtime'},resourcePersistencePath:join(directory,'state'),telemetry:{enabled:false},bindings}));
  const restart=async()=>{if(worker)assert.equal((await(await worker.dispatchFetch(origin+'/__fixture/metrics')).json()).externalAttempts,0);await worker?.dispose();worker=start();await worker.ready;db=await worker.getD1Database('DB');};await restart();
  const schema=(await readFile(join(root,'apps/worker/auth-schema.sql'),'utf8')).replace(/^\s*--.*$/gm,'');await db.batch(schema.split(';').map(sql=>sql.trim()).filter(Boolean).map(sql=>db.prepare(sql)));
  const request=(path,{method='GET',body,account,headers={}}={})=>worker.dispatchFetch(origin+path,{method,redirect:'manual',headers:{...(body===undefined?{}:{Origin:origin,'Content-Type':'application/json'}),...(account?{Cookie:account.cookie,'X-Yumunio-Expected-Account':account.id}:{}),...headers},...(body===undefined?{}:{body:JSON.stringify(body)})});

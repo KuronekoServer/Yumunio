@@ -1,7 +1,8 @@
 import {workerPagePaths} from '../../../packages/prototype/src/web-routes.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { Miniflare, convertV4MiniflareOptions } from 'miniflare';
+import {Miniflare} from 'miniflare';
+import {workerFixtureOptions} from '../../../packages/tooling/worker-fixture.mjs';
 import { build } from 'esbuild';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -17,7 +18,7 @@ test('actual workerd installs D1/R2 from the deploy schema, atomically claims on
   const directory = await mkdtemp(join(tmpdir(), prefix)), bundle = join(directory, 'worker.mjs'); let worker;
   t.after(async () => { await worker?.dispose(); const rel = relative(resolve(tmpdir()), resolve(directory)); assert.ok(!isAbsolute(rel) && !rel.includes(sep) && rel.startsWith(prefix)); await rm(directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }); });
   await build({ entryPoints: [join(root, 'apps/worker/worker.js')], outfile: bundle, bundle: true, format: 'esm', platform: 'browser', target: 'es2022', external: ['node:*'], logLevel: 'silent' });
-  const start = (overrides = {}) => new Miniflare(convertV4MiniflareOptions({ modules: true, scriptPath: bundle, compatibilityDate: '2026-10-01', compatibilityFlags: ['nodejs_compat'],
+  const start = (overrides = {}) => new Miniflare(workerFixtureOptions({ modules: true, scriptPath: bundle, compatibilityDate: '2026-10-01', compatibilityFlags: ['nodejs_compat'],
     d1Databases: { DB: 'installation-fixture' }, r2Buckets: { BLOBS: 'attachment-fixture' }, resourcePersistencePath: join(directory, 'state'), telemetry: { enabled: false },
     assets: { directory: join(root, '.build/web'), binding: 'ASSETS', assetConfig: { html_handling: 'none' }, routerConfig: { has_user_worker: true }, run_worker_first: [...workerPagePaths(),'/api','/api/*','/health','/manifest.webmanifest'] },
     bindings: { YUMUNIO_INSTANCE_SECRET: instanceSecret, YUMUNIO_WEB_SETUP: 'true', YUMUNIO_BLOB_DRIVER: 'r2', ...overrides } }));

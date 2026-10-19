@@ -1,7 +1,8 @@
 import {workerPagePaths} from '../../../packages/prototype/src/web-routes.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {Miniflare,convertV4MiniflareOptions} from 'miniflare';
+import {Miniflare} from 'miniflare';
+import {workerFixtureOptions} from '../../../packages/tooling/worker-fixture.mjs';
 import {build} from 'esbuild';
 import {mkdtemp,mkdir,writeFile,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
@@ -41,7 +42,7 @@ test('actual local workerd serves a public read-only branded manifest and valid 
   for(const[size,bytes]of icons)await writeFile(join(assets,'pwa','icon-'+size+'.png'),bytes);
   await writeFile(join(assets,'brand','profile','app-192.png'),icons.get(192));
   await build({entryPoints:[join(root,'apps/worker/worker.js')],outfile:bundle,bundle:true,format:'esm',platform:'browser',target:'es2022',external:['node:*'],logLevel:'silent'});
-  const start=bindings=>new Miniflare(convertV4MiniflareOptions({modules:true,scriptPath:bundle,compatibilityDate:'2026-10-01',compatibilityFlags:['nodejs_compat'],telemetry:{enabled:false},assets:{directory:assets,binding:'ASSETS',routerConfig:{has_user_worker:true},run_worker_first:['/api','/api/*','/health','/manifest.webmanifest']},bindings:{YUMUNIO_PUBLIC_ORIGIN:origin,...secrets,...bindings}}));
+  const start=bindings=>new Miniflare(workerFixtureOptions({modules:true,scriptPath:bundle,compatibilityDate:'2026-10-01',compatibilityFlags:['nodejs_compat'],telemetry:{enabled:false},assets:{directory:assets,binding:'ASSETS',routerConfig:{has_user_worker:true},run_worker_first:['/api','/api/*','/health','/manifest.webmanifest']},bindings:{YUMUNIO_PUBLIC_ORIGIN:origin,...secrets,...bindings}}));
   const request=(path,options={})=>worker.dispatchFetch(origin+path,{redirect:'manual',...options});
   async function manifest(options={}){const response=await request('/manifest.webmanifest',options);assert.equal(response.status,200,await response.clone().text());assert.equal(response.headers.get('content-type').split(';')[0],'application/manifest+json');assert.equal(response.headers.get('cache-control'),'no-store');assert.equal(response.headers.get('x-content-type-options'),'nosniff');assert.equal(response.headers.get('referrer-policy'),'no-referrer');assert.equal(response.headers.get('cross-origin-resource-policy'),'same-origin');assert.deepEqual(response.headers.getSetCookie(),[]);return response.json();}
   worker=start({});await worker.ready;
@@ -80,6 +81,6 @@ test('actual workerd Cache API removes only retired same-origin static entries w
   return Response.json({removed,second,preserved,retiredRemaining});
  }};`;
  await build({stdin:{contents:entry,resolveDir:root,sourcefile:'retired-pwa-cache-fixture.js'},outfile:bundle,bundle:true,format:'esm',platform:'browser',target:'es2022',logLevel:'silent'});
- worker=new Miniflare(convertV4MiniflareOptions({modules:true,scriptPath:bundle,compatibilityDate:'2026-10-01',telemetry:{enabled:false},cachePersist:join(directory,'cache')}));await worker.ready;
+ worker=new Miniflare(workerFixtureOptions({modules:true,scriptPath:bundle,compatibilityDate:'2026-10-01',telemetry:{enabled:false},cachePersist:join(directory,'cache')}));await worker.ready;
  const response=await worker.dispatchFetch(origin+'/retired-cache-fixture');assert.equal(response.status,200);assert.deepEqual(await response.json(),{removed:10,second:0,preserved:42,retiredRemaining:0});
 });
