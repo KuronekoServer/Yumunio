@@ -2,7 +2,7 @@ import {workerPagePaths} from '../../../packages/prototype/src/web-routes.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {Miniflare} from 'miniflare';
-import {workerFixtureOptions} from '../../../packages/tooling/worker-fixture.mjs';
+import {workerFixtureOptions} from '../../../packages/tooling/test/fixtures/worker.mjs';
 import { build } from 'esbuild';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { validateTestDatabaseUrl } from '../../../packages/tooling/test-databases.mjs';
+import { validateTestDatabaseUrl } from '../../../packages/tooling/test/run-databases.mjs';
 import { createDemoWorkspace } from '../../web/public/store.js';
 import { createAppServer } from '../server.mjs';
 

@@ -7,7 +7,7 @@ import {isAbsolute,join,relative,resolve,sep} from 'node:path';
 import {fileURLToPath,pathToFileURL} from 'node:url';
 import {build} from 'esbuild';
 import {Miniflare} from 'miniflare';
-import {workerFixtureOptions} from '../../../packages/tooling/worker-fixture.mjs';
+import {workerFixtureOptions} from '../../../packages/tooling/test/fixtures/worker.mjs';
 import {initialSetupAuthorization} from '../../../packages/identity/src/setup.js';
 
 const root=fileURLToPath(new URL('../../../',import.meta.url)),prefix='yumunio-worker-mail-',origin='https://email.fixture.invalid',secret='Synthetic-worker-email-instance-2026-'.repeat(3);

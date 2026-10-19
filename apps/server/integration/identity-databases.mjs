@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { validateTestDatabaseUrl } from '../../../packages/tooling/test-databases.mjs';
+import { validateTestDatabaseUrl } from '../../../packages/tooling/test/run-databases.mjs';
 import { createDatabaseClient } from '@yumunio/adapters/prototype-sql';
 import { createIdentity } from '@yumunio/identity';
 import { createAccountContentApi } from '@yumunio/identity/content';

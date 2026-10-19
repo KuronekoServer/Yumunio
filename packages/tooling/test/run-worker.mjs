@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
 
-const root = fileURLToPath(new URL('../../', import.meta.url));
+const root = fileURLToPath(new URL('../../../', import.meta.url));
 const run = file => new Promise((resolveRun, reject) => {
   const child = spawn(process.execPath, file, { cwd: root, stdio: 'inherit', windowsHide: true });
   child.once('error', reject);

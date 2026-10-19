@@ -2,7 +2,7 @@ import { readdir } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-const root = fileURLToPath(new URL('../../', import.meta.url));
+const root = fileURLToPath(new URL('../../../', import.meta.url));
 const files = [];
 async function discover(directory) {
   for (const entry of await readdir(directory, { withFileTypes: true })) {

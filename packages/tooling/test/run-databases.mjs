@@ -23,9 +23,9 @@ if (main) {
     const options = [['mysql', process.env.YUMUNIO_TEST_MYSQL_URL], ['postgres', process.env.YUMUNIO_TEST_POSTGRES_URL]];
     if (!options.some(([, value]) => value)) throw new Error('Set YUMUNIO_TEST_MYSQL_URL and/or YUMUNIO_TEST_POSTGRES_URL to an explicitly disposable loopback yumunio_test_* database.');
     for (const [dialect, value] of options) if (value) validateTestDatabaseUrl(value, dialect);
-    const root = fileURLToPath(new URL('../../', import.meta.url));
-    const testFiles = ['databases.mjs', 'identity-databases.mjs'].map(name => fileURLToPath(new URL('../../apps/server/integration/' + name, import.meta.url)));
-    testFiles.push(fileURLToPath(new URL('../backup/integration/databases.mjs', import.meta.url)));
+    const root = fileURLToPath(new URL('../../../', import.meta.url));
+    const testFiles = ['databases.mjs', 'identity-databases.mjs'].map(name => fileURLToPath(new URL('../../../apps/server/integration/' + name, import.meta.url)));
+    testFiles.push(fileURLToPath(new URL('../../backup/integration/databases.mjs', import.meta.url)));
     const child = spawn(process.execPath, ['--test', '--test-concurrency=1', ...testFiles], {
       cwd: root, env: process.env, windowsHide: true, stdio: 'inherit',
     });

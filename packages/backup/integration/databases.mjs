@@ -6,7 +6,7 @@ import {getMigrations} from 'better-auth/db/migration';
 import {hashPassword} from 'better-auth/crypto';
 import {createIdentity} from '@yumunio/identity';
 import {createDatabaseClient} from '@yumunio/adapters/prototype-sql';
-import {validateTestDatabaseUrl} from '../../../packages/tooling/test-databases.mjs';
+import {validateTestDatabaseUrl} from '../../../packages/tooling/test/run-databases.mjs';
 import {createPoolRecoveryStore} from '../src/pool.js';
 import {requestBackup,runBackupStep} from '../src/jobs.js';
 import {verifyRecoveryArchive,sha256} from '../src/archive.js';

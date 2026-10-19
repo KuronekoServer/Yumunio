@@ -4,7 +4,7 @@ import {mkdtemp,rm,writeFile} from 'node:fs/promises';
 import {dirname,join,resolve} from 'node:path';
 import {tmpdir} from 'node:os';
 import {Miniflare} from 'miniflare';
-import {workerFixtureOptions} from '../worker-fixture.mjs';
+import {workerFixtureOptions} from './fixtures/worker.mjs';
 
 test('a temporary bundled worker starts outside the checkout without a parent traversal module name', {timeout:30000},async t=>{
  const parent=resolve(tmpdir()),directory=await mkdtemp(join(parent,'yumunio-fixture-root-')),bundle=join(directory,'worker.mjs');let worker;
