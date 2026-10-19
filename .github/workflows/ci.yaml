@@ -24,6 +24,8 @@ jobs:
         with:
           node-version: '24.16.0'
           package-manager-cache: false
+      - name: Use canonical temporary paths for filesystem fixtures
+        run: node --input-type=module -e "import {appendFileSync, realpathSync} from 'node:fs'; const directory = realpathSync(process.env.RUNNER_TEMP); appendFileSync(process.env.GITHUB_ENV, ['TMPDIR','TMP','TEMP'].map(name => name + '=' + directory + '\n').join(''));"
       - run: npm ci --ignore-scripts --no-audit --no-fund
       - run: npm run l10n:sync
       - run: npm run check

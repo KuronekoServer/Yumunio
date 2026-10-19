@@ -36,14 +36,16 @@ test('Compose passes application env at runtime with stable container bind and n
 test('database Compose profiles keep DB network private and explicit TLS overrides ahead of runtime env',async()=>{
   for(const [name,dialect]of [['mariadb','mariadb'],['postgres','postgres']]){
     const source=await read('compose.'+name+'.yaml');
-    const database=source.split('\n  database:\n')[1]?.split('\nvolumes:')[0];
-    assert.ok(database);
-    assert.doesNotMatch(database,/^\s+ports:/m);
-    assert.doesNotMatch(database,/^\s+env_file:/m);
-    assert.match(source,new RegExp('YUMUNIO_STORAGE: '+dialect));
-    assert.match(source,/YUMUNIO_DATABASE_URL: "\$\{YUMUNIO_DATABASE_URL:\?/);
-    assert.match(source,/YUMUNIO_DATABASE_TLS: "\$\{YUMUNIO_DATABASE_TLS:-verify-full\}"/);
-    assert.match(source,/condition: service_healthy/);
+    for(const text of [source.replace(/\r\n/g,'\n'),source.replace(/\r?\n/g,'\r\n')]){
+      const {services}=parse(text),database=services.database,application=services.yumunio;
+      assert.ok(database);
+      assert.equal(database.ports,undefined);
+      assert.equal(database.env_file,undefined);
+      assert.equal(application.environment.YUMUNIO_STORAGE,dialect);
+      assert.match(application.environment.YUMUNIO_DATABASE_URL,/^\$\{YUMUNIO_DATABASE_URL:\?/);
+      assert.equal(application.environment.YUMUNIO_DATABASE_TLS,'${YUMUNIO_DATABASE_TLS:-verify-full}');
+      assert.equal(application.depends_on.database.condition,'service_healthy');
+    }
   }
 });
 test('runtime credentials, local databases and Pen assets cannot enter Docker build context',async()=>{
