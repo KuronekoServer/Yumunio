@@ -25,7 +25,7 @@ import {mountWorkspacePicker} from './workspace-picker.js';
 import {sidebarPageRows,revealSidebarPage,sidebarSiblings,sidebarDropPlacement,readSidebarDisclosure,writeSidebarDisclosure} from './sidebar-model.js';
 import {TeamspaceClient} from './teamspace-client.js';
 import {validateCreatedPage,validateCreatedPageProjection} from './page-create-result.js';
-import {createPageCreator,capturePageCreatorFocus} from './page-creator.js';
+import {createPageCreator,capturePageCreatorFocus,pageCreationDestinations} from './page-creator.js';
 import {instantiatePageStarter} from './page-starters.js';
 import {createSimpleTable,isSimpleTableData} from './simple-table.js';
 import {createTableBlockView} from './table-block-view.js';
@@ -1765,13 +1765,11 @@ async function openCreate(teamspaceId=null,parentId=null) {
   if (room || !state.user || state.busy || state.listLoading || state.role === 'guest' || state.locked || state.fatal || !await confirmReplace()) return;
   const team=teamspaceId?state.teamspaces.find(item=>item.id===teamspaceId&&item.capabilities.includes('createPage')&&!item.archivedAt):null;
   if(teamspaceId&&!team)return;
-  const parent=parentId?state.pages.find(item=>item.id===parentId&&canManagePage(item)&&!item.recordId&&!item.templateId):null;
+  const parent=parentId?state.pages.find(item=>item.id===parentId&&canManagePage(item)):null;
   if(parentId&&!parent)return;
   await closeModalFully();
   const accountId=state.user.id,selection=state.selection,controller=new AbortController();
-  const destinations=[{id:'private',name:t('pageTemplates.private'),hint:t('privateDefault')},
-    ...state.teamspaces.filter(item=>!item.archivedAt&&item.capabilities.includes('createPage')).map(item=>({id:'team:'+item.id,name:t('pageTemplates.teamDestination',{name:item.name}),teamspaceId:item.id,hint:t('teamspaces.createPageHint',{name:item.name})})),
-    ...state.pages.filter(item=>canManagePage(item)&&!item.recordId&&!item.templateId).map(item=>({id:'page:'+item.id,name:t('pageTemplates.childDestination',{name:item.title||t('untitled')}),parentId:item.id,hint:t('pageTemplates.childHint',{name:item.title||t('untitled')})}))];
+  const destinations=pageCreationDestinations({pages:state.pages,teamspaces:state.teamspaces,t,canManage:canManagePage});
   const creator=createPageCreator({document,t,destinations,initialDestination:parent?'page:'+parent.id:team?'team:'+team.id:'private',
     personalHref:'/templates?'+new URLSearchParams({workspace:workspaceId}),
     loadPersonalList:()=>request('/api/content/workspaces/'+encodeURIComponent(workspaceId)+'/templates',{signal:controller.signal}),

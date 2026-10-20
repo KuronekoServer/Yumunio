@@ -1,6 +1,12 @@
 import {pageStarters,matchingPageStarters} from './page-starters.js';
 import {validateTemplatesList,validateTemplateItem} from './templates-model.js';
 
+export function pageCreationDestinations({pages,teamspaces,t,canManage}){
+  return[{id:'private',name:t('pageTemplates.private'),hint:t('privateDefault')},
+    ...teamspaces.filter(item=>!item.archivedAt&&item.capabilities.includes('createPage')).map(item=>({id:'team:'+item.id,name:t('pageTemplates.teamDestination',{name:item.name}),teamspaceId:item.id,hint:t('teamspaces.createPageHint',{name:item.name})})),
+    ...pages.filter(canManage).map(item=>({id:'page:'+item.id,name:t('pageTemplates.childDestination',{name:item.title||t('untitled')}),parentId:item.id,hint:t('pageTemplates.childHint',{name:item.title||t('untitled')})}))];
+}
+
 const iconPaths={
   page:'M6 3h9l4 4v14H6z M14 3v5h5 M9 12h7 M9 16h7',
   people:'M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2 M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8 M22 21v-2a4 4 0 0 0-3-3.87 M16 3.13a4 4 0 0 1 0 7.75',

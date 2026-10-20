@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {settingsDomFixture} from './fixtures/settings-dom.js';
-import {createPageCreator,capturePageCreatorFocus} from '../public/page-creator.js';
+import {createPageCreator,capturePageCreatorFocus,pageCreationDestinations} from '../public/page-creator.js';
 const messages=JSON.parse(await readFile(new URL('../public/workspace-locales/ja.json',import.meta.url),'utf8'));
 const translate=key=>{assert.ok(Object.hasOwn(messages,key),key);return messages[key];};
 const deferred=()=>{let resolve,reject;const promise=new Promise((yes,no)=>{resolve=yes;reject=no;});return{promise,resolve,reject};};
@@ -16,6 +16,10 @@ function setup(t,options={}){
   fixture.doc.body.append(creator.root);return{...fixture,creator,calls,root:creator.root};
 }
 const card=(root,id)=>root.querySelectorAll('[data-page-template]').find(row=>row.getAttribute('data-page-template')===id);
+test('destinations preserve manageable record and template parents and omit unavailable pages and teamspaces',()=>{
+  const rows=pageCreationDestinations({t:translate,canManage:item=>item.capabilities.includes('manage'),pages:[{id:'normal',title:'Page',capabilities:['manage']},{id:'record',title:'Issue',recordId:'record-a',capabilities:['manage']},{id:'template',title:'Template',templateId:'template-a',capabilities:['manage']},{id:'viewer',title:'Read only',capabilities:['read']}],teamspaces:[{id:'staff',name:'Staff',capabilities:['createPage']},{id:'archived',name:'Archived',archivedAt:stamp,capabilities:['createPage']},{id:'readers',name:'Readers',capabilities:['read']}]});
+  assert.deepEqual(rows.map(row=>row.id),['private','team:staff','page:normal','page:record','page:template']);assert.equal(rows.find(row=>row.id==='page:record').parentId,'record');
+});
 test('choosing a starter previews content and creates only on explicit submit at the chosen destination',async t=>{
   const f=setup(t,{initialDestination:'page:parent'});await f.creator.ready;card(f.root,'starter:issue').focus();card(f.root,'starter:issue').dispatch('click');
   assert.match(f.root.querySelector('.page-template-document').textContent,/再現手順/);assert.equal(f.calls.length,0);assert.equal(f.doc.activeElement.getAttribute('data-page-template'),'starter:issue');
