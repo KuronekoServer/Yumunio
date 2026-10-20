@@ -25,6 +25,8 @@ import {mountWorkspacePicker} from './workspace-picker.js';
 import {sidebarPageRows,revealSidebarPage,sidebarSiblings,sidebarDropPlacement,readSidebarDisclosure,writeSidebarDisclosure} from './sidebar-model.js';
 import {TeamspaceClient} from './teamspace-client.js';
 import {validateCreatedPage,validateCreatedPageProjection} from './page-create-result.js';
+import {createPageCreator,capturePageCreatorFocus} from './page-creator.js';
+import {instantiatePageStarter} from './page-starters.js';
 import {createSimpleTable,isSimpleTableData} from './simple-table.js';
 import {createTableBlockView} from './table-block-view.js';
 import {readClipboardContent} from './clipboard-content.js';
@@ -531,7 +533,7 @@ function validatePageEnvelope(data, pageId) {
 function showModal(title, content, { cancelLabel = 'close',motionKind } = {}) {
   blockDnd?.cancel();
   collectionView?.cancel();
-  modal.dataset.view=title; modal.className=['searchPages','trashPages','exportWorkspace'].includes(title)?'wide-dialog':'';
+  modal.dataset.view=title; modal.className=title==='createPage'?'page-create-dialog':['searchPages','trashPages','exportWorkspace'].includes(title)?'wide-dialog':'';
   if (modal.open) {if(modal.closeImmediately)modal.closeImmediately();else modal.close();}
   modal.dataset.motionKind=motionKind??(['pageActions','blockType','blockSelection.actions','addBlock'].includes(title)?'menu':'modal');
   modal.replaceChildren(node('header', { class: 'dialog-header' }, [
@@ -1758,28 +1760,31 @@ async function persistPage({isCurrent}) {
   })();
   return task;
 }
-async function openCreate(teamspaceId=null) {
+async function openCreate(teamspaceId=null,parentId=null) {
+  const restoreFocus=capturePageCreatorFocus({document,root:app});
   if (room || !state.user || state.busy || state.listLoading || state.role === 'guest' || state.locked || state.fatal || !await confirmReplace()) return;
-  const input = node('input', { type: 'text', id: 'new-page-title', maxlength: '240', required: true, value: t('newPage'), autocomplete: 'off' });
   const team=teamspaceId?state.teamspaces.find(item=>item.id===teamspaceId&&item.capabilities.includes('createPage')&&!item.archivedAt):null;
   if(teamspaceId&&!team)return;
-  const message = node('p', { class: 'hint' }, team?t('teamspaces.createPageHint',{name:team.name}):t('privateDefault'));
-  const form = node('form', { class: 'create-form' }, [
-    node('label', { class: 'field', for: 'new-page-title' }, [node('span', {}, t('pageTitle')), input]), message,
-    node('div', { class: 'dialog-actions' }, [button('cancel', () => modal.close()), node('button', { type: 'submit', class: 'button primary' }, t('create'))])
-  ]);
-  form.addEventListener('submit', event => {
-    event.preventDefault(); if (!input.value.trim()) { input.setCustomValidity(t('titleRequired')); input.reportValidity(); return; }
-    void createPage(input.value,teamspaceId);
-  });
-  input.addEventListener('input', () => input.setCustomValidity(''));
-  showModal('createPage', form); input.focus(); input.select();
+  const parent=parentId?state.pages.find(item=>item.id===parentId&&canManagePage(item)&&!item.recordId&&!item.templateId):null;
+  if(parentId&&!parent)return;
+  await closeModalFully();
+  const accountId=state.user.id,selection=state.selection,controller=new AbortController();
+  const destinations=[{id:'private',name:t('pageTemplates.private'),hint:t('privateDefault')},
+    ...state.teamspaces.filter(item=>!item.archivedAt&&item.capabilities.includes('createPage')).map(item=>({id:'team:'+item.id,name:t('pageTemplates.teamDestination',{name:item.name}),teamspaceId:item.id,hint:t('teamspaces.createPageHint',{name:item.name})})),
+    ...state.pages.filter(item=>canManagePage(item)&&!item.recordId&&!item.templateId).map(item=>({id:'page:'+item.id,name:t('pageTemplates.childDestination',{name:item.title||t('untitled')}),parentId:item.id,hint:t('pageTemplates.childHint',{name:item.title||t('untitled')})}))];
+  const creator=createPageCreator({document,t,destinations,initialDestination:parent?'page:'+parent.id:team?'team:'+team.id:'private',
+    personalHref:'/templates?'+new URLSearchParams({workspace:workspaceId}),
+    loadPersonalList:()=>request('/api/content/workspaces/'+encodeURIComponent(workspaceId)+'/templates',{signal:controller.signal}),
+    loadPersonalItem:id=>request('/api/content/workspaces/'+encodeURIComponent(workspaceId)+'/templates/'+encodeURIComponent(id),{signal:controller.signal}),
+    onCreate:async value=>{if(state.user?.id!==accountId||controller.signal.aborted)return{blocked:true};return createPage(value.title,value.teamspaceId,value.parentId,value.snapshot,value.observedRevision);}});
+  showModal('createPage',creator.root);creator.focus();
+  modal.addEventListener('close',()=>{creator.destroy();controller.abort();if(state.selection===selection)restoreFocus(modal);},{once:true});
 }
-async function createPage(title,teamspaceId=null,parentId=null) {
+async function createPage(title,teamspaceId=null,parentId=null,snapshot=null,observedRevision=null) {
   if(!await settleBodySave())return;
-  if (room || state.busy || state.listLoading) return;
+  if (room || state.busy || state.listLoading || state.locked || state.fatal || !state.user || state.role==='guest') return{blocked:state.locked||!!state.fatal};
   state.busy = true; state.error = ''; state.notice = '';
-  for (const control of modal.querySelectorAll('button,input')) control.disabled = true;
+  for (const control of modal.querySelectorAll('button,input,select')) control.disabled = true;
   render();
   const accountId=state.user?.id,selection=state.selection,previousPageId=state.current?.page.id,generation=draftGeneration;
   const ownsView=()=>state.user?.id===accountId&&state.selection===selection&&state.current?.page.id===previousPageId&&draftGeneration===generation;
@@ -1787,7 +1792,10 @@ async function createPage(title,teamspaceId=null,parentId=null) {
   try {
     const parent=parentId?state.pages.find(page=>page.id===parentId&&canManagePage(page)):null;
     if(parentId&&!parent)throw new ApiError(404,'CONTENT_NOT_FOUND');
-    const submitted={expectedRevision:state.listRevision,title,blocks:[{id:crypto.randomUUID(),type:'paragraph',data:{text:''}}],...(parentId?{parentId}:teamspaceId?{teamspaceId}:{})};
+    // Template reads can observe a newer workspace revision after saving a template in another tab.
+    // Creation changes no existing document; the server still checks current destination permissions.
+    const expectedRevision=Math.max(state.listRevision,observedRevision??0);
+    const submitted={expectedRevision,title,blocks:snapshot?instantiatePageStarter(snapshot):[{id:crypto.randomUUID(),type:'paragraph',data:{text:''}}],...(parentId?{parentId}:teamspaceId?{teamspaceId}:{})};
     const data=validateCreatedPage(submitted,await request(basePath(),{method:'POST',body:submitted}),{workspaceId});
     acknowledged=true;if(!ownsView())return;
     validateCreatedPageProjection(data,validatePageEnvelope(await request(basePath()+'/'+encodeURIComponent(data.page.id)),data.page.id),{workspaceId,teamspaceId:parent?.teamspaceId??teamspaceId});
@@ -1800,10 +1808,11 @@ async function createPage(title,teamspaceId=null,parentId=null) {
     const unknown=acknowledged||error.status===0||error.status>=500||error.code==='INVALID_CREATE_RESPONSE';
     state.error = unknown?'teamspaces.createUnknown':error.status === 409 ? 'createConflict' : errorKey(error, 'createFailed');
     if(unknown){state.locked=true;bodySaveBlocked='unknown';for(const control of modal.querySelectorAll('.dialog-header button,.create-form button[type="button"]'))control.disabled=false;}
-    else for (const control of modal.querySelectorAll('button,input')) control.disabled = false;
-    const message = modal.querySelector('.hint'); if (message) { message.textContent = t(state.error); message.setAttribute('role', 'alert'); }
+    else for (const control of modal.querySelectorAll('button,input,select')) control.disabled = false;
+    const message = modal.querySelector('.create-feedback'); if (message) { message.textContent = t(state.error); message.setAttribute('role', 'alert'); }
   } finally { state.busy = false; render(); }
-  if (createdId&&ownsView()) { if(!await refreshList()||!ownsView())return;await selectPage(createdId, false, true,ownsView);if(state.user?.id===accountId&&state.current?.page.id===createdId&&state.draft.blocks[0])focusBlock(state.draft.blocks[0].id); }
+  if (createdId&&ownsView()) { if(!await refreshList()||!ownsView())return;await selectPage(createdId, false, true,ownsView);if(state.user?.id===accountId&&state.current?.page.id===createdId&&state.draft.blocks[0])focusBlock((state.draft.blocks.find(block=>block.type==='paragraph'&&block.data?.text==='')??state.draft.blocks[0]).id); }
+  return{blocked:state.locked||!!state.fatal};
 }
 async function openPageTeamspaceMove(page){
  if(room||state.busy||state.loading||!canManagePage(page)||page.recordId||state.dirty||!state.current||state.current.page.id!==page.id)return;
@@ -1865,9 +1874,8 @@ async function openPageTeamspaceMove(page){
 function canManagePage(page) { return state.role!=='guest' && page?.capabilities?.includes('manage') && !state.locked; }
 async function createSubpage(pageId){
  const page=state.pages.find(item=>item.id===pageId);
- if(!canManagePage(page)||room||state.busy||state.listLoading||!await confirmReplace())return;
- const previous=state.current?.page.id;await closeModalFully();await createPage(t('newPage'),null,page.id);
- if(state.current?.page.id!==previous&&state.current?.page.parentId===pageId){focusContent();document.getElementById('page-title')?.select();}
+ if(!canManagePage(page)||room||state.busy||state.listLoading)return;
+ await openCreate(null,page.id);
 }
 function refreshChildPages(root=app){
  const host=root.querySelector('[data-child-pages]');if(!host||!state.current)return;

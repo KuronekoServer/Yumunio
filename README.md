@@ -154,7 +154,7 @@ DB・保存先・公開URL・API／バックアップなどの追加機能は環
 
 APIの公開範囲はOpenAPIに記載した操作に限ります。インポートは形式ごとに対応範囲が異なります。プレビューを確認し、元データを残して移行してください。
 
-通常の編集操作は[編集の基本操作](docs/editing-basics.md)、本文で一覧を扱う方法は[本文内DBと詳細編集](docs/inline-databases.md)、ひな形は[DBテンプレート](docs/database-templates.md)、共通の本文は[同期ブロック](docs/synced-blocks.md)を参照してください。接続方法と公開範囲は[API・MCP・Webhook](docs/integrations.md)、残る差分は[機能対応表](docs/feature-coverage.md)にまとめています。
+通常の編集操作は[編集の基本操作](docs/editing-basics.md)、新規ページのひな形は[ページテンプレート](docs/page-templates.md)、本文で一覧を扱う方法は[本文内DBと詳細編集](docs/inline-databases.md)、DBのひな形は[DBテンプレート](docs/database-templates.md)、共通の本文は[同期ブロック](docs/synced-blocks.md)を参照してください。接続方法と公開範囲は[API・MCP・Webhook](docs/integrations.md)、残る差分は[機能対応表](docs/feature-coverage.md)にまとめています。
 
 ## 困ったとき
 
