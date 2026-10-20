@@ -235,7 +235,8 @@ dialog::backdrop { background:#10203066; }
 .search-result:hover { background:var(--soft); }
 .search-result strong,.search-result span { overflow-wrap:anywhere; }
 .search-result span { font-size:12px; color:var(--muted); white-space:pre-wrap; }
-.root-drop-target { display:none; margin:0 0 8px; border:1px dashed var(--border); border-radius:5px; padding:12px; background:var(--surface); color:var(--muted); text-align:center; font-size:12px; }
+.sidebar-directory-heading { position:relative; }
+.root-drop-target { display:none; position:absolute; inset:0; z-index:3; margin:0; border:1px dashed var(--border); border-radius:5px; padding:2px 8px; background:var(--surface); color:var(--muted); text-align:center; font-size:12px; }
 .page-dragging .root-drop-target { display:block; }
 .page-link.drop-target,.root-drop-target.drop-target { outline:2px solid var(--accent); outline-offset:-2px; background:var(--soft); }
 @media(max-width:760px) { .workspace-search-form { flex-wrap:wrap; } .workspace-search-form .field { flex-basis:100%; } .workspace-search-form .button { width:100%; } .operation-list > li { align-items:flex-start; } }

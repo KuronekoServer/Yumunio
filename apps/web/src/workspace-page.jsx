@@ -47,8 +47,9 @@ const Sidebar=memo(function Sidebar({model,onCollapse,desktop,collapsed}){
    {s.user&&!s.fatal&&<a href={'/comments'+query} className="nav-link"><Icon name="inbox"/>{t('sidebarInbox')}</a>}
    <SidebarMenu label={t('sidebarLibrary')} icon={<Icon name="template"/>}><a href={'/collections'+query} className="nav-link"><Icon name="table"/>{t('collections')}</a><a href={'/forms'+query} className="nav-link"><Icon name="page"/>{t('forms')}</a>{s.role&&s.role!=='guest'&&<a href={'/templates'+query} className="nav-link"><Icon name="template"/>{t('personalTemplates')}</a>}</SidebarMenu>
   </nav>
-  <div className="page-list-heading"><span>{t('pages')}</span><Action label={t('refreshList')} icon="refresh" disabled={!s.user||s.busy||s.listLoading||!!s.fatal} onClick={()=>h.refreshList(true)}/><Action label={t('createPage')} icon="plus" disabled={newDisabled} onClick={()=>h.openCreate()}/></div>
-  <button type="button" className="root-drop-target" onDragOver={event=>h.overPageDrop(event,null)} onDragLeave={event=>{delete event.currentTarget.dataset.pageDrop;}} onDrop={event=>h.dropPage(event,null)}>{t('moveToRoot')}</button>
+  <div className="page-list-heading sidebar-directory-heading"><span>{t('pages')}</span><Action label={t('refreshList')} icon="refresh" disabled={!s.user||s.busy||s.listLoading||!!s.fatal} onClick={()=>h.refreshList(true)}/><Action label={t('createPage')} icon="plus" disabled={newDisabled} onClick={()=>h.openCreate()}/>
+   <button type="button" className="root-drop-target" onDragOver={event=>h.overPageDrop(event,null)} onDragLeave={event=>{delete event.currentTarget.dataset.pageDrop;}} onDrop={event=>h.dropPage(event,null)}>{t('moveToRoot')}</button>
+  </div>
   <div className="page-list page-directory">
    {!!favorites.length&&<section className="sidebar-page-section"><div className="page-list-heading"><span>{t('pageTools.favorites')}</span></div><ul className="sidebar-section-pages">{favorites.map(page=><li key={page.id}><button type="button" className="page-link" disabled={s.busy} onClick={()=>h.selectPage(page.id)}><span aria-hidden="true" translate="no">{page.appearance?.icon||'☆'}</span><span translate="no">{page.title||t('untitled')}</span></button></li>)}</ul></section>}
    {sections.map(({key,label,team,rows})=><section key={key} className="sidebar-page-section">
