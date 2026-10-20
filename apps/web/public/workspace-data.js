@@ -130,14 +130,25 @@ export class CollectionEdits {
   }
   markUnknown(){this.conflict=true;}
   discard(recordId){this.drafts.delete(recordId);}
-  accept(response,recordId){
+  accept(response,recordId,submitted){
     const current=this.record(recordId);
     if(response?.collectionId!==this.collection.id||response.record?.id!==recordId||!revision(response.revision)||response.revision<=this.revision||!current)throw new Error('INVALID_COLLECTION');
     const candidate=clone(this.envelope);candidate.revision=response.revision;candidate.collection.records=candidate.collection.records.map(record=>record.id===recordId?clone(response.record):record);
     let checked;try{checked=validateCollectionEnvelope(candidate,{workspaceId:this.collection.workspaceId,collectionId:this.collection.id});validateSources(response.record,sourcePropertiesFor(this.collection));}catch{throw new Error('INVALID_COLLECTION');}
     if(response.record.pageId!==current.pageId||response.record.title!==current.title||response.record.sourceKind!==current.sourceKind||!same(response.record.sourceValues,current.sourceValues))throw new Error('INVALID_COLLECTION');
-    const changes=this.changes(recordId);if(Object.entries(changes).some(([key,value])=>!same(response.record.values[key],value)))throw new Error('INVALID_COLLECTION');
+    if(submitted===undefined){try{submitted={patch:this.patch(recordId),values:this.values(recordId)};}catch{throw new Error('INVALID_COLLECTION');}}
+    if(submitted.patch?.expectedRevision!==this.revision||!submitted.values||Object.entries(submitted.patch.values).some(([key,value])=>!same(response.record.values[key],value)))throw new Error('INVALID_COLLECTION');
+    // Compare with the submitted snapshot, not the latest input. An ACK must never erase newer edits,
+    // including a value reverted to the old baseline while its previous value was being saved.
+    const latest=this.values(recordId),remaining={};
+    for(const property of this.collection.properties){
+      if(!isComputedProperty(property)&&!same(latest[property.id],submitted.values[property.id])){
+        if(!response.record.capabilities.includes('editRecordValues')||response.record.redactedProperties?.includes(property.id))throw new Error('INVALID_COLLECTION');
+        Object.defineProperty(remaining,property.id,{value:clone(latest[property.id]),enumerable:true});
+      }
+    }
     this.envelope=checked;this.drafts.delete(recordId);
+    for(const [propertyId,raw]of Object.entries(remaining))this.setRaw(recordId,propertyId,raw);
   }
 }
 

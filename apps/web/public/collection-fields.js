@@ -4,7 +4,7 @@ function element(document,tag,text,classes){const node=document.createElement(ta
 function referenceOptions(options,selected,t){
   const result=[...options],known=new Set(result.map(([id])=>id));for(const value of selected){if(typeof value==='string'&&value&&!known.has(value)){result.push([value,t('savedReference')]);known.add(value);}}return result;
 }
-/** DOM-only field; rawValue never parses a draft. Call readValue only for an explicit save. */
+/** DOM-only field; rawValue never parses a draft. Call readValue only when preparing a validated write. */
 export function createCollectionValueInput({document,property,value,filter=false,people=[],pages=[],t=key=>key,disabled=false}){
   if(filter&&['created_time','last_edited_time'].includes(property.type))property={...property,type:'datetime'};
   if(property.type==='status')property={...property,type:'select'};

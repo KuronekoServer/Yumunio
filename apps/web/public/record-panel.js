@@ -211,7 +211,7 @@ export function createRecordPanel({
       current.ready = true;
       current.dirty = data.dirty;
       current.busy = data.busy;
-      current.surface.setStatus(t(data.busy ? 'saving' : data.dirty ? 'dirty' : 'autoSaved'));
+      current.surface.setStatus('');
       if (Number.isSafeInteger(data.revision) && data.revision >= 0 && current.revision !== data.revision) {
         current.revision = data.revision;
         void onChanged(current.record, data.revision);

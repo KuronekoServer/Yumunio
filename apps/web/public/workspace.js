@@ -79,24 +79,36 @@ const modalOpen=()=>modal.open||settingsDialog?.open===true||workspacePicker?.op
 let room=null; const roomCompositions=new Set();
 const presence=createWorkspacePresence({app,getRoom:()=>room,getCurrent:()=>state.current,isComposing:()=>roomCompositions.size>0,isModalOpen:modalOpen,translate:(...args)=>t(...args),onAuthorizationFailure:active=>stopRoomInput(active),signal});
 let bodySaveTask=null, bodySaveBlocked='', draftGeneration=0, observedDraft='';
-let pageIntent=0,navigationPreparation=null,prefetchTimer=null;
+let appearanceDraft=null,recordWriteActive=false,collectionReviewActive=false;
+let pageIntent=0,navigationPreparation=null,prefetchTimer=null,editorDialogIntent=0;
 const pagePositions=new Map();
 const pageReads=new PageReadPool({scope:()=>state.user&&!state.fatal?JSON.stringify([state.user.id,workspaceId]):null,
  read:(id,options)=>request(basePath()+'/'+encodeURIComponent(id),options),validate:validatePageEnvelope});
 let clipboardUpload=null,clipboardStarting=false;
+const autosaveModalBlocked=()=>modalOpen()&&!(modal.open&&modal.dataset.view==='pageTools.appearance'&&!settingsDialog?.open&&!workspacePicker?.open);
 const autosave=new PageAutosave({
-  getState:()=>({scopeKey:state.current&&state.user?JSON.stringify([state.user.id,workspaceId,state.current.page.id,state.selection]):null,
-    generation:draftGeneration,dirty:bodyDirty(),paused:!canEdit()||state.busy||!!clipboardUpload||state.loading||state.listLoading||!!room||modalOpen()||roomCompositions.size>0||state.conflict||!!bodySaveBlocked||!!draggedBlockId||collectionActivities.size>0||!!detailPanel.state()}),
-  save:context=>persistPage(context),onState:()=>refreshSaveStatus()
+  getState:()=>{
+    const propertyDraft=state.collection?.dirty===true;
+    const cannotWrite=!canEdit()&&!propertyDraft&&!appearanceDraft;
+    return {
+      scopeKey:state.current&&state.user?JSON.stringify([state.user.id,workspaceId,state.current.page.id,state.selection]):null,
+      generation:draftGeneration,
+      dirty:draftPending(),
+      paused:cannotWrite||state.busy||!!clipboardUpload||state.loading||state.listLoading||
+        !!room&&!propertyDraft||autosaveModalBlocked()||roomCompositions.size>0||
+        state.conflict||!!bodySaveBlocked||!!draggedBlockId||collectionActivities.size>0||!!detailPanel.state()
+    };
+  },
+  save:context=>persistDraft(context),onState:()=>refreshSaveStatus()
 });
 const t = (key, values) => i18n ? i18n.t(key, values) : key;
 const fieldT = (key, values) => fieldI18n ? fieldI18n.t(key, values) : key;
 const detailPanel=createRecordPanel({workspaceId,getAccountId:()=>state.user?.id,t,signal,
- prepare:async()=>{if(state.busy||state.loading||modalOpen()||roomCompositions.size||clipboardUpload||clipboardStarting)return false;await autosave.flush();await settleBodySave();if(state.collection?.dirty){for(const record of state.collection.collection.records)if(state.collection.dirtyPropertyIds(record.id).length)await saveRecord(record.id);}if(room&&!await settleRoom())return false;return !bodyDirty()&&!state.collection?.dirty&&!state.conflict&&!bodySaveBlocked&&await syncCurrentRevision();},
+ prepare:async()=>{if(state.busy||state.loading||modalOpen()||roomCompositions.size||clipboardUpload||clipboardStarting)return false;await autosave.flush();await settleBodySave();if(room&&!await settleRoom())return false;return !draftPending()&&!state.conflict&&!bodySaveBlocked&&await syncCurrentRevision();},
  onChanged:async()=>{await syncCurrentRevision();for(const view of databasePlacements.values())void view.refresh();for(const view of syncedPlacements.values())void view.refresh();if(collectionView&&!state.collection?.dirty)void collectionView.refresh();},
  onClosed:async()=>{await syncCurrentRevision();autosave.refresh();}
 });
-function detailStatus(){if(detailMode)window.parent.postMessage({type:'yumunio:detail-ready',workspaceId,accountId:state.user?.id,pageId:state.current?.page.id,dirty:bodyDirty()||state.collection?.dirty===true||room?.client?.pending===true,busy:state.busy||state.loading||!!bodySaveTask||!!clipboardUpload,revision:state.current?.revision},location.origin);}
+function detailStatus(){if(detailMode)window.parent.postMessage({type:'yumunio:detail-ready',workspaceId,accountId:state.user?.id,pageId:state.current?.page.id,dirty:bodyDirty()||draftPending()||room?.client?.pending===true,busy:state.busy||state.loading||!!bodySaveTask||!!clipboardUpload,revision:state.current?.revision},location.origin);}
 function node(tag, attrs = {}, children = []) {
   const result = document.createElement(tag);
   for (const [name, value] of Object.entries(attrs)) {
@@ -134,10 +146,15 @@ function bodyDirty() {
   if (!state.current || !state.draft) return false;
   return state.draft.title !== state.current.page.title || !pageBlocksEqual(state.draft.blocks,state.current.document.blocks);
 }
+function draftPending(){
+  if(!state.current)return false;
+  return !room&&bodyDirty()||state.collection?.dirty===true||appearanceDraft!==null;
+}
+function draftSignature(){return JSON.stringify([state.draft,[...(state.collection?.drafts??[])],appearanceDraft]);}
 function updateDirty(historyGroup=null) {
   if(editorHistory && state.draft && !restoringHistory && !room) {try {editorHistory.record(state.draft,{group:historyGroup,selection:editorSelection() || editorHistory.current.selection});}catch {editorHistory=null;state.error='historyUnavailable';}}
-  state.dirty = bodyDirty() || state.collection?.dirty === true || room?.client?.pending === true;
-  const signature=state.draft?JSON.stringify(state.draft):'';
+  state.dirty = bodyDirty() || draftPending() || room?.client?.pending === true;
+  const signature=draftSignature();
   if(signature!==observedDraft){observedDraft=signature;draftGeneration++;autosave.notify();}else autosave.refresh();
   refreshSaveStatus();
   refreshRoomStatus();
@@ -146,9 +163,19 @@ function updateDirty(historyGroup=null) {
 function refreshSaveStatus() {
   if(signal.aborted)return;
   detailStatus();
-  const status=state.loading?t('loading'):room?t(roomStatusKey()):!state.current?'':t(bodySaveTask?'saving':bodySaveBlocked==='unknown'?'saveUnknownStatus':state.conflict?'saveConflictStatus':bodySaveBlocked?'savePaused':!canEdit()?'readOnly':bodyDirty()?'autoSavePending':state.collection?.dirty?'propertyDraftPending':'autoSaved');
+  const roomStatus=roomStatusKey();
+  const quietRoom=['roomSynced','roomPending','roomSyncing','roomWaitingInput'].includes(roomStatus);
+  let status='';
+  if(state.loading)status=t('loading');
+  else if(state.current){
+    if(bodySaveBlocked==='unknown')status=t('saveUnknownStatus');
+    else if(state.conflict)status=t('saveConflictStatus');
+    else if(bodySaveBlocked)status=t('savePaused');
+    else if(state.recordError)status=t('recordInvalidValue');
+    else if(room&&!quietRoom)status=t(roomStatus);
+    else if(!room&&!canEdit())status=t('readOnly');
+  }
   updateToolbar({status,title:state.draft?.title||state.pages.find(page=>page.id===state.pendingPageId)?.title||t('untitled'),
-    saveDisabled:!bodyDirty()||editingDisabled()||roomCompositions.size>0||state.conflict||!!bodySaveBlocked||!!bodySaveTask||!!room||!!draggedBlockId,
     undoDisabled:structureDisabled()||!(room?room.client?.canUndo:editorHistory?.canUndo),
     redoDisabled:structureDisabled()||!(room?room.client?.canRedo:editorHistory?.canRedo)});
 }
@@ -313,8 +340,8 @@ function applyRoomDraft(active,draft,{focus=false}={}) {
  });
 }
 function activateRoom(active) {if(room!==active)return;active.phase='ready';applyRoomDraft(active,active.client.snapshot());scheduleRoomHeartbeat();void connectRoomSocket(active);}
-function showRoomStart() {
- if(!state.current || room || state.busy)return;
+async function showRoomStart() {
+ if(!state.current||room||state.busy||!await prepareEditorDialog())return;
  const blocked=state.dirty || state.conflict;
  showModal('roomTitle',[node('p',{},t('roomIntro')),node('p',{class:'hint'},t('roomFocusPolicy')),node('p',{class:'hint'},t('roomPresenceIntro')),
   ...(blocked?[node('p',{class:'message'},t('roomSaveFirst'))]:[]),node('div',{class:'dialog-actions'},[
@@ -414,9 +441,9 @@ function applyRoomInPlace(active,draft,plan) {
  state.conflict=false;updateDirty();presence.refresh();
 }
 async function syncRoom(manual=true,stopAfter=false) {
- const active=room;if(!active?.client || !['ready','paused'].includes(active.phase) || state.busy || roomCompositions.size)return;
+ const active=room;if(!active?.client || !['ready','paused'].includes(active.phase) || state.busy || recordWriteActive || roomCompositions.size)return;
  if(active.renewPromise)await active.renewPromise;
- if(room!==active || !['ready','paused'].includes(active.phase) || active.client.busy || state.busy || roomCompositions.size)return;
+ if(room!==active || !['ready','paused'].includes(active.phase) || active.client.busy || state.busy || recordWriteActive || roomCompositions.size)return;
  if(!state.draft.title.trim()){if(manual){state.error='titleRequired';render();}return;}
  if(active.phase==='paused'){active.phase='ready';render();}
  clearTimeout(active.timer);clearTimeout(active.flushTimer);active.flushTimer=null;active.needsSync=false;active.syncing=true;active.syncError=false;active.deferred=false;refreshRoomStatus();
@@ -514,11 +541,19 @@ async function closeModalFully() {
   if(!modal.open)return;
   await new Promise(resolve=> { modal.addEventListener('close',resolve,{once:true});modal.close(); });
 }
+/** Finish normal edits before a dialog pauses autosave or changes the workspace revision. */
+async function prepareEditorDialog(){
+  const intent=++editorDialogIntent,scope=collectionScope();
+  await closeModalFully();
+  await autosave.flush();
+  await settleBodySave();
+  return !signal.aborted&&intent===editorDialogIntent&&scope===collectionScope();
+}
 async function confirmReplace(reload = false) {
   if(detailPanel.state()&&!await detailPanel.close())return false;
   if(collectionActivities.size||clipboardUpload||clipboardStarting)return false;
   await settleBodySave();
-  if(!reload&&!modalOpen()&&!bodySaveBlocked&&!state.conflict&&!room){await autosave.flush();updateDirty();}
+  if(!reload&&!modalOpen()&&!bodySaveBlocked&&!state.conflict){await autosave.flush();updateDirty();}
   if (!state.dirty&&!bodySaveBlocked) return true;
   await closeModalFully();
   return new Promise(resolve => {
@@ -550,7 +585,7 @@ function paintChrome(){
  const mounted=renderChrome({workspaceId,t,room:!!room,selectionMode:blockSelection.mode,state:{...state,current:state.current?{...state.current,page:{...state.current.page}}:null,draft:state.draft?{title:state.draft.title}:null},
   activeTeams,pageRows:sidebarPageRows(state.pages,expandedSidebarPages),collapsedTeams:[...collapsedTeamspaces],expandedPages:[...expandedSidebarPages],
   newDisabled:!!room||!state.user||!!state.fatal||state.role==='guest'||state.busy||state.listLoading||state.locked,
-  handlers:{openWorkspacePicker,setNavigation,openSearch,openWorkspaceHome,openSettings,refreshList,openCreate,selectPage,prefetchPage,cancelPagePrefetch,startPageDrag,endPageDrag,overPageDrop,dropPage,openTrash,openExport,applyEditorHistory,savePage,openResourceSharing,openPageActions,reloadPage,showRoomStart,
+  handlers:{openWorkspacePicker,setNavigation,openSearch,openWorkspaceHome,openSettings,refreshList,openCreate,selectPage,prefetchPage,cancelPagePrefetch,startPageDrag,endPageDrag,overPageDrop,dropPage,openTrash,openExport,applyEditorHistory,openResourceSharing,openPageActions,reloadPage,showRoomStart,
    toggleFavorite:()=>{if(state.current)void runPageTool('favorite',{favorite:!state.current.page.favorite});},
    toggleTeam:id=>{if(collapsedTeamspaces.has(id))collapsedTeamspaces.delete(id);else collapsedTeamspaces.add(id);paintChrome();},
    togglePage:id=>{if(expandedSidebarPages.has(id))expandedSidebarPages.delete(id);else expandedSidebarPages.add(id);paintChrome();}}});
@@ -600,7 +635,7 @@ function render() {
     const metadata=node('div', { class: 'document-meta' }, [
       node('span', {}, t(room && room.phase!=='ready' ? 'readOnly' : canEdit() ? 'editAllowed' : 'readOnly')),
       node('span', {'data-document-version':''}, t('version', { version: state.current.document.version })),
-      node('span', {}, t(room && ['paused','stopped'].includes(room.phase)?'roomStoppedSync':room?'roomLimitedSync':'autoSaveLabel'))
+      ...(room?[node('span', {}, t(['paused','stopped'].includes(room.phase)?'roomStoppedSync':'roomLimitedSync'))]:[])
     ]);
     content.append(title);
     if(!canEdit())content.append(metadata);
@@ -618,7 +653,7 @@ function render() {
     if (canEdit()) content.append(button('addBlock', () => openBlockPicker(), { icon: 'plus',iconOnly:true,label:t('addBlock'), class: 'add-block icon-button', disabled: structureDisabled(), title:room?t('roomStopFirst'):t('addBlock') }));
     content.append(node('details',{class:'workspace-editor-help'},[
       node('summary',{},t('editorHelp')),
-      node('p',{class:'draft-note'},t(room?'roomDraftHint':'autoSaveHint')),
+      ...(room?[node('p',{class:'draft-note'},t('roomDraftHint'))]:[]),
       node('p',{class:'draft-note'},t(room?'inline.roomDisabled':'inline.hint')),
       ...(!room?[node('p',{class:'draft-note'},t('mention.editorHint'))]:[]),
       ...(!room?[node('p',{class:'draft-note'},t('nesting.keyboardHint')),node('p',{class:'draft-note'},t('blockMove.hint'))]:[])
@@ -1013,7 +1048,6 @@ function handleEditorClipboard(data,selection,target,options={}){
    finishTreeChange(single&&target.blockId?pasteInlineFragment(state.draft.blocks,{...insertion,...content.blocks[0].data}):pasteEditorBlocks(state.draft.blocks,{...insertion,inserted:content.blocks}));
   }
   else{
-   if(state.collection?.dirty){state.error='clipboard.saveProperties';refreshPageFeedback();return true;}
    // Check the destination and document budget before uploading any bytes.
    pasteEditorBlocks(state.draft.blocks,{...insertion,inserted:content.files.map((file,index)=>createAttachmentBlock({id:'pasted-'+index,name:file.name,mediaType:file.mediaType},{pageId:state.current.page.id}))});
    void startClipboardUpload(content.files,insertion);
@@ -1029,7 +1063,7 @@ function advanceClipboardRevision(revision){
 function clipboardAttachmentSources(blocks){const sources=new Set();for(const {block}of indexEditorBlocks(blocks).values())for(const link of block.data?.links??[])if(link.attachmentId&&link.pageId!==state.current?.page.id)sources.add(link.pageId);return sources;}
 async function transferClipboardAttachments(blocks,apply){
  if(clipboardStarting||clipboardUpload)return;const sources=clipboardAttachmentSources(blocks);if(sources.size!==1)return;const scope=blockDragScope(),basis=JSON.stringify(state.draft.blocks);clipboardStarting=true;app.inert=true;
- try{await autosave.flush();await settleBodySave();if(room&&!await settleRoom())throw new ApiError(409,'CONTENT_CONFLICT');if(scope!==blockDragScope()||basis!==JSON.stringify(state.draft.blocks)||bodyDirty()||state.conflict||bodySaveBlocked)throw new ApiError(409,'CONTENT_CONFLICT');
+ try{await autosave.flush();await settleBodySave();if(room&&!await settleRoom())throw new ApiError(409,'CONTENT_CONFLICT');if(scope!==blockDragScope()||basis!==JSON.stringify(state.draft.blocks)||bodyDirty()||state.collection?.dirty||state.conflict||bodySaveBlocked)throw new ApiError(409,'CONTENT_CONFLICT');
   const sourcePageId=[...sources][0],ids=new Set();for(const {block}of indexEditorBlocks(blocks).values())for(const link of block.data?.links??[])if(link.attachmentId)ids.add(link.attachmentId);
   const result=await request(basePath()+'/'+encodeURIComponent(state.current.page.id)+'/attachment-copies',{method:'POST',body:{expectedRevision:state.current.revision,expectedVersion:state.current.document.version,sourcePageId,blocks,copies:[...ids].map(sourceId=>({sourceId,targetId:crypto.randomUUID()}))}});
   if(scope!==blockDragScope()||basis!==JSON.stringify(state.draft.blocks)||result.version!==state.current.document.version)throw new ApiError(409,'CONTENT_CONFLICT');validateInlineBlockMetadata(result.blocks);advanceClipboardRevision(result.revision);state.current.attachments=[...(state.current.attachments??[]),...result.attachments];clipboardStarting=false;app.inert=false;apply(result.blocks);
@@ -1039,7 +1073,7 @@ async function startClipboardUpload(files,insertion){
  if(clipboardStarting||clipboardUpload)return;
  const scope=blockDragScope();clipboardStarting=true;app.inert=true;
  try{
-  await settleBodySave();if(room){if(!await settleRoom())throw new ApiError(409,'CONTENT_CONFLICT');}else await autosave.flush();
+  await settleBodySave();if(room&&!await settleRoom())throw new ApiError(409,'CONTENT_CONFLICT');await autosave.flush();
   if(scope!==blockDragScope()||bodyDirty()||state.conflict||bodySaveBlocked||state.collection?.dirty)throw new ApiError(409,'CONTENT_CONFLICT');
   const job={scope,insertion,tailId:null,focus:null,batch:null};
   const current=()=>clipboardUpload===job&&job.scope===blockDragScope();
@@ -1200,9 +1234,6 @@ function openSourceCells(record) {
 }
 function recordEditor(record,index,{table=false,readOnly=false}={}) {
   const model=state.collection, disabled=readOnly || !!room&&room.phase!=='ready' || state.busy || collectionActivities.size>0 || state.loading || state.locked || state.conflict || !model.canEdit(record.id);
-  const hasDraft=()=>model.dirtyPropertyIds(record.id).length>0;
-  const save=button('saveValues',()=>void saveRecord(record.id),{primary:true,disabled:disabled || !hasDraft(),class:'record-save'});
-  const status=node('span',{class:'record-status',role:'status'},hasDraft()?t('dirty'):'');
   const inputs=model.collection.properties.map(property=> {
     const immutable=isComputedProperty(property) || record.redactedProperties?.includes(property.id);
     let input;
@@ -1212,15 +1243,17 @@ function recordEditor(record,index,{table=false,readOnly=false}={}) {
       input.setAttribute('aria-label',t('cellValue',{column:property.name,row:recordName(record,index)}));input.setAttribute('translate','no');
       if(input.disabled && ['INPUT','TEXTAREA'].includes(input.tagName)){input.disabled=false;input.readOnly=true;}
       input.addEventListener('input',()=> {
-        if(disabled || state.busy || collectionActivities.size>0 || !model.canEdit(record.id,property.id))return;
+        if(disabled || state.busy || state.loading || state.locked || state.conflict || bodySaveBlocked || collectionActivities.size>0 || state.collection!==model || !model.canEdit(record.id,property.id))return;
         try {model.setRaw(record.id,property.id,input.rawValue());}catch{state.recordError='recordInvalidValue';return;}
-        updateDirty();save.disabled=disabled || !hasDraft();status.textContent=hasDraft()?t('dirty'):'';
+        state.recordError='';updateDirty();refreshRecordFeedback();
       });
+      input.addEventListener('compositionstart',()=>{roomCompositions.add(input);autosave.refresh();});
+      input.addEventListener('compositionend',()=>{roomCompositions.delete(input);autosave.refresh();});
     }
-    const hint=collectionFieldHint(property,{record,t:fieldT}),content=node('div',{class:'record-field-content'},[input,...(hint?[node('small',{class:'hint'},hint)]:[])]);
+    const hint=collectionFieldHint(property,{record,t:fieldT}),content=node('div',{class:'record-field-content',...(immutable?{'data-computed-property':property.id,'data-computed-record':record.id}:{})},[input,...(hint?[node('small',{class:'hint'},hint)]:[])]);
     return table ? node('td',{},content) : node('label',{class:'field record-property'},[node('span',{translate:'no'},property.name),content]);
   });
-  const actions=node('div',{class:'record-actions'},[save,button('originalCells',()=>openSourceCells(record)),status]);
+  const actions=node('div',{class:'record-actions'},[button('originalCells',()=>openSourceCells(record))]);
   if (!table) return node('div',{class:'record-properties'},[...inputs,actions]);
   return node('tr',{},[node('th',{scope:'row'},node('button',{type:'button',class:'record-page-link',onClick:()=>openCollectionRecord(record),disabled:state.busy,translate:'no'},recordName(record,index))),...inputs,node('td',{},actions)]);
 }
@@ -1228,7 +1261,7 @@ function renderCollection() {
   const model=state.collection, recordId=state.current.page.recordId;
   const section=node('section',{class:'collection-editor','aria-label':t(recordId?'recordProperties':'collectionTable')});
   section.append(node('div',{class:'collection-heading'},[node('h2',{},t(recordId?'recordProperties':'collectionTable')),node('span',{class:'hint'},t('typedColumns'))]));
-  if (state.recordError && !(model.conflict && state.recordError === 'recordConflict')) section.append(node('p',{class:'message',role:'alert'},['assigneeNotificationLimit','embeddedPropertiesChanged'].includes(state.recordError)?fieldT(state.recordError):t(state.recordError)));
+  section.append(node('p',{class:'message',role:'alert','data-record-feedback':'',hidden:!state.recordError},recordErrorText()));
   if (model.conflict) section.append(node('p',{class:'hint'},t('recordConflict')));
   if(state.current.page.templateId){section.append(node('p',{class:'hint'},fieldT('templateBodyHint')),button('databaseTemplates',()=>void openDatabaseTemplates(model.envelope),{disabled:!!room||state.busy}));return section;}
   if (recordId) {
@@ -1239,7 +1272,6 @@ function renderCollection() {
   section.append(button('databaseTemplates',()=>void openDatabaseTemplates(model.envelope),{disabled:!!room||state.busy}));
   const scope=collectionScope();
   queueMicrotask(()=>{if(views.isConnected&&scope===collectionScope()&&state.collection===model)mountCollectionViews(views,scope);});
-  section.append(node('p',{class:'hint'},t('tableSaveHint')));
   return section;
 }
 function collectionScope(){return state.current&&state.user?JSON.stringify([state.user.id,workspaceId,state.current.page.id,state.selection]):null;}
@@ -1253,7 +1285,7 @@ async function collectionActor(actorId,signal){const session=await request('/api
 function mountCollectionViews(root,scope){
  const actorId=state.user.id,pageId=state.current.page.id,collectionId=state.collection.collection.id,token={},pendingPages=new WeakMap();let ownsWrite=false;
  const current=()=>collectionScope()===scope&&state.current?.page.id===pageId&&state.collection?.collection.id===collectionId;
- const canRead=()=>current()&&!state.locked&&!state.loading&&(!state.busy||ownsWrite)&&!modalOpen();
+ const canRead=()=>current()&&!state.locked&&!state.loading&&(!state.busy||ownsWrite)&&!bodySaveTask&&!modalOpen();
  const canWrite=()=>canRead()&&!room&&!state.conflict&&!bodySaveBlocked&&!state.collection.conflict&&!roomCompositions.size;
  const release=(busy,kind)=>{if(busy){collectionActivities.add(token);if(kind==='write'){ownsWrite=true;state.busy=true;}}else{collectionActivities.delete(token);if(ownsWrite){ownsWrite=false;state.busy=false;}}autosave.refresh();refreshSaveStatus();};
  const readView=async(viewId,{signal})=>{
@@ -1269,7 +1301,7 @@ function mountCollectionViews(root,scope){
   selectedViewId:collectionViewId,labels:fieldT,
   prepare:async kind=>{await settleBodySave();return current()&&canRead()&&(kind==='read'?collectionRecovery||!state.conflict&&!bodySaveBlocked:canWrite());},
   onBusyChange:release,
-  onModel:next=>{if(!current())return;const basis=pendingPages.get(next);if(!basis||room!==basis.activeRoom)throw new ApiError(409,'COLLECTION_READ_CHANGED');if(!basis.activeRoom){state.current=mergeSavedPageAttachments(state.current,basis.fresh);state.listRevision=basis.fresh.revision;}pendingPages.delete(next);state.collection=next;state.collectionError=state.recordError='';if(collectionRecovery){collectionRecovery=false;state.conflict=false;if(['unknown','refresh'].includes(bodySaveBlocked))bodySaveBlocked='';}updateDirty();},
+  onModel:next=>{if(!current())return;const basis=pendingPages.get(next);if(!basis||room!==basis.activeRoom)throw new ApiError(409,'COLLECTION_READ_CHANGED');if(!basis.activeRoom){state.current=mergeSavedPageAttachments(state.current,basis.fresh);state.listRevision=basis.fresh.revision;}pendingPages.delete(next);state.collection=next;collectionRefresh=false;state.collectionError=state.recordError='';if(collectionRecovery){collectionRecovery=false;state.conflict=false;if(['unknown','refresh'].includes(bodySaveBlocked))bodySaveBlocked='';}updateDirty();},
   onSelected:id=>{collectionViewId=id;const url=new URL(location.href);if(id)url.searchParams.set('view',id);else url.searchParams.delete('view');history.replaceState(null,'',url);},
   confirmDiscard:confirmCollectionProperties,
   writeBoard:async(intent,{signal})=>{await collectionActor(actorId,signal);if(!current()||!canWrite())throw new ApiError(409,'COLLECTION_READ_CHANGED');const result=await request(collectionPath(collectionId)+(intent.viewId?'/views/'+encodeURIComponent(intent.viewId):'/records/'+encodeURIComponent(intent.recordId)),{method:'PATCH',body:intent.body,signal});await collectionActor(actorId,signal);return result;},
@@ -1285,6 +1317,7 @@ function mountCollectionViews(root,scope){
 }
 async function confirmCollectionProperties(){
  if(modalOpen()||state.busy||roomCompositions.size)return false;
+ collectionReviewActive=true;try{await autosave.flush();await settleBodySave();}finally{collectionReviewActive=false;}if(!state.collection?.dirty)return true;
  return new Promise(resolve=>{let confirmed=false;showModal('confirmDiscardTitle',[node('p',{},fieldT('embeddedDiscardProperties')),node('div',{class:'dialog-actions'},[button('cancel',()=>modal.close()),button('discard',()=>{confirmed=true;modal.close();},{primary:true})])]);modal.addEventListener('close',()=>resolve(confirmed),{once:true});});
 }
 function openCollectionRecord(record){
@@ -1305,28 +1338,53 @@ function openCollectionBoardMove(controller,record,model){
  const confirm=node('button',{type:'button',class:'button primary'},fieldT('boardMoveConfirm'));confirm.addEventListener('click',()=>{if(scope!==collectionScope()||state.collection.envelope!==envelope||!/^\d+$/.test(target.value)||Number(target.value)>=targets.length||manual&&position.value!==''&&(!/^\d+$/.test(position.value)||!anchors[Number(position.value)])){status.textContent=fieldT('boardTargetUnavailable');confirm.disabled=true;return;}const move={recordId:record.id,targetValue:targets[Number(target.value)],...(manual?{beforeRecordId:position.value===''?null:anchors[Number(position.value)].id}:{})};modal.close();void controller.moveBoard(move);});
  showModal('recordProperties',[node('h3',{},fieldT('boardMove')),node('p',{translate:'no'},record.title||t('untitled')),node('label',{class:'field'},[fieldT('boardDestination'),target]),...(manual?[node('label',{class:'field'},[fieldT('boardPosition'),position])]:[]),status,node('div',{class:'dialog-actions'},[button('cancel',()=>modal.close()),confirm])]);
 }
-async function saveRecord(recordId) {
-  if(!await settleBodySave())return;
-  let model=state.collection;
-  if (!model?.canEdit(recordId) || state.busy || state.loading || state.locked || state.conflict || roomCompositions.size || room&&room.phase!=='ready') return;
-  if(room){const active=room,scope=collectionScope();if(!await settleRoom()||room!==active||scope!==collectionScope())return;state.busy=true;render();try{const envelope=await request(collectionPath());if(room!==active||scope!==collectionScope())return;model=model.rebase(envelope);state.collection=model;state.current.revision=model.revision;state.listRevision=model.revision;}catch{state.recordError='recordConflict';state.busy=false;render();return;}finally{state.busy=false;}}
+function refreshCollectionAfterEditing(){
+ if(!collectionRefresh||collectionReviewActive||!collectionView||state.dirty||bodySaveTask||state.busy||state.loading||state.conflict||bodySaveBlocked||modalOpen()||document.activeElement?.closest?.('.collection-value-input'))return;
+ collectionRefresh=false;void collectionView.refresh();
+}
+function recordErrorText(){return state.recordError?['assigneeNotificationLimit','embeddedPropertiesChanged'].includes(state.recordError)?fieldT(state.recordError):t(state.recordError):'';}
+function refreshRecordFeedback(){
+  if(state.collection?.conflict)for(const input of app.querySelectorAll('.collection-value-input')){if(['INPUT','TEXTAREA'].includes(input.tagName))input.readOnly=true;else input.disabled=true;}
+  for(const host of app.querySelectorAll('[data-record-feedback]')){host.textContent=recordErrorText();host.hidden=!state.recordError;}
+  refreshSaveStatus();
+}
+function refreshComputedProperties(record){
+  for(const host of app.querySelectorAll('[data-computed-property]')){
+    if(host.dataset.computedRecord!==record.id)continue;
+    const property=state.collection.property(host.dataset.computedProperty),hint=host.querySelector('small');
+    host.replaceChildren(renderRecordCollectionValue({record,property,document,people:state.people,pages:state.pages,t:fieldT}),...(hint?[hint]:[]));
+  }
+}
+/** The autosave adapter is the only writer; body and property requests share its single flight. */
+async function persistRecord(recordId,{isCurrent}) {
+  const model=state.collection;
+  if(!isCurrent()||!model?.canEdit(recordId)||state.busy||state.loading||state.locked||state.conflict||roomCompositions.size||room&&room.phase!=='ready')return {status:'paused'};
+  if(room){
+    const active=room;
+    if(!await settleRoom()||!isCurrent()||room!==active)return {status:'paused'};
+    recordWriteActive=true;
+    try{const envelope=await request(collectionPath());if(!isCurrent()||room!==active)return {status:'paused'};Object.assign(model,model.rebase(envelope));state.current.revision=model.revision;state.listRevision=model.revision;}
+    catch{model.markConflict();state.conflict=true;state.recordError='recordConflict';return {status:'conflict'};}
+  }
   let patch;
-  try {patch=model.patch(recordId);}catch{state.recordError='recordInvalidValue';render();return;}
-  if(!patch){model.discard(recordId);state.recordError='';updateDirty();render();return;}
-  const marker=state.selection;
-  state.busy=true; state.recordError=''; state.notice=''; render();
-  try {
+  try{patch=model.patch(recordId);}catch{state.recordError='recordInvalidValue';return {status:'paused'};}
+  if(!patch){model.discard(recordId);state.recordError='';return {status:'saved'};}
+  const submitted={patch,values:model.values(recordId)};
+  state.recordError='';state.notice='';
+  try{
     const response=await request(collectionPath()+'/records/'+encodeURIComponent(recordId),{method:'PATCH',body:patch});
-    if (marker!==state.selection || state.collection!==model) return;
-    try {model.accept(response,recordId);}catch{throw new ApiError(0,'INVALID_RESPONSE');}
-    state.current.revision=response.revision; state.listRevision=response.revision; state.notice='recordSaved';collectionRefresh=!model.dirty;
-    if(modal.dataset.view==='recordProperties')modal.close();
-  } catch(error) {
-    if (marker!==state.selection) return;
-    if (error.status===409) { model.markConflict(); state.conflict=true; state.recordError='recordConflict'; }
-    else if(![400,401,403,404,413].includes(error.status)){model.markUnknown();bodySaveBlocked='unknown';state.recordError='recordUnknown';}
-    else state.recordError=error.code==='NOTIFICATIONS_TOO_LARGE'?'assigneeNotificationLimit':errorKey(error,'recordSaveFailed');
-  } finally { if(marker===state.selection) { state.busy=false; updateDirty(); render();if(room){room.needsSync=true;queueRoomSync(room);}const feedback=modal.querySelector('[data-record-feedback]');if(feedback)feedback.textContent=state.recordError?state.recordError==='assigneeNotificationLimit'?fieldT(state.recordError):t(state.recordError):''; } }
+    if(!isCurrent()||state.collection!==model)return {status:'paused'};
+    try{model.accept(response,recordId,submitted);}catch{throw new ApiError(0,'INVALID_RESPONSE');}
+    state.current.revision=response.revision;state.listRevision=response.revision;collectionRefresh=true;
+    refreshComputedProperties(model.record(recordId));
+    if(room){room.needsSync=true;queueRoomSync(room);}
+    return {status:'saved'};
+  }catch(error){
+    if(!isCurrent()||state.collection!==model)return {status:'paused'};
+    if(error.status===409){model.markConflict();state.conflict=true;state.recordError='recordConflict';return {status:'conflict'};}
+    if(![400,401,403,404,413,422].includes(error.status)){model.markUnknown();bodySaveBlocked='unknown';state.recordError='recordUnknown';return {status:'unknown'};}
+    bodySaveBlocked='rejected';state.recordError=error.code==='NOTIFICATIONS_TOO_LARGE'?'assigneeNotificationLimit':errorKey(error,'recordSaveFailed');return {status:'rejected'};
+  }
 }
 
 function focusBlock(id, offset = 0, end = offset) {
@@ -1363,7 +1421,7 @@ function convertBlock(block,choice) {
 }
 function openBookmark(target){
  const scope=blockDragScope(),url=node('input',{type:'url',required:true,'aria-label':t('blocks.url'),placeholder:'https://…'}),title=node('input',{type:'text',maxLength:240,'aria-label':t('blocks.linkTitle')}),status=node('p',{role:'alert'});
- const save=button('save',()=>{if(scope!==blockDragScope()||room||!structureAllowed(target.parentId))return;try{const block=createBookmarkBlock(url.value,title.value);rememberEditorSelection();state.draft.blocks=insertEditorBlock(state.draft.blocks,{block,parentId:target.parentId,index:target.index});updateDirty();modal.close();render();}catch{status.textContent=t('inline.invalidLink');}},{primary:true});
+ const save=button('addBlock',()=>{if(scope!==blockDragScope()||room||!structureAllowed(target.parentId))return;try{const block=createBookmarkBlock(url.value,title.value);rememberEditorSelection();state.draft.blocks=insertEditorBlock(state.draft.blocks,{block,parentId:target.parentId,index:target.index});updateDirty();modal.close();render();}catch{status.textContent=t('inline.invalidLink');}},{primary:true});
  showModal('blocks.bookmark',[node('label',{class:'field'},[t('blocks.url'),url]),node('label',{class:'field'},[t('blocks.linkTitle'),title]),status,save]);url.focus();
 }
 function duplicateBlocks(blockIds){if(room||structureDisabled()||state.conflict||bodySaveBlocked)return;rememberEditorSelection();try{const result=duplicateEditorBlocks(state.draft.blocks,blockIds);modal.close();finishTreeChange(result);}catch(error){state.error=nestingError(error);refreshPageFeedback();}}
@@ -1500,12 +1558,8 @@ function transferPreview(block) {
 async function openBlockMove(blockId,suggestedTarget,capturedIds) {
  if(!structureAllowed(blockId))return;
  let blockIds;try{blockIds=transferSelection(blockId,capturedIds);}catch(error){state.error=transferFailure(error);refreshPageFeedback();return;}
- if(state.dirty) {
-  showModal('moveBlockToPage',[node('p',{},t('saveBeforeBlockMove')),node('div',{class:'dialog-actions'},[
-   button('cancel',()=>modal.close()),button('saveAndMoveBlock',async()=>{await closeModalFully();await savePage();if(!state.dirty && !state.conflict)await openBlockMove(blockId,suggestedTarget,blockIds);},{disabled:!!state.collection?.dirty || state.conflict || !bodyDirty()}),
-   button('useSavedBlock',async()=>{await closeModalFully();if(!await confirmReplace(true))return;await selectPage(state.current.page.id,true,true);if(!state.dirty)await openBlockMove(blockId,suggestedTarget,blockIds);})
-  ])]);return;
- }
+ const scope=collectionScope();await closeModalFully();await autosave.flush();await settleBodySave();
+ if(scope!==collectionScope()||state.dirty||state.conflict||bodySaveBlocked)return;
  if(blockIds.some(id=>!blockLocation(id,state.current.document.blocks))){state.error='blockNotSaved';render();return;}
  const destinations=state.pages.filter(page=>page.id!==state.current.page.id && page.capabilities.includes('editBody'));
  const select=node('select',{'aria-label':t('blockDestination')},[node('option',{value:''},t('chooseBlockDestination')),...destinations.map(page=>node('option',{value:page.id,translate:'no'},page.title))]);
@@ -1639,7 +1693,7 @@ async function selectPage(pageId, reload = false, discardConfirmed = false, owns
     state.current = data; state.draft = { title: data.page.title, blocks: clone(data.document.blocks) };
     editorHistory=new EditorHistory(state.draft);
     state.dirty = false; state.conflict = false; state.locked = false; state.listRevision = data.revision;
-    bodySaveBlocked='';observedDraft=JSON.stringify(state.draft);draftGeneration++;autosave.reset();
+    bodySaveBlocked='';appearanceDraft=null;observedDraft=draftSignature();draftGeneration++;autosave.reset();
     state.navOpen = false;
     const found = state.pages.findIndex(page => page.id === pageId); if (found >= 0) state.pages[found] = data.page;
   } catch (error) { if (marker === state.selection && !pageController.signal.aborted) {state.error=errorKey(error,'loadFailed');state.current=null;state.draft=null;state.collection=null;editorHistory=null;} }
@@ -1647,11 +1701,25 @@ async function selectPage(pageId, reload = false, discardConfirmed = false, owns
   if(detailMode&&detailTarget.get('synced')==='1'&&state.current?.page.id===pageId&&canEdit()&&!room)queueMicrotask(()=>void startRoom());
 }
 async function reloadPage() { if (state.current) await selectPage(state.current.page.id, true); }
-async function savePage() {
-  await autosave.flush();refreshSaveStatus();
+async function persistDraft(context){
+  const task=(async()=>{
+    if(!room&&bodyDirty()){const result=await persistPage(context);if(result.status!=='saved')return result;}
+    const model=state.collection;
+    for(const record of model?.collection.records??[]){
+      if(!context.isCurrent()||state.collection!==model)return {status:'paused'};
+      if(model.dirtyPropertyIds(record.id).length){const result=await persistRecord(record.id,context);if(result.status!=='saved')return result;}
+    }
+    if(appearanceDraft){const result=await persistAppearance(context);if(result.status!=='saved')return result;}
+    return {status:'saved'};
+  })();
+  bodySaveTask=task;refreshSaveStatus();
+  try{return await task;}finally{
+    if(bodySaveTask===task){bodySaveTask=null;recordWriteActive=false;}
+    if(context.isCurrent()){updateDirty();refreshRecordFeedback();refreshPageFeedback();refreshCollectionAfterEditing();if(room?.needsSync)queueRoomSync(room);}
+  }
 }
 async function persistPage({isCurrent}) {
-  if(room||editingDisabled()||roomCompositions.size||modalOpen()||state.conflict||bodySaveBlocked||draggedBlockId||!bodyDirty())return {status:'paused'};
+  if(room||editingDisabled()||roomCompositions.size||autosaveModalBlocked()||state.conflict||bodySaveBlocked||draggedBlockId||!bodyDirty())return {status:'paused'};
   const marker=state.selection,accountId=state.user.id,pageId=state.current.page.id;
   const submitted={expectedRevision:state.current.revision,expectedVersion:state.current.document.version,...clone(state.draft)};
   const current=()=>isCurrent()&&marker===state.selection&&accountId===state.user?.id&&state.current?.page.id===pageId;
@@ -1680,11 +1748,7 @@ async function persistPage({isCurrent}) {
       bodySaveBlocked='unknown';state.error='saveUnknown';return {status:'unknown'};
     }
   })();
-  bodySaveTask=task;refreshSaveStatus();refreshPageFeedback();
-  try{return await task;}finally{
-    if(bodySaveTask===task)bodySaveTask=null;
-    if(current()){updateDirty();refreshPageFeedback();}
-  }
+  return task;
 }
 async function openCreate(teamspaceId=null) {
   if (room || !state.user || state.busy || state.listLoading || state.role === 'guest' || state.locked || state.fatal || !await confirmReplace()) return;
@@ -1797,18 +1861,50 @@ function endPageDrag() { draggedPageId=null; app.classList.remove('page-dragging
 function validPageDrop(targetId) { if(room)return false;return draggedPageId && (targetId===null || pageMoveTargets(state.pages,draggedPageId).some(page=>page.id===targetId)); }
 function overPageDrop(event,targetId) { if(!validPageDrop(targetId))return; event.preventDefault();event.dataTransfer.dropEffect='move';event.currentTarget.classList.add('drop-target'); }
 function dropPage(event,targetId) { if(!validPageDrop(targetId) || event.dataTransfer.getData('application/x-yumunio-page')!==draggedPageId)return;event.preventDefault();const page=state.pages.find(item=>item.id===draggedPageId);endPageDrag();openPageOperation('move',page,targetId); }
-function openPageAppearance(){
- if(!state.current?.page.capabilities.includes('editBody')||room||state.busy||state.locked||state.collection?.dirty)return;
- const appearance=state.current.page.appearance??defaultPageAppearance(),scope=blockDragScope();
+async function openPageAppearance(){
+ if(!state.current?.page.capabilities.includes('editBody')||room||state.busy||state.locked)return;
+ const scope=blockDragScope();await closeModalFully();await autosave.flush();await settleBodySave();
+ if(scope!==blockDragScope()||state.conflict||bodySaveBlocked||state.collection?.dirty)return;
+ const appearance=appearanceDraft??state.current.page.appearance??defaultPageAppearance();
  const iconInput=node('input',{type:'text',maxLength:32,value:appearance.icon,'aria-label':t('blocks.icon'),placeholder:'📄'});
  const cover=node('select',{'aria-label':t('pageTools.cover')},[node('option',{value:''},t('pageTools.noCover')),...(state.current.attachments??[]).filter(asset=>['image/png','image/jpeg','image/gif','image/webp'].includes(asset.mediaType)).map(asset=>node('option',{value:asset.id,translate:'no'},asset.name))]);cover.value=appearance.coverAttachmentId??'';
  const fields=['fullWidth','smallText','locked'].map(key=>({key,input:node('input',{type:'checkbox',checked:appearance[key]})})),message=node('p',{role:'alert'});
+ const changed=()=>{
+  if(scope!==blockDragScope())return;
+  try{
+   const value=validatePageAppearance({icon:iconInput.value,coverAttachmentId:cover.value||null,...Object.fromEntries(fields.map(({key,input})=>[key,input.checked]))});
+   const original=state.current.page.appearance??defaultPageAppearance();
+   appearanceDraft=Object.keys(value).every(key=>value[key]===original[key])&&!bodySaveTask?null:value;
+   message.textContent='';updateDirty();
+  }catch{message.textContent=t('pageTools.invalid');}
+ };
+ for(const input of [iconInput,cover,...fields.map(field=>field.input)])input.addEventListener('input',changed);
+ iconInput.addEventListener('compositionstart',()=>{roomCompositions.add(iconInput);autosave.refresh();});
+ iconInput.addEventListener('compositionend',()=>{roomCompositions.delete(iconInput);changed();});
  showModal('pageTools.appearance',[
   node('label',{class:'field'},[t('blocks.icon'),iconInput]),node('label',{class:'field'},[t('pageTools.cover'),cover]),node('p',{class:'hint'},t('pageTools.coverHint')),
-  ...fields.map(({key,input})=>node('label',{class:'checkbox-label'},[input,t('pageTools.'+(key==='locked'?'lock':key))])),node('p',{class:'hint'},t('pageTools.lockHint')),message,
-  button('save',()=>{if(scope!==blockDragScope())return;try{const value=validatePageAppearance({icon:iconInput.value,coverAttachmentId:cover.value||null,...Object.fromEntries(fields.map(({key,input})=>[key,input.checked]))});void runPageTool('appearance',{appearance:value});}catch{message.textContent=t('pageTools.invalid');}},{primary:true})
- ]);
+  ...fields.map(({key,input})=>node('label',{class:'checkbox-label'},[input,t('pageTools.'+(key==='locked'?'lock':key))])),node('p',{class:'hint'},t('pageTools.lockHint')),message
+ ],{cancelLabel:'close'});
 }
+async function persistAppearance({isCurrent}){
+ if(!isCurrent()||!appearanceDraft||room)return {status:'paused'};
+ const submitted=clone(appearanceDraft),pageId=state.current.page.id,expectedRevision=state.current.revision,expectedVersion=state.current.document.version;
+ try{
+  const result=await request(basePath()+'/'+encodeURIComponent(pageId)+'/appearance',{method:'PATCH',body:{expectedRevision,expectedVersion,appearance:submitted}});
+  if(!isCurrent())return {status:'paused'};
+  if(result?.pageId!==pageId||result.revision!==expectedRevision+1||result.version!==expectedVersion+1||Object.entries(validatePageAppearance(result.appearance)).some(([key,value])=>value!==submitted[key]))throw new ApiError(0,'INVALID_RESPONSE');
+  state.collection?.advanceDocumentBasis({expectedRevision,revision:result.revision,pageId,title:state.current.page.title});
+  state.current.page.appearance=clone(result.appearance);state.current.document.version=result.version;state.current.revision=result.revision;state.listRevision=result.revision;
+  const page=state.pages.find(page=>page.id===pageId);if(page)page.appearance=clone(result.appearance);
+  if(appearanceDraft&&Object.keys(submitted).every(key=>appearanceDraft[key]===submitted[key]))appearanceDraft=null;
+  render();return {status:'saved'};
+ }catch(error){
+  if(!isCurrent())return {status:'paused'};
+  if(error.status===409){state.conflict=true;state.error='conflict';return {status:'conflict'};}
+  bodySaveBlocked=[400,401,403,404,413,422].includes(error.status)?'rejected':'unknown';state.error=bodySaveBlocked==='unknown'?'saveUnknown':errorKey(error,'saveFailed');return {status:bodySaveBlocked};
+ }
+}
+
 function openPageDuplicate(){
  if(!state.current||room||state.busy||state.role==='guest'||state.current.page.collectionId)return;
  const scope=blockDragScope(),title=node('input',{type:'text',maxLength:240,value:(state.current.page.title+' '+t('pageTools.copySuffix')).slice(0,240),'aria-label':t('pageTitle')}),children=node('input',{type:'checkbox',checked:false}),message=node('p',{role:'alert'});
@@ -1829,8 +1925,8 @@ async function runPageTool(action,values){
  finally{state.busy=false;render();}
  if(destination){await refreshList();await selectPage(destination,true,true);if(state.current?.page.id===destination){state.notice=action==='appearance'?'pageTools.saved':action==='favorite'?'pageTools.favoriteSaved':'pageTools.copied';refreshPageFeedback();}}
 }
-function openPageActions() {
-  if(!state.current || state.busy)return;
+async function openPageActions() {
+  if(!state.current||state.busy||!await prepareEditorDialog())return;
   const page=state.current.page, manageable=canManagePage(page);
   showModal('pageActions',[
     node('p',{translate:'no',class:'operation-page-title'},page.title),
@@ -1931,8 +2027,8 @@ async function openTrash() {
     modal.querySelector('.dialog-body').replaceChildren(node('p',{class:'hint'},t('trashScope')),data.pages.length?list:node('p',{},t(state.role==='guest'?'trashGuest':'trashEmpty')));
   }catch(error){if(modal.open && modal.dataset.view==='trashPages')modal.querySelector('.dialog-body').replaceChildren(node('p',{role:'alert'},t('trashFailed')));}
 }
-function openSearch() {
-  if(state.busy || !state.user)return;searchController?.abort();searchGeneration++;
+async function openSearch() {
+  if(state.busy||!state.user||!await prepareEditorDialog())return;searchController?.abort();searchGeneration++;
   const input=node('input',{type:'search',id:'page-search',value:searchQuery,maxlength:'100',autocomplete:'off','aria-label':t('searchQuery'),role:'combobox','aria-autocomplete':'list','aria-expanded':'true','aria-controls':'page-search-results'});
   const results=node('div',{class:'search-results',id:'page-search-results',role:'listbox','aria-label':t('searchPages')});
   const submit=node('button',{type:'submit',class:'button primary'},t('searchPages'));
@@ -1962,8 +2058,8 @@ async function searchPages(query,container,submit) {
   }catch(error){if(marker===searchGeneration && modal.open && modal.dataset.view==='searchPages')container.append(node('p',{role:'status',class:'hint'},t('searchFailed')));}
   finally{if(marker===searchGeneration){submit.disabled=false;container.setAttribute('aria-busy','false');}}
 }
-function openExport() {
-  if(state.busy || !state.user)return;
+async function openExport() {
+  if(state.busy||!state.user||!await prepareEditorDialog())return;
   const format=node('select',{'aria-label':t('exportFormat')},[node('option',{value:'json'},t('exportJson')),node('option',{value:'zip'},t('exportZip'))]);
   const status=node('p',{role:'status',class:'hint'}),download=button('downloadExport',()=>void downloadWorkspace(format.value,status,download,format),{primary:true});
   showModal('exportWorkspace',[node('p',{},t('exportScope')),node('p',{class:'message'},t('exportLimitations')),node('p',{class:'hint'},t('exportCsvSafety')),
@@ -2019,10 +2115,10 @@ async function openWorkspaceHome(route={}){
  rememberPagePosition();pageIntent++;destroyRoom();state.selection++;pageController?.abort();pageController=null;state.loading=false;state.pendingPageId=null;pageHistory(null,route);clearCurrentPage();state.locked=false;bodySaveBlocked='';render();autosave.refresh();
 }
 function openResourceSharing(){if(!state.current)return;openSettings('members',null,{kind:state.collection&&!state.current.page.recordId?'collection':'page',title:state.current.page.title||t('untitled')});}
-function openSettings(section='appearance',teamspaceId=null,resource=null){
+async function openSettings(section='appearance',teamspaceId=null,resource=null){
  if(settingsDialog?.open){settingsDialog.requestSection(section);return;}
  if(!state.user||state.fatal||state.busy||roomCompositions.size)return;
- if(modal.open)return;
+ if(modal.open||!await prepareEditorDialog())return;
  blockDnd?.cancel();rememberEditorSelection();
  const accountId=state.user.id,pageId=state.current?.page.id,priorLocale=preferences.snapshot().locale;
  let preferenceTask=Promise.resolve();
@@ -2045,11 +2141,11 @@ function openSettings(section='appearance',teamspaceId=null,resource=null){
 signal.addEventListener('abort',()=>{autosave.stop();state.selection++;pageReads.clear();cancelPagePrefetch();pageController?.abort();searchController?.abort();exportController?.abort();destroyRoom();blockDnd?.destroy();collectionView?.destroy();for(const controller of databasePlacements.values())controller.destroy();for(const controller of syncedPlacements.values())controller.destroy();presence.destroy();stopAppearance();},{once:true});
 if(detailMode){
  const timer=setInterval(()=>{if(!state.current||state.busy||state.loading)return;void request(detailTarget.get('synced')==='1'?basePath()+'/'+encodeURIComponent(detailTarget.get('page')):collectionPath(detailTarget.get('collection'))+'/records/'+encodeURIComponent(detailTarget.get('record'))).catch(error=>{if(![401,403,404].includes(error.status))return;window.parent.postMessage({type:'yumunio:detail-access-lost',workspaceId,accountId:state.user?.id,pageId:detailTarget.get('page')},location.origin);destroyRoom();state.current=null;state.draft=null;state.collection=null;state.locked=true;state.error='forbidden';render();});},10000);signal.addEventListener('abort',()=>clearInterval(timer),{once:true});
- listen(window,'message',event=>{const data=event.data;if(event.origin!==location.origin||event.source!==window.parent||data?.type!=='yumunio:detail-prepare'||data.workspaceId!==workspaceId||data.accountId!==state.user?.id||data.pageId!==state.current?.page.id||typeof data.requestId!=='string')return;void(async()=>{let accepted=false,roomReady=true;app.inert=true;try{if(!state.busy&&!modalOpen()&&!roomCompositions.size&&!clipboardUpload&&!clipboardStarting){if(room)roomReady=await settleRoom();else{await autosave.flush();await settleBodySave();}if(state.collection?.dirty)await saveRecord(state.current.page.recordId);accepted=roomReady&&!bodyDirty()&&!state.collection?.dirty&&!room?.client?.pending&&!state.conflict&&!bodySaveBlocked;}}finally{if(!accepted)app.inert=false;window.parent.postMessage({type:'yumunio:detail-prepared',workspaceId,accountId:state.user?.id,pageId:state.current?.page.id,requestId:data.requestId,accepted},location.origin);}})();});
+ listen(window,'message',event=>{const data=event.data;if(event.origin!==location.origin||event.source!==window.parent||data?.type!=='yumunio:detail-prepare'||data.workspaceId!==workspaceId||data.accountId!==state.user?.id||data.pageId!==state.current?.page.id||typeof data.requestId!=='string')return;void(async()=>{let accepted=false,roomReady=true;app.inert=true;try{if(!state.busy&&!modalOpen()&&!roomCompositions.size&&!clipboardUpload&&!clipboardStarting){if(room)roomReady=await settleRoom();await autosave.flush();await settleBodySave();accepted=roomReady&&!draftPending()&&!room?.client?.pending&&!state.conflict&&!bodySaveBlocked;}}finally{if(!accepted)app.inert=false;window.parent.postMessage({type:'yumunio:detail-prepared',workspaceId,accountId:state.user?.id,pageId:state.current?.page.id,requestId:data.requestId,accepted},location.origin);}})();});
  listen(window,'keydown',event=>{if(!event.isComposing&&event.keyCode!==229&&!roomCompositions.size&&event.key==='Escape'&&!modalOpen()&&!event.defaultPrevented){event.preventDefault();window.parent.postMessage({type:'yumunio:detail-close',workspaceId,accountId:state.user?.id,pageId:state.current?.page.id},location.origin);}});
 }
 listen(modal,'close',()=>{if(room?.phase==='review' && modal.dataset.view==='roomReviewTitle'){destroyRoom();render();}autosave.refresh();if(room?.needsSync)queueRoomSync(room);});
-listen(document,'visibilitychange',()=>{if(!document.hidden&&room?.phase==='ready')queueRoomSync(room,0);});
+listen(document,'visibilitychange',()=>{if(document.hidden)void autosave.flush();else if(room?.phase==='ready')queueRoomSync(room,0);});
 listen(document,'focusin',()=>{if(room?.needsSync)queueRoomSync(room);});
 listen(document,'compositionend',()=>queueMicrotask(()=>{
  if(room?.renderAfterComposition && !roomCompositions.size){room.renderAfterComposition=false;render();}
@@ -2066,8 +2162,10 @@ for(const kind of ['copy','cut'])listen(app,kind,event=>{
  event.preventDefault();void copySelectedBlocks({cut:kind==='cut',data:event.clipboardData});
 },{capture:true});
 listen(app,'paste',event=>{if(!event.target.closest?.('input:not(.block-select),textarea,.inline-editor')&&pasteSelectedBlocks(event.clipboardData))event.preventDefault();},{capture:true});
+listen(app,'focusout',()=>queueMicrotask(refreshCollectionAfterEditing));
 listen(app,'focusin',event=>{if(blockSelection.mode&&event.target.closest?.('.inline-editor')){clearBlockSelection();refreshBlockSelectionUi();}});
 listen(window,'keydown',event=> {
+  if((event.ctrlKey||event.metaKey)&&!event.altKey&&event.key.toLowerCase()==='s'){event.preventDefault();if(!event.isComposing&&!roomCompositions.size)void autosave.flush();return;}
   if(!modalOpen()&&!event.isComposing&&event.keyCode!==229&&state.draft&&!event.altKey){
    const editor=event.target.closest?.('.inline-editor[data-block-id]'),ids=selectedBlockRoots(),key=event.key.toLowerCase(),command=event.ctrlKey||event.metaKey;
    if(event.key==='Escape'&&blockClipboardEnabled()){

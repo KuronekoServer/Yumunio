@@ -18,7 +18,7 @@ Next.jsが出力するインラインの起動スクリプトとFlightデータ�
 
 - `apps/web/app/`: URLごとのページ、共通レイアウト、エラー・404画面。
 - `apps/web/src/setup-page.jsx`: 初期設定とサイト設定のフォーム・手順・言語切替。
-- `apps/web/src/workspace-page.jsx`: サイドバー、ページ一覧、チームスペース、操作バー、保存状態。
+- `apps/web/src/workspace-page.jsx`: サイドバー、ページ一覧、チームスペース、操作バー、確認が必要な状態の通知。
 - `apps/web/src/motion/`: パネル、サイドバーメニュー、モーダルと共通のMotionフック。`ui-motion.jsx`から公開。
 - `apps/web/public/record-panel.js`: 詳細の保存確認、送信元・アカウント照合、権限喪失時の破棄、一覧へのフォーカス復帰。
 - `apps/web/public/record-panel-dom.js`: Reactのホストがない場合に使うDOM表示。通常画面はReactのパネルを使用。
@@ -50,3 +50,5 @@ Reactと編集エンジンが同じ子要素を更新しないよう、編集領
 メール設定の状態は「143 — Site settings / Cloudflare email」「144 — Site settings / SMTP email」に記録しています。Cloudflareの直接送信では接続状態と公式手順を表示し、SMTPでは接続先の自動入力と暗号化の案内を表示します。Crowdinとの接続は停止し、翻訳はJSONとPull Requestで提案できます。
 
 複数ブロックを選択した状態は「145 — Block selection / copy cut paste」に記録しています。選択時に編集オプションを開き、既存の共通ボタンでコピー・切り取り・複製・削除を表示します。Shift+矢印では範囲を拡大・縮小でき、通常の文字編集へ戻るとブロック選択を解除します。
+
+通常の編集は `PageAutosave` の1本の送信列で本文・プロパティ・ページ表示を反映します。900msの入力待ち、連続入力時は最長3秒で開始し、日本語変換中は送信しません。プロパティのACKは送信時点のスナップショットと照合し、通信中の追加入力や元の値への取り消しを消さずに次の変更として保持します。通常時は保存操作・状態表示・成功メッセージを出しません。未確定の書き込み結果は再送せず、再取得による確認を求めます。

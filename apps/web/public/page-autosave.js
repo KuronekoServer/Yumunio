@@ -2,7 +2,7 @@ const outcomes=new Set(['saved','paused','conflict','unknown','rejected']);
 const defaultClock={now:()=>globalThis.performance?.now?.()??Date.now(),setTimeout:(callback,delay)=>globalThis.setTimeout(callback,delay),clearTimeout:timer=>globalThis.clearTimeout(timer)};
 const rejection=error=>error?.status===409?'conflict':[400,401,403,404,413,422].includes(error?.status)?'rejected':'unknown';
 
-/** Schedules body saves only. The adapter owns HTTP, authorization, CAS and ACK validation. */
+/** Schedules editor saves in a single flight. The adapter owns HTTP, authorization, CAS and ACK validation. */
 export class PageAutosave {
  #getState;#save;#onState;#clock;#debounce;#maxWait;
  #timer=null;#inFlight=null;#epoch=0;#stopped=false;#stateError=false;#held=false;
@@ -78,7 +78,7 @@ export class PageAutosave {
   })();
   return operation.promise;
  }
- /** Call after a body edit; generation changes establish the debounce and maximum-wait clocks. */
+ /** Call after an editor edit; generation changes establish the debounce and maximum-wait clocks. */
  notify(){if(this.#stopped)return this.snapshot();this.#held=false;this.#update();this.#arm();return this.#emit();}
  /** Recheck IME, room, modal, loading and other caller-owned pause conditions. */
  refresh(){return this.notify();}
