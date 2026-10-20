@@ -72,12 +72,13 @@ let collectionView=null,collectionViewId=validId(new URL(location.href).searchPa
 const collectionActivities=new Set();
 const databasePlacements=new Map();const syncedPlacements=new Map();let revisionRead=null;
 const blockSelection={scope:null,mode:false,ids:new Set(),anchor:null};
-let settingsDialog=null,workspacePicker=null,settingsPolicyChanged=false;
+let settingsDialog=null,workspacePicker=null,settingsPolicyChanged=false,policyRefresh=null;
 const collapsedTeamspaces=new Set(),expandedSidebarPages=new Set();
 let sidebarStorageScope=null;
 function persistSidebarDisclosure(){if(sidebarStorageScope)try{writeSidebarDisclosure(localStorage,sidebarStorageScope,expandedSidebarPages,collapsedTeamspaces);}catch{}}
 const collapsedToggles=new Set();
 const modalOpen=()=>modal.open||settingsDialog?.open===true||workspacePicker?.open===true;
+const policyRefreshActive=()=>policyRefresh?.accountId===state.user?.id&&policyRefresh?.selection===state.selection&&policyRefresh?.pageId===state.current?.page.id;
 let room=null; const roomCompositions=new Set();
 const presence=createWorkspacePresence({app,getRoom:()=>room,getCurrent:()=>state.current,isComposing:()=>roomCompositions.size>0,isModalOpen:modalOpen,translate:(...args)=>t(...args),onAuthorizationFailure:active=>stopRoomInput(active),signal});
 let bodySaveTask=null, bodySaveBlocked='', draftGeneration=0, observedDraft='';
@@ -168,7 +169,7 @@ function refreshSaveStatus() {
   const roomStatus=roomStatusKey();
   const quietRoom=['roomSynced','roomPending','roomSyncing','roomWaitingInput'].includes(roomStatus);
   let status='';
-  if(state.loading)status=t('loading');
+  if(state.loading||policyRefreshActive())status=t('loading');
   else if(state.current){
     if(bodySaveBlocked==='unknown')status=t('saveUnknownStatus');
     else if(state.conflict)status=t('saveConflictStatus');
@@ -185,6 +186,7 @@ async function settleBodySave(){if(bodySaveTask)await bodySaveTask;return !state
 function refreshPageFeedback(){
   const host=app.querySelector('[data-page-feedback]');if(!host)return;
   host.replaceChildren();
+  if(policyRefreshActive())return;
   if(state.conflict||bodySaveBlocked){host.append(node('div',{class:'conflict-note',role:'alert'},[
     node('strong',{},t(state.conflict?'conflictTitle':'savePaused')),
     node('p',{},t(bodySaveBlocked==='unknown'?'saveUnknown':state.conflict?'conflict':state.error||'saveFailed')),
@@ -2148,6 +2150,8 @@ async function refreshPolicyAfterSettings(accountId){
  if(state.user?.id!==accountId)return;
  const marker=state.selection,pageId=state.current?.page.id,baseline=state.current,hadRoom=!!room,held=state.dirty||bodyDirty()||state.collection?.dirty;
  const current=()=>state.user?.id===accountId&&state.selection===marker&&state.current?.page.id===pageId;
+ const refresh={accountId,selection:marker,pageId};policyRefresh=refresh;
+ try{
  destroyRoom();if(pageId){bodySaveBlocked='refresh';state.locked=true;}autosave.refresh();
  if(!await refreshList(true)||!pageId||!current())return;
  if(!state.pages.some(page=>page.id===pageId)){if(held){state.error='teamspaces.heldInput';render();}else{state.current=null;state.draft=null;state.collection=null;state.dirty=false;state.locked=false;bodySaveBlocked='';render();}return;}
@@ -2159,6 +2163,7 @@ async function refreshPolicyAfterSettings(accountId){
   }
   state.error='teamspaces.heldInput';state.notice='';render();
  }catch{if(current()){state.error='teamspaces.heldInput';render();}}
+ }finally{if(policyRefresh===refresh){policyRefresh=null;refreshSaveStatus();refreshPageFeedback();}}
 }
 async function openWorkspaceHome(route={}){
  if(!state.user||state.busy||modalOpen())return;const actorId=state.user.id,selection=state.selection;
