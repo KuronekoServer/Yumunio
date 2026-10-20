@@ -405,10 +405,10 @@ test('teamspace schemas preserve exact role enums, current bounded limits and re
  assert.deepEqual(schema('TeamspaceProjection').properties.visibility.enum,TEAMSPACE_VISIBILITIES);
  assert.deepEqual(schema('TeamspaceProjection').properties.defaultPermission.enum,TEAMSPACE_PERMISSIONS);
  assert.deepEqual(schema('TeamspaceMember').properties.role.enum,TEAMSPACE_ROLES);
- assert.equal(schema('TeamspaceListResponse').properties.teamspaces.maxItems,TEAMSPACE_LIMITS.teamspaces);
+ assert.equal(Object.hasOwn(schema('TeamspaceListResponse').properties.teamspaces,'maxItems'),false);
  assert.equal(schema('TeamspaceDetailResponse').properties.members.maxItems,TEAMSPACE_LIMITS.members);
  assert.equal(schema('TeamspaceProjection').properties.memberCount.maximum,TEAMSPACE_LIMITS.members);
- assert.equal(schema('PageTeamspaceReviewResponse').properties.affectedPageCount.maximum,TEAMSPACE_LIMITS.pages);
+ assert.equal(Object.hasOwn(schema('PageTeamspaceReviewResponse').properties.affectedPageCount,'maximum'),false);
  const create={expectedRevision:1,name:'Synthetic',description:'',visibility:'private',defaultPermission:'viewer'};
  matches(schema('TeamspaceCreateRequest'),create);
  for(const value of [{...create,ownerId:'other'},{...create,id:'chosen'},{...create,icon:'note'},{...create,name:' '},{...create,name:' leading'},{...create,name:'trailing '},{...create,name:'line\nbreak'},{...create,name:'a'.repeat(101)},{...create,description:'x'.repeat(1001)},{...create,visibility:'public'},{...create,defaultPermission:'full'},{...create,expectedRevision:Number.MAX_SAFE_INTEGER}])assert.equal(validator(schema('TeamspaceCreateRequest')).validate(value).valid,false);

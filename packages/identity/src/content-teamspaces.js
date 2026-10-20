@@ -19,8 +19,8 @@ export function requireTeamspaceCreate(payload,principals,workspaceId,accountId,
  const policy=accountContentPolicy(payload,principals,workspaceId),team=policy.teamspaces.find(team=>team.id===teamspaceId),member=team&&liveTeamspaceMember(policy,team.id,accountId);
  if(!team||team.archivedAt!==null||!member||member.role!=='owner'&&team.defaultPermission!=='editor')missing();return team;
 }
-function projectTeam(ctx,team){
- const policy=currentPolicy(ctx),member=liveTeamspaceMember(policy,team.id,ctx.accountId),capabilities=teamspaceVisible(policy,team,ctx.accountId)?['read']:[];
+function projectTeam(ctx,team,policy=currentPolicy(ctx)){
+ const member=liveTeamspaceMember(policy,team.id,ctx.accountId),capabilities=teamspaceVisible(policy,team,ctx.accountId)?['read']:[];
  if(member?.role==='owner')capabilities.push('manage');
  if(team.archivedAt===null&&member&&(member.role==='owner'||team.defaultPermission==='editor'))capabilities.push('createPage');
  if(team.archivedAt===null&&eligible(ctx)&&!member&&team.visibility==='open')capabilities.push('join');
@@ -29,7 +29,7 @@ function projectTeam(ctx,team){
 function detail(ctx,team){
  const policy=currentPolicy(ctx),member=liveTeamspaceMember(policy,team.id,ctx.accountId),manager=member?.role==='owner';
  const members=member?(ctx.payload.teamspaceMembers??[]).filter(row=>row.teamspaceId===team.id&&liveTeamspaceMember(policy,team.id,row.accountId)).map(row=>{const person=ctx.saved.principals.find(person=>person.accountId===row.accountId);return{id:row.id,accountId:row.accountId,name:person.displayName||person.accountId,role:row.role,currentUser:row.accountId===ctx.accountId};}):[];
- return{workspaceId:ctx.workspaceId,revision:ctx.saved.revision,teamspace:projectTeam(ctx,team),members,candidates:manager?ctx.saved.principals.filter(person=>person.emailVerified&&person.role!=='guest').map(person=>({accountId:person.accountId,name:person.displayName||person.accountId})):[]};
+ return{workspaceId:ctx.workspaceId,revision:ctx.saved.revision,teamspace:projectTeam(ctx,team,policy),members,candidates:manager?ctx.saved.principals.filter(person=>person.emailVerified&&person.role!=='guest').map(person=>({accountId:person.accountId,name:person.displayName||person.accountId})):[]};
 }
 function teamPages(ctx,teamspaceId){const policy=currentPolicy(ctx);return ctx.payload.pages.filter(item=>pageTeamspace(policy,ctx.workspaceId,item.page.id)?.id===teamspaceId).map(item=>item.page.id);}
 function ensureOwners(before,after){if(!preserveTeamspaceOwners(before,after))fail('LAST_TEAMSPACE_OWNER',409);}
@@ -83,9 +83,9 @@ export async function handleTeamspaceRequest(ctx){
   return json({workspaceId:ctx.workspaceId,revision:ctx.saved.revision,pageId:ctx.pageId,affectedPageCount:reviewed.affected.length,teamspaceId:body.teamspaceId});
  }
  if(!teamspaceId){
-  if(request.method==='GET'){const policy=currentPolicy(ctx);return json({workspaceId:ctx.workspaceId,revision:ctx.saved.revision,canCreate:eligible(ctx),teamspaces:(ctx.payload.teamspaces??[]).filter(team=>teamspaceVisible(policy,team,ctx.accountId)).map(team=>projectTeam(ctx,team))});}
+  if(request.method==='GET'){const policy=currentPolicy(ctx);return json({workspaceId:ctx.workspaceId,revision:ctx.saved.revision,canCreate:eligible(ctx),teamspaces:(ctx.payload.teamspaces??[]).filter(team=>teamspaceVisible(policy,team,ctx.accountId)).map(team=>projectTeam(ctx,team,policy))});}
   if(request.method!=='POST')fail('METHOD_NOT_ALLOWED',405);if(!eligible(ctx))missing();
-  const body=await ctx.readJson(request);exact(body,['expectedRevision','name','description','visibility','defaultPermission']);version(body.expectedRevision);if(body.expectedRevision!==ctx.saved.revision)conflict();if((ctx.payload.teamspaces?.length??0)>=TEAMSPACE_LIMITS.teamspaces||(ctx.payload.teamspaceMembers?.length??0)>=TEAMSPACE_LIMITS.members)fail('CONTENT_TOO_LARGE',413);
+  const body=await ctx.readJson(request);exact(body,['expectedRevision','name','description','visibility','defaultPermission']);version(body.expectedRevision);if(body.expectedRevision!==ctx.saved.revision)conflict();
   const id=assertId(ctx.createId()),memberId=assertId(ctx.createId()),stamp=ctx.now();if(ctx.payload.teamspaces?.some(team=>team.id===id)||ctx.payload.teamspaceMembers?.some(member=>member.id===memberId))fail('CONTENT_UNAVAILABLE',503);
   const team={id,workspaceId:ctx.workspaceId,name:body.name,description:body.description,visibility:body.visibility,defaultPermission:body.defaultPermission,createdAt:stamp,updatedAt:stamp,archivedAt:null};
   ctx.payload.teamspaces??=[];ctx.payload.teamspaceMembers??=[];ctx.payload.teamspaces.push(team);ctx.payload.teamspaceMembers.push({id:memberId,workspaceId:ctx.workspaceId,teamspaceId:id,accountId:ctx.accountId,membershipId:ctx.actor.id,role:'owner'});await commit(ctx);return json(detail(ctx,team));
@@ -98,7 +98,6 @@ export async function handleTeamspaceRequest(ctx){
  const body=await ctx.readJson(request);version(body?.expectedRevision);if(body.expectedRevision!==ctx.saved.revision)conflict();
  if(action==='duplicate'){
   exact(body,['expectedRevision','name','confirmSettingsOnly']);if(body.confirmSettingsOnly!==true)fail('INVALID_TEAMSPACE',400);
-  if((ctx.payload.teamspaces?.length??0)>=TEAMSPACE_LIMITS.teamspaces||(ctx.payload.teamspaceMembers?.length??0)>=TEAMSPACE_LIMITS.members)fail('CONTENT_TOO_LARGE',413);
   const id=assertId(ctx.createId()),memberId=assertId(ctx.createId());if(ctx.payload.teamspaces?.some(value=>value.id===id)||ctx.payload.teamspaceMembers?.some(value=>value.id===memberId))fail('CONTENT_UNAVAILABLE',503);
   const copy=createTeamspaceCopy(team,{id,name:body.name,createdAt:ctx.now()});
   ctx.payload.teamspaces.push(copy);ctx.payload.teamspaceMembers??=[];ctx.payload.teamspaceMembers.push({id:memberId,workspaceId:ctx.workspaceId,teamspaceId:id,accountId:ctx.accountId,membershipId:ctx.actor.id,role:'owner'});
@@ -109,14 +108,14 @@ export async function handleTeamspaceRequest(ctx){
  else if(action==='archive'){exact(body,['expectedRevision','archived']);if(typeof body.archived!=='boolean')fail('INVALID_TEAMSPACE',400);team.archivedAt=body.archived?ctx.now():null;}
  else if(action==='join'){
   exact(body,['expectedRevision']);if(!eligible(ctx)||team.archivedAt!==null||team.visibility!=='open')missing();if(memberFor(ctx,team))conflict();
-  if((ctx.payload.teamspaceMembers?.length??0)>=TEAMSPACE_LIMITS.members)fail('CONTENT_TOO_LARGE',413);
+  if((ctx.payload.teamspaceMembers??[]).filter(row=>row.teamspaceId===team.id).length>=TEAMSPACE_LIMITS.members)fail('CONTENT_TOO_LARGE',413);
   ctx.payload.teamspaceMembers??=[];ctx.payload.teamspaceMembers=ctx.payload.teamspaceMembers.filter(member=>member.teamspaceId!==team.id||member.accountId!==ctx.accountId);ctx.payload.teamspaceMembers.push({id:assertId(ctx.createId()),workspaceId:ctx.workspaceId,teamspaceId:team.id,accountId:ctx.accountId,membershipId:ctx.actor.id,role:'member'});
  }else if(request.method==='DELETE'){
   exact(body,['expectedRevision','memberId']);assertId(body.memberId);const member=ctx.payload.teamspaceMembers?.find(member=>member.teamspaceId===team.id&&member.id===body.memberId);if(!member)missing();if(member.accountId!==ctx.accountId||member.membershipId!==ctx.actor.id){manage(ctx,team);if(team.archivedAt!==null)fail('TEAMSPACE_ARCHIVED',409);}ctx.payload.teamspaceMembers=ctx.payload.teamspaceMembers.filter(row=>row!==member);
  }else{
   exact(body,['expectedRevision','accountId','role']);assertId(body.accountId);if(!['owner','member'].includes(body.role))fail('INVALID_TEAMSPACE',400);const person=ctx.saved.principals.find(person=>person.accountId===body.accountId&&person.emailVerified&&person.role!=='guest');if(!person)missing();
   ctx.payload.teamspaceMembers??=[];const existing=ctx.payload.teamspaceMembers.find(member=>member.teamspaceId===team.id&&member.accountId===person.accountId);
-  if(!existing&&ctx.payload.teamspaceMembers.length>=TEAMSPACE_LIMITS.members)fail('CONTENT_TOO_LARGE',413);
+  if(!existing&&ctx.payload.teamspaceMembers.filter(row=>row.teamspaceId===team.id).length>=TEAMSPACE_LIMITS.members)fail('CONTENT_TOO_LARGE',413);
   if(existing){if(existing.membershipId!==person.id)existing.id=assertId(ctx.createId());existing.membershipId=person.id;existing.role=body.role;}
   else ctx.payload.teamspaceMembers.push({id:assertId(ctx.createId()),workspaceId:ctx.workspaceId,teamspaceId:team.id,accountId:person.accountId,membershipId:person.id,role:body.role});
   guards.push({id:person.id,accountId:person.accountId,role:person.role});

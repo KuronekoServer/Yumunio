@@ -28,7 +28,7 @@ export async function handleTeamspaceJoinRequest(ctx,{team,commit,teamFor,manage
    manage(ctx,team);assertId(body.accountId);if(body.accountId!==requested.accountId)missing();if(body.confirmAccessChange!==true||!['approve','reject'].includes(body.decision))fail('INVALID_TEAMSPACE',400);action=body.decision;
    if(action==='approve'){
     if(!live(ctx,requested,state))fail('TEAMSPACE_REQUEST_STALE',409);const person=personFor(ctx,requested);ctx.payload.teamspaceMembers??=[];const existing=ctx.payload.teamspaceMembers.find(row=>row.teamspaceId===team.id&&row.accountId===person.accountId);
-    if(!existing&&ctx.payload.teamspaceMembers.length>=TEAMSPACE_LIMITS.members)fail('CONTENT_TOO_LARGE',413);const id=assertId(ctx.createId());if(ctx.payload.teamspaceMembers.some(row=>row.id===id))fail('CONTENT_UNAVAILABLE',503);
+    if(!existing&&ctx.payload.teamspaceMembers.filter(row=>row.teamspaceId===team.id).length>=TEAMSPACE_LIMITS.members)fail('CONTENT_TOO_LARGE',413);const id=assertId(ctx.createId());if(ctx.payload.teamspaceMembers.some(row=>row.id===id))fail('CONTENT_UNAVAILABLE',503);
     const approved={id,workspaceId:ctx.workspaceId,teamspaceId:team.id,accountId:person.accountId,membershipId:person.id,role:'member'};if(existing)Object.assign(existing,approved);else ctx.payload.teamspaceMembers.push(approved);
     guards.push({id:person.id,accountId:person.accountId,role:person.role});team.updatedAt=ctx.now();const after=policy(ctx);nextPolicy=after;ensureOwners(before,after);ensureManagers(before,after,ctx.saved.principals,ctx.workspaceId);invalidateRooms(ctx.payload,teamPages(ctx,team.id));
    }

@@ -34,6 +34,39 @@ const location=(f,pageId,parentId,expectedRevision=1,extra={})=>f.request('/page
 const trash=(f,pageId,expectedRevision=1,extra={})=>f.request('/pages/'+pageId,{method:'DELETE',body:{expectedRevision},...extra});
 const restore=(f,pageId,expectedRevision,parentId=undefined)=>f.request('/pages/'+pageId+'/restore',{method:'POST',body:{expectedRevision,...(parentId===undefined?{}:{parentId})}});
 
+test('sibling ordering is persisted without changing body versions, inherited permissions or a hidden child',async t=>{
+ const f=fixture(t);f.payload.pages.push(row('peer','Peer','root'));f.grant('leaf','member','deny',false);await f.save(f.payload);
+ const before=await f.raw.read(workspaceId,'member'),response=await location(f,'branch','root',1,{beforeId:null});
+ assert.equal(response.status,200);assert.deepEqual(await response.json(),{revision:2,pageId:'branch',affectedPageCount:1,reordered:true});
+ const after=await f.raw.read(workspaceId,'member');assert.deepEqual(after.payload.pages.filter(item=>item.page.parentId==='root').map(item=>item.page.id),['peer','branch']);
+ for(const item of before.payload.pages)assert.deepEqual(after.payload.pages.find(row=>row.page.id===item.page.id),item);
+ assert.deepEqual(after.payload.grants,before.payload.grants);assert.equal((await f.request('/pages/leaf')).status,404);
+ assert.equal((await location(f,'branch','root',2,{beforeId:'peer'})).status,200);
+ assert.deepEqual((await f.raw.read(workspaceId,'member')).payload.pages.filter(item=>item.page.parentId==='root').map(item=>item.page.id),['branch','peer']);
+});
+
+test('ordering rejects hidden anchors, another parent, stale writes and changed actor generations atomically',async t=>{
+ const f=fixture(t);await f.save(f.payload);
+ await error(await location(f,'root',null,1,{beforeId:'hidden'}),404,'CONTENT_NOT_FOUND');
+ await error(await location(f,'root',null,1,{beforeId:'leaf'}),404,'CONTENT_NOT_FOUND');
+ await error(await location(f,'root',null,0,{beforeId:'dest'}),409,'CONTENT_CONFLICT');
+ await error(await f.request('/pages/root/location',{method:'PATCH',body:null}),400,'INVALID_CONTENT');
+ assert.equal(f.writes,0);const before=await f.raw.read(workspaceId,'member');
+ f.setBeforeWrite(()=>f.db.prepare('UPDATE yumunio_memberships SET id=? WHERE id=?').run('replacement','membership-member'));
+ await error(await location(f,'root',null,1,{beforeId:'dest'}),404,'CONTENT_NOT_FOUND');
+ assert.deepEqual((await f.raw.read(workspaceId,'member')).payload,before.payload);
+});
+
+test('page creation continues beyond a thousand pages and deep parents without changing the hierarchy',async t=>{
+ const f=fixture(t);f.payload.pages=[row('deep-0','Root')];f.payload.grants=[];f.payload.grantBindings=[];f.grant('deep-0','member');
+ for(let index=1;index<=1001;index++)f.payload.pages.push(row('deep-'+index,'Nested '+index,'deep-'+(index-1)));
+ validateContentPayload(f.payload,workspaceId);await f.save(f.payload);
+ const response=await f.request('/pages',{method:'POST',body:{expectedRevision:1,parentId:'deep-1001',title:'Next child'}});
+ assert.equal(response.status,201);const value=await response.json();assert.equal(value.page.parentId,'deep-1001');
+ const saved=await f.raw.read(workspaceId,'member');assert.equal(saved.payload.pages.length,1003);assert.equal(saved.payload.pages[1001].page.parentId,'deep-1000');
+ assert.equal((await f.request('/pages/'+value.page.id)).status,200);
+});
+
 test('moving a managed subtree uses one CAS, increments every affected version, retains full authority and defaults to private inheritance',async t=>{
   const f=fixture(t);await f.save(f.payload);const response=await location(f,'branch','dest');assert.equal(response.status,200);assert.deepEqual(await response.json(),{revision:2,pageId:'branch',affectedPageCount:3});
   const saved=await f.raw.read(workspaceId,'member');const branch=saved.payload.pages.find(item=>item.page.id==='branch');assert.equal(branch.page.parentId,'dest');assert.equal(branch.inheritPermissions,false);

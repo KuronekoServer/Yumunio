@@ -23,6 +23,30 @@ function ancestryVisible(payload,id,access){
   const pages=new Map(payload.pages.map(item=>[item.page.id,item]));let cursor=id;
   while(cursor!==null){const item=pages.get(cursor);if(!item||item.page.trashedAt!==null||!access(cursor).includes('read'))missing();cursor=item.page.parentId;}
 }
+function positionPage(payload,item,beforeId,parentId,access){
+  if(beforeId!==null){assertId(beforeId);const target=payload.pages.find(row=>row.page.id===beforeId);
+    if(!target||target===item||target.page.trashedAt!==null||target.page.parentId!==parentId||!access(beforeId).includes('read'))missing();
+  }
+  payload.pages.splice(payload.pages.indexOf(item),1);
+  payload.pages.splice(beforeId===null?payload.pages.length:payload.pages.findIndex(row=>row.page.id===beforeId),0,item);
+}
+async function reorderPage(ctx,item,data){
+  const {payload,saved,workspaceId,accountId,actor,access,policy,store,readPayload,validatePayload}=ctx;
+  exact(data,['expectedRevision','parentId','beforeId']);revision(data.expectedRevision);
+  ancestryVisible(payload,item.page.parentId,access);
+  if(data.expectedRevision!==saved.revision)conflict();
+  if(data.beforeId!==null){const state=policy(payload,saved.principals,workspaceId),sourceTeam=pageTeamspace(state,workspaceId,item.page.id),targetTeam=pageTeamspace(state,workspaceId,data.beforeId);
+    if((sourceTeam?.id??null)!==(targetTeam?.id??null))missing();
+  }
+  positionPage(payload,item,data.beforeId,data.parentId,access);
+  const captured=validatePayload(payload,workspaceId);
+  try{const written=await store.write(workspaceId,accountId,{expectedRevision:saved.revision,payload:captured,actorMembershipId:actor.id,actorRole:actor.role,guardMemberships:[]});return json({revision:written.revision,pageId:item.page.id,affectedPageCount:1,reordered:true});}
+  catch(cause){if(cause?.code!=='CONTENT_CONFLICT')throw cause;
+    const fresh=await store.read(workspaceId,accountId),principal=fresh?.principals.find(row=>row.accountId===accountId&&row.id===actor.id&&row.emailVerified&&row.role===actor.role);
+    if(!principal)missing();const latest=readPayload(fresh,workspaceId),evaluate=createPageAccessEvaluator(policy(latest,fresh.principals,workspaceId)),can=id=>evaluate({accountId,workspaceId,pageId:id}).capabilities;
+    if(!can(item.page.id).includes('manage')||data.beforeId!==null&&!can(data.beforeId).includes('read'))missing();ancestryVisible(latest,item.page.parentId,can);conflict();
+  }
+}
 export function validateTrashGroups(payload,pages){
   if(!Object.hasOwn(payload,'trashGroups'))return;
   if(!Array.isArray(payload.trashGroups)||payload.trashGroups.length>1000)fail();const ids=new Set(),bound=new Set();
@@ -54,9 +78,16 @@ export function listTrash({payload,saved,workspaceId,accountId,actor,policy}){
   return json({workspaceId,revision:saved.revision,pages:groups.map(group=>{const item=pages.get(group.rootPageId);return{...item.page,
     parentId:visible.has(item.page.parentId)?item.page.parentId:null,version:item.document.version,capabilities:['restore'],pageCount:group.pageIds.length};})});
 }
-export async function handlePageLifecycle({request,action,pageId,store,saved,payload,actor,accountId,workspaceId,access,policy,readJson,readPayload,validatePayload,now,createId}){
+export async function handlePageLifecycle(ctx){
+  const {request,action,pageId,store,saved,payload,actor,accountId,workspaceId,access,policy,readJson,readPayload,validatePayload,now,createId}=ctx;
   const item=payload.pages.find(row=>row.page.id===pageId);if(!item||actor.role==='guest')missing();
   if((action==='location'&&request.method!=='PATCH')||(action==='trash'&&request.method!=='DELETE')||(action==='restore'&&request.method!=='POST'))fail('METHOD_NOT_ALLOWED',405);
+  let data;
+  if(action==='location'){
+    if(item.page.trashedAt!==null||!access(pageId).includes('manage'))missing();data=await readJson(request);
+    // Ordering changes navigation only; keep the live document and room intact.
+    if(Object.hasOwn(data??{},'beforeId')&&data.parentId===item.page.parentId&&!Object.hasOwn(data,'inheritPermissions'))return reorderPage(ctx,item,data);
+  }
   const underlying=untrashedAccess(payload,saved.principals,workspaceId,accountId,policy);
   let group=null,affected;
   if(action==='restore'){
@@ -68,8 +99,8 @@ export async function handlePageLifecycle({request,action,pageId,store,saved,pay
     if(!affected.every(row=>(action==='location'?underlying:access)(row.page.id).includes('manage')))missing();
     if(action==='location')ancestryVisible(payload,item.page.parentId,access);
   }
-  const data=await readJson(request);
-  exact(data,action==='trash'?['expectedRevision']:['expectedRevision','parentId','inheritPermissions'],action==='location'?['expectedRevision','parentId']:['expectedRevision']);revision(data.expectedRevision);
+  if(action!=='location')data=await readJson(request);
+  exact(data,action==='trash'?['expectedRevision']:action==='location'?['expectedRevision','parentId','inheritPermissions','beforeId']:['expectedRevision','parentId','inheritPermissions'],action==='location'?['expectedRevision','parentId']:['expectedRevision']);revision(data.expectedRevision);
   if(data.expectedRevision!==saved.revision)conflict();
   const stamp=now();let parentId=item.page.parentId;
   if(action!=='trash'){
@@ -85,6 +116,7 @@ export async function handlePageLifecycle({request,action,pageId,store,saved,pay
     if(parentId!==null){if(payload.teamspacePages)payload.teamspacePages=payload.teamspacePages.filter(binding=>binding.pageId!==pageId);if(payload.personalPageOwners)payload.personalPageOwners=payload.personalPageOwners.filter(owner=>owner.pageId!==pageId);}
   }
   if(affected.some(row=>row.document.version===Number.MAX_SAFE_INTEGER))conflict();
+  if(action==='location'&&Object.hasOwn(data,'beforeId'))positionPage(payload,item,data.beforeId,parentId,access);
   if(action==='trash'){
     const id=assertId(createId());if(payload.trashGroups?.some(row=>row.id===id))fail('CONTENT_UNAVAILABLE',503);
     payload.trashGroups??=[];payload.trashGroups.push({id,rootPageId:pageId,pageIds:affected.map(row=>row.page.id),trashedAt:stamp});
@@ -93,7 +125,6 @@ export async function handlePageLifecycle({request,action,pageId,store,saved,pay
     // An inherited manager retains an explicit, generation-bound grant after leaving its previous parent.
     const bindingIds=new Set(payload.grantBindings.filter(row=>row.membershipId===actor.id).map(row=>row.grantId));
     if(!payload.grants.some(row=>bindingIds.has(row.id)&&row.pageId===pageId&&row.accountId===accountId&&row.permission==='full'&&row.includeDescendants&&row.status==='active')){
-      if(payload.grants.length>=5000)fail('CONTENT_TOO_LARGE',413);
       const id=assertId(createId());if(payload.grants.some(row=>row.id===id))fail('CONTENT_UNAVAILABLE',503);
       payload.grants.push({id,workspaceId,pageId,accountId,permission:'full',includeDescendants:true,status:'active'});payload.grantBindings.push({grantId:id,membershipId:actor.id});
     }

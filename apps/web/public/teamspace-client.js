@@ -12,7 +12,7 @@ export function validateTeamspace(value,workspaceId){
  return structuredClone(value);
 }
 export function validateTeamspaceList(value,workspaceId){
- if(!plain(value)||value.workspaceId!==workspaceId||!counter(value.revision)||typeof value.canCreate!=='boolean'||!Array.isArray(value.teamspaces)||value.teamspaces.length>64)invalid();
+ if(!plain(value)||value.workspaceId!==workspaceId||!counter(value.revision)||typeof value.canCreate!=='boolean'||!Array.isArray(value.teamspaces))invalid();
  const teams=value.teamspaces.map(item=>validateTeamspace(item,workspaceId));if(!unique(teams.map(item=>item.id)))invalid();
  return {...structuredClone(value),teamspaces:teams};
 }

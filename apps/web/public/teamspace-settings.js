@@ -104,9 +104,10 @@ export function mountTeamspaceSettings({root,embedded=false,workspaceId,expected
  }
  function startDuplicate(){if(disabled()||!manager()||paused())return;const source=structuredClone(state.detail.teamspace),suffix=t('copySuffix');let name='';for(const char of source.name){if(name.length+char.length+suffix.length>100)break;name+=char;}state.creating=true;state.duplicateSource=source;state.draft={...fields(source),name:name+suffix};state.baseline=initialDraft();state.confirmed=false;render();root.querySelector('#teamspace-name')?.focus();}
  function duplicateFields(){const source=state.duplicateSource;return[editField('name'),node('p',{class:'teamspace-hint'},t('duplicateHint')),node('dl',{class:'teamspace-facts'},[['description',source.description||t('noDescription')],['visibility',t(source.visibility)],['defaultPermission',t(source.defaultPermission)]].map(([key,value])=>node('div',{},[node('dt',{},t(key)),node('dd',{translate:key==='description'?'no':null},value)]))),node('p',{class:'teamspace-hint'},t('visibility_'+source.visibility))];}
+ function startCreate(){if(disabled()||!state.list?.canCreate)return;state.creating=true;state.detail=null;state.teamspaceId=null;resetDraft();render();root.querySelector('#teamspace-name')?.focus();}
  function renderList(panel){
   panel.append(node('h1',{},t('title')),node('p',{class:'teamspace-intro'},t('intro')));
-  if(!state.list)return;if(state.list.canCreate)panel.append(action('create',()=>{if(disabled())return;state.creating=true;state.detail=null;state.teamspaceId=null;resetDraft();render();root.querySelector('#teamspace-name')?.focus();},{class:'button primary',disabled:disabled()}));
+  if(!state.list)return;if(state.list.canCreate)panel.append(action('create',startCreate,{class:'button primary',disabled:disabled()}));
   if(!state.list.teamspaces.length)panel.append(node('p',{class:'teamspace-hint'},t('empty')));
   const list=node('ul',{class:'teamspace-list'});
   for(const team of state.list.teamspaces)list.append(node('li',{},node('button',{type:'button',class:'teamspace-list-item',disabled:disabled(),onClick:()=>transition(()=>void load(team.id))},[node('span',{class:'teamspace-list-name',translate:'no'},team.name),node('span',{class:'teamspace-list-meta'},[t(team.visibility),t('memberCount',{count:team.memberCount}),...(team.archivedAt?[t('archived')]:[])].join(' · '))])));
@@ -168,6 +169,7 @@ export function mountTeamspaceSettings({root,embedded=false,workspaceId,expected
  }
  function focusSection(value='teamspaces',options={}){
   if(!active||value===null||typeof options!=='object'||options===null)return false;const requested=typeof value==='object'?value:options,id=Object.hasOwn(requested,'teamspaceId')?requested.teamspaceId:value==='teamspaces'||typeof value==='object'&&!requested.tab?null:state.teamspaceId,tab=tabs.includes(requested.tab)?requested.tab:tabs.includes(value)?value:state.tab;
+  if(requested.create===true&&state.list?.canCreate)return transition(startCreate);
   if(id!==null&&!validId(id))return false;if(id!==state.teamspaceId||state.creating)return transition(()=>{state.tab=tab;void load(id);});
   if(tab!==state.tab)return transition(()=>{state.tab=tab;resetDraft();render();});root.querySelector('.teamspace-panel')?.focus({preventScroll:true});return true;
  }

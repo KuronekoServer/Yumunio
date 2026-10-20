@@ -443,7 +443,8 @@ paths:
         workspace/server administrator status is not a private teamspace or page-access bypass. Any verified
         non-guest workspace member may explicitly create one. Requires current expectedRevision. Creates one
         teamspace and one membership bound to the caller current workspace generation in one aggregate CAS.
-        Limits are 64 teamspaces and 1000 teamspace memberships per workspace. No client-chosen owner, ID,
+        There is no fixed teamspace count limit. The storage/JSON budget applies; each teamspace allows up to
+        1000 memberships independently. No client-chosen owner, ID,
         membership generation or page assignment is accepted.
       requestBody:
         required: true
@@ -5518,7 +5519,6 @@ components:
           type: boolean
         teamspaces:
           type: array
-          maxItems: 64
           items:
             $ref: "#/components/schemas/TeamspaceProjection"
     TeamspaceMember:
@@ -5773,7 +5773,6 @@ components:
         affectedPageCount:
           type: integer
           minimum: 1
-          maximum: 1000
         beforeReaders:
           type: integer
           minimum: 0
@@ -5850,7 +5849,6 @@ components:
         affectedPageCount:
           type: integer
           minimum: 1
-          maximum: 1000
         teamspaceId:
           anyOf:
             - $ref: "#/components/schemas/Id"

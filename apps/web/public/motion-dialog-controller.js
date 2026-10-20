@@ -42,7 +42,7 @@ export function bindMotionDialog({dialog, animate, isReducedMotion, isComposing,
     priorFocus = document.activeElement;
     // An exiting menu can remove its action before the dialog closes. Remember
     // the persistent opener so keyboard navigation can resume from the sidebar.
-    menuTrigger = priorFocus?.closest?.('.motion-sidebar-menu')?.querySelector('.sidebar-menu-trigger') ?? null;
+    menuTrigger = priorFocus?.closest?.('.motion-sidebar-menu')?.querySelector('.sidebar-menu-trigger') ?? document.getElementById?.(priorFocus?.closest?.('[data-menu-trigger-id]')?.getAttribute('data-menu-trigger-id')) ?? null;
     if (!dialog.open) nativeShow();
     queueMicrotask(() => {
       if (disposed) return;

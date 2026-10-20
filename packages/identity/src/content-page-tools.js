@@ -36,7 +36,6 @@ export async function handlePageTools(ctx){
   requiredPages=originals.map(row=>row.page.id);
   const sourceIds=new Set(originals.map(row=>row.page.id));
   if(payload.collections?.some(collection=>sourceIds.has(collection.pageId)||collection.recordPages.some(row=>sourceIds.has(row.pageId))))fail('PAGE_COLLECTION_COPY_UNSUPPORTED',409);
-  if(payload.pages.length+originals.length>1000)fail('CONTENT_TOO_LARGE',413);
   const used=new Set();const scan=blocks=>{for(const block of blocks){used.add(block.id);if(block.children)scan(block.children);}};
   for(const row of payload.pages){used.add(row.page.id);scan(row.document.blocks);}for(const row of [...(payload.attachments??[]),...(payload.pendingBlobs??[]),...payload.grants])used.add(row.id);
   const mint=()=>{const value=assertId(createId());if(used.has(value))fail('CONTENT_UNAVAILABLE',503);used.add(value);return value;};

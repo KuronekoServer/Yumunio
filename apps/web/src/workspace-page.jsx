@@ -1,10 +1,11 @@
 'use client';
-import {memo,useCallback,useEffect,useRef,useState} from 'react';
+import {Fragment,memo,useCallback,useEffect,useRef,useState} from 'react';
 import {flushSync} from 'react-dom';
 import {motion} from 'motion/react';
 import {MotionDialog,SidebarMenu,useReducedMotionPreference} from './ui-motion.jsx';
 import {surfaceTransition} from '../public/ui-motion-policy.js';
 import {Icon} from './icons.jsx';
+import {sidebarSiblingPositions,sidebarAncestors} from '../public/sidebar-model.js';
 
 function Action({label,icon,onClick,disabled=false,className='',children,...props}){
  return <button type="button" className={className||'icon-button'} aria-label={label} title={label} disabled={!!disabled} onClick={onClick} {...props}>{icon&&<Icon name={icon}/>} {children}</button>;
@@ -13,21 +14,29 @@ const Sidebar=memo(function Sidebar({model,onCollapse,desktop,collapsed}){
  const reduced=useReducedMotionPreference(),hidden=desktop?collapsed:!model.state.navOpen;
  const {state:s,t,handlers:h,workspaceId,pageRows,activeTeams,collapsedTeams,expandedPages,newDisabled}=model;
  const query='?workspace='+encodeURIComponent(workspaceId),disabled=!s.user||!!s.fatal||s.busy;
- const sections=[];
- const section=(key,label,team=null)=>{let value=sections.find(item=>item.key===key);if(!value){value={key,label,team,rows:[]};sections.push(value);}return value;};
- if(s.teamsAvailable){section('personal',t('teamspaces.personalPages'));for(const team of activeTeams)section('team:'+team.id,team.name,team);}
- for(const row of pageRows){const page=row.page,team=page.teamspaceId&&activeTeams.find(item=>item.id===page.teamspaceId),key=team?'team:'+team.id:page.sidebarSection==='personal'?'personal':page.sidebarSection==='shared'||page.sidebarSection==='teamspace'?'shared':'legacy';section(key,t(key==='personal'?'teamspaces.personalPages':key==='shared'?'teamspaces.sharedPages':'pages'),team||null).rows.push(row);}
+ const sections=[],sectionsByKey=new Map(),teamsById=new Map(activeTeams.map(team=>[team.id,team]));
+ const siblingPositions=sidebarSiblingPositions(s.pages);
+ const section=(key,label,team=null)=>{let value=sectionsByKey.get(key);if(!value){value={key,label,team,rows:[]};sectionsByKey.set(key,value);sections.push(value);}return value;};
+ if(s.teamsAvailable){for(const team of activeTeams)section('team:'+team.id,team.name,team);section('personal',t('teamspaces.personalPages'));}
+ for(const row of pageRows){const page=row.page,team=teamsById.get(page.teamspaceId),key=team?'team:'+team.id:page.sidebarSection==='personal'?'personal':page.sidebarSection==='shared'||page.sidebarSection==='teamspace'?'shared':'legacy';section(key,t(key==='personal'?'teamspaces.personalPages':key==='shared'?'teamspaces.sharedPages':'pages'),team||null).rows.push(row);}
  function pageRow({page,depth,hasChildren}){
-  const expanded=expandedPages.includes(page.id);
-  return <li key={page.id} className="sidebar-page-row" style={{paddingInlineStart:depth*14}}>
-   {hasChildren?<Action className="sidebar-page-disclosure" label={t(expanded?'sidebarCollapse':'sidebarExpand',{name:page.title||t('untitled')})} aria-expanded={expanded} onClick={()=>h.togglePage(page.id)}><Icon name="chevron" className={expanded?'chevron expanded':'chevron'}/></Action>:<span className="sidebar-page-spacer" aria-hidden="true"/>}
+  const expanded=expandedPages.includes(page.id),manageable=s.role!=='guest'&&page.capabilities.includes('manage'),movable=manageable&&!page.recordId&&!page.templateId,{index,count}=siblingPositions.get(page.id);
+  return <Fragment key={page.id}><motion.li layout="position" transition={surfaceTransition('placement',reduced)} className="sidebar-page-row" style={{paddingInlineStart:depth*14,minWidth:170+depth*14}}>
+   {hasChildren||manageable?<Action className="sidebar-page-disclosure" label={t(expanded?'sidebarCollapse':'sidebarExpand',{name:page.title||t('untitled')})} aria-expanded={expanded} onClick={()=>h.togglePage(page.id)}><Icon name="chevron" className={expanded?'chevron expanded':'chevron'}/></Action>:<span className="sidebar-page-spacer" aria-hidden="true"/>}
    <a href={'/workspace'+query+'&page='+encodeURIComponent(page.id)} className={'page-link'+((s.pendingPageId||s.current?.page.id)===page.id?' selected':'')} aria-current={(s.pendingPageId||s.current?.page.id)===page.id?'page':undefined} aria-disabled={s.busy||undefined}
     data-dnd-page-id={!model.room&&page.id!==s.current?.page.id&&page.capabilities.includes('editBody')?page.id:undefined}
-    draggable={!model.room&&s.role!=='guest'&&page.capabilities.includes('manage')&&!page.recordId&&!s.busy}
-    onClick={event=>{if(event.button||event.metaKey||event.ctrlKey||event.shiftKey||event.altKey)return;event.preventDefault();if(!s.busy)void h.selectPage(page.id);}} onPointerEnter={()=>h.prefetchPage(page.id)} onPointerLeave={h.cancelPagePrefetch} onFocus={()=>h.prefetchPage(page.id)} onDragStart={event=>h.startPageDrag(event,page)} onDragEnd={h.endPageDrag} onDragOver={event=>h.overPageDrop(event,page.id)} onDragLeave={event=>event.currentTarget.classList.remove('drop-target')} onDrop={event=>h.dropPage(event,page.id)}>
+    draggable={movable&&!s.busy}
+    onClick={event=>{if(event.button||event.metaKey||event.ctrlKey||event.shiftKey||event.altKey)return;event.preventDefault();if(!s.busy)void h.selectPage(page.id);}} onPointerEnter={()=>h.prefetchPage(page.id)} onPointerLeave={h.cancelPagePrefetch} onFocus={()=>h.prefetchPage(page.id)} onDragStart={event=>h.startPageDrag(event,page)} onDragEnd={h.endPageDrag} onDragOver={event=>h.overPageDrop(event,page.id)} onDragLeave={event=>{delete event.currentTarget.dataset.pageDrop;}} onDrop={event=>h.dropPage(event,page.id)}>
     {page.appearance?.icon?<span aria-hidden="true" translate="no">{page.appearance.icon}</span>:<Icon name={page.collectionId?'table':'page'}/>}<span translate="no" data-sidebar-page-title="">{page.title||t('untitled')}</span>
    </a>
-  </li>;
+   {manageable&&<div className="sidebar-page-actions"><Action label={t('pageTree.addChildTo',{name:page.title||t('untitled')})} icon="plus" disabled={newDisabled} onClick={()=>h.createSubpage(page.id)}/>
+    <SidebarMenu compact portal className="sidebar-page-menu" label={t('pageTree.actionsFor',{name:page.title||t('untitled')})} icon={<Icon name="more"/>} disabled={disabled}>
+     <Action className="nav-link" label={t('pageTree.addChild')} icon="plus" disabled={newDisabled} onClick={()=>h.createSubpage(page.id)}>{t('pageTree.addChild')}</Action>
+     {movable&&<><Action className="nav-link" label={t('pageTree.moveUp')} disabled={s.busy||index<1} onClick={()=>h.moveSidebarPage(page.id,'up')}>{t('pageTree.moveUp')}</Action><Action className="nav-link" label={t('pageTree.moveDown')} disabled={s.busy||index===count-1} onClick={()=>h.moveSidebarPage(page.id,'down')}>{t('pageTree.moveDown')}</Action><Action className="nav-link" label={t('movePage')} icon="arrow" disabled={s.busy||model.room} onClick={()=>h.openSidebarPageMove(page.id)}>{t('movePage')}</Action></>}
+     {movable&&<Action className="nav-link" label={t('teamspaces.movePage')} disabled={s.busy||model.room} onClick={()=>h.openSidebarTeamspaceMove(page.id)}>{t('teamspaces.movePage')}</Action>}
+     <Action className="nav-link" label={t('trashPage')} icon="trash" disabled={s.busy||model.room} onClick={()=>h.openSidebarPageTrash(page.id)}>{t('trashPage')}</Action>
+    </SidebarMenu></div>}
+  </motion.li>{expanded&&!hasChildren&&<li className="sidebar-empty-children" style={{paddingInlineStart:(depth+1)*14+22,minWidth:170+(depth+1)*14}}>{t('pageTree.empty')}</li>}</Fragment>;
  }
  const favorites=s.pages.filter(page=>page.favorite);
  return <motion.aside id="workspace-sidebar" className="workspace-sidebar" aria-label={t('pages')} aria-hidden={hidden||undefined} inert={hidden} initial={false} animate={{x:hidden?'-100%':0}} transition={surfaceTransition('sidebar',reduced)}>
@@ -39,7 +48,7 @@ const Sidebar=memo(function Sidebar({model,onCollapse,desktop,collapsed}){
    <SidebarMenu label={t('sidebarLibrary')} icon={<Icon name="template"/>}><a href={'/collections'+query} className="nav-link"><Icon name="table"/>{t('collections')}</a><a href={'/forms'+query} className="nav-link"><Icon name="page"/>{t('forms')}</a>{s.role&&s.role!=='guest'&&<a href={'/templates'+query} className="nav-link"><Icon name="template"/>{t('personalTemplates')}</a>}</SidebarMenu>
   </nav>
   <div className="page-list-heading"><span>{t('pages')}</span><Action label={t('refreshList')} icon="refresh" disabled={!s.user||s.busy||s.listLoading||!!s.fatal} onClick={()=>h.refreshList(true)}/><Action label={t('createPage')} icon="plus" disabled={newDisabled} onClick={()=>h.openCreate()}/></div>
-  <button type="button" className="root-drop-target" onDragOver={event=>h.overPageDrop(event,null)} onDragLeave={event=>event.currentTarget.classList.remove('drop-target')} onDrop={event=>h.dropPage(event,null)}>{t('moveToRoot')}</button>
+  <button type="button" className="root-drop-target" onDragOver={event=>h.overPageDrop(event,null)} onDragLeave={event=>{delete event.currentTarget.dataset.pageDrop;}} onDrop={event=>h.dropPage(event,null)}>{t('moveToRoot')}</button>
   <div className="page-list page-directory">
    {!!favorites.length&&<section className="sidebar-page-section"><div className="page-list-heading"><span>{t('pageTools.favorites')}</span></div><ul className="sidebar-section-pages">{favorites.map(page=><li key={page.id}><button type="button" className="page-link" disabled={s.busy} onClick={()=>h.selectPage(page.id)}><span aria-hidden="true" translate="no">{page.appearance?.icon||'☆'}</span><span translate="no">{page.title||t('untitled')}</span></button></li>)}</ul></section>}
    {sections.map(({key,label,team,rows})=><section key={key} className="sidebar-page-section">
@@ -48,6 +57,7 @@ const Sidebar=memo(function Sidebar({model,onCollapse,desktop,collapsed}){
      {!team&&s.teamsAvailable&&key==='personal'&&<Action label={t('teamspaces.browse')} icon="more" disabled={disabled} onClick={()=>h.openSettings('teamspaces')}/>}
     </div><ul className="sidebar-section-pages" hidden={!!team&&collapsedTeams.includes(team.id)}>{rows.map(pageRow)}</ul>
    </section>)}
+   {s.teamsAvailable&&s.role!=='guest'&&<Action className="nav-link sidebar-create-teamspace" label={t('pageTree.createTeamspace')} icon="plus" disabled={disabled} onClick={h.openCreateTeamspace}>{t('pageTree.createTeamspace')}</Action>}
   </div>
   <footer className="sidebar-footer">
    {s.user&&!s.fatal&&<a href={'/workspace-settings'+query} className="nav-link"><Icon name="settings"/>{t('sidebarSettings')}</a>}
@@ -63,8 +73,9 @@ const Sidebar=memo(function Sidebar({model,onCollapse,desktop,collapsed}){
 });
 function Toolbar({model,controls,sidebarCollapsed,onExpandSidebar}){
  const {state:s,t,handlers:h,workspaceId}=model;
+ const ancestors=sidebarAncestors(s.pages,s.pendingPageId||s.current?.page.id),team=s.teamspaces.find(team=>team.id===s.current?.page.teamspaceId);
  return <header className="workspace-topbar">{sidebarCollapsed&&<Action className="desktop-sidebar-toggle icon-button" label={t('expandSidebar')} icon="sidebar" aria-expanded={false} aria-controls="workspace-sidebar" onClick={onExpandSidebar}/>}<Action className="nav-toggle icon-button" label={t('menu')} icon="menu" aria-expanded={s.navOpen} aria-controls="workspace-sidebar" onClick={()=>h.setNavigation(!s.navOpen)}/>
-  <div className="breadcrumb"><span translate="no">{s.name||t('serverWorkspace')}</span>{(s.current||s.pendingPageId)&&<><span className="breadcrumb-divider" aria-hidden="true">/</span><span translate="no" data-page-crumb="">{controls.title??s.draft?.title??t('untitled')}</span></>}</div>
+  <nav className="breadcrumb" aria-label={t('pageTree.breadcrumb')} title={ancestors.map(page=>page.title).join(' / ')}><span translate="no">{team?.name||s.name||t('serverWorkspace')}</span>{ancestors.length>2&&<span aria-hidden="true"> / …</span>}{ancestors.slice(-2).map(page=><Fragment key={page.id}><span className="breadcrumb-divider" aria-hidden="true">/</span><button type="button" className="breadcrumb-page" disabled={s.busy} translate="no" onClick={()=>h.selectPage(page.id)}>{page.title||t('untitled')}</button></Fragment>)}{(s.current||s.pendingPageId)&&<><span className="breadcrumb-divider" aria-hidden="true">/</span><span translate="no" data-page-crumb="">{controls.title??s.draft?.title??t('untitled')}</span></>}</nav>
   <div className="topbar-actions"><span className="save-status" role="status" aria-live="polite" hidden={!controls.status}>{controls.status||''}</span><Action label={t('undo')} icon="undo" disabled={controls.undoDisabled!==false} onClick={()=>h.applyEditorHistory('undo')}/><Action label={t('redo')} icon="redo" disabled={controls.redoDisabled!==false} onClick={()=>h.applyEditorHistory('redo')}/>
    {s.current&&!model.room&&<Action label={t('roomStart')} icon="users" disabled={s.busy||s.loading||s.listLoading} onClick={h.showRoomStart}/>}
    <Action className="button quiet" label={t('shareResource')} disabled={!s.current?.page.capabilities?.some(value=>['manage','invite'].includes(value))||s.busy||s.loading} onClick={h.openResourceSharing}>{t('shareResource')}</Action>

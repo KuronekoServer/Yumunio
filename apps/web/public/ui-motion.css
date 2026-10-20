@@ -2,6 +2,8 @@
 .motion-sidebar-menu .sidebar-menu-trigger{display:flex;gap:8px;align-items:center;width:100%;min-height:30px;padding:4px 9px;border:0;border-radius:5px;background:transparent;color:var(--muted);font:inherit;font-size:13px;text-align:start;cursor:pointer}
 .motion-sidebar-menu .sidebar-menu-trigger svg{width:17px;height:17px;flex:none}.motion-sidebar-menu .sidebar-menu-trigger:hover{background:var(--soft);color:var(--text)}
 .motion-sidebar-menu .sidebar-library-links>div{display:grid;gap:2px}.motion-sidebar-menu .sidebar-library-links>div>.nav-link{width:100%;border:0;background:transparent;justify-content:flex-start;text-align:start}
+.sidebar-menu-popover{position:fixed;z-index:110;width:230px;max-width:calc(100vw - 16px);max-height:calc(100dvh - 16px);overflow:auto;padding:6px;border:1px solid var(--border);border-radius:7px;background:var(--surface);color:var(--text);box-shadow:0 6px 24px #0002}
+.sidebar-menu-popover>div{display:grid;gap:2px}.sidebar-menu-popover .nav-link{width:100%;justify-content:flex-start;text-align:start;border:0;background:transparent}.sidebar-menu-popover .nav-link:hover{background:var(--soft)}
 .motion-workspace .workspace-sidebar{transition:none}
 @media(min-width:761px){.motion-workspace.sidebar-collapsed .workspace-sidebar{display:flex}.motion-workspace>.workspace-sidebar{width:256px;min-width:256px}.motion-workspace>.workspace-main{min-width:0}}
 .motion-dialog-shade{position:fixed;inset:0;z-index:80;pointer-events:none;background:#0006}

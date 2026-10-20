@@ -2,6 +2,15 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {validateTeamspaceState,createPageAccessEvaluator,liveTeamspaceMember,validateAccessState,createTeamspaceCopy,validateTeamspaceJoinRequests} from '../src/index.js';
 const stamp='2026-10-16T00:00:00.000Z';
+
+test('team counts and memberships grow independently while the per-team member budget remains enforced',()=>{
+ const team={id:'team',workspaceId:'workspace',name:'Team',description:'',visibility:'private',defaultPermission:'viewer',createdAt:stamp,updatedAt:stamp,archivedAt:null};
+ const value={teamspaces:[],teamspaceMembers:[]};
+ for(let i=0;i<1001;i++){const id='team-'+i;value.teamspaces.push({...team,id});value.teamspaceMembers.push({id:'member-'+i,workspaceId:'workspace',teamspaceId:id,accountId:'actor',membershipId:'generation',role:'owner'});}
+ assert.equal(validateTeamspaceState(value).teamspaces.length,1001);
+ const oversized={teamspaces:[team],teamspaceMembers:Array.from({length:1001},(_,i)=>({id:'member-'+i,workspaceId:'workspace',teamspaceId:'team',accountId:'actor-'+i,membershipId:'generation-'+i,role:i?'member':'owner'}))};
+ assert.throws(()=>validateTeamspaceState(oversized),error=>error.code==='INVALID_INPUT');
+});
 test('pending teamspace requests are bounded generation-bound metadata with no ACL effect',()=>{
  const source={teamspaces:[{id:'team',workspaceId:'workspace'}],teamspaceJoinRequests:[{id:'request',workspaceId:'workspace',teamspaceId:'team',accountId:'other',membershipId:'current-generation',createdAt:stamp}]};
  assert.deepEqual(validateTeamspaceJoinRequests({}),[]);const value=validateTeamspaceJoinRequests(source,{workspaceId:'workspace'});assert.deepEqual(value,source.teamspaceJoinRequests);value[0].accountId='changed';assert.equal(source.teamspaceJoinRequests[0].accountId,'other');

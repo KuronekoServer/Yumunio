@@ -30,7 +30,7 @@ export async function loadWorkspaceSettings({ workspaceId, expectedAccountId = n
   if (typeof workspace.name !== 'string' || workspace.name.length > 500 || workspace.name.includes('\0')) throw new WorkspaceSettingsError('INVALID_RESPONSE');
   const metadata = await request('/api/content/workspaces/' + encodeURIComponent(workspaceId) + '/pages', { headers: { 'X-Yumunio-Expected-Account': user.id } });
   if (metadata?.workspaceId !== workspaceId || !Number.isSafeInteger(metadata.revision) || metadata.revision < 0 ||
-      !['owner', 'admin', 'member', 'guest'].includes(metadata.role) || !Array.isArray(metadata.pages) || metadata.pages.length > 1000) throw new WorkspaceSettingsError('INVALID_RESPONSE');
+      !['owner', 'admin', 'member', 'guest'].includes(metadata.role) || !Array.isArray(metadata.pages)) throw new WorkspaceSettingsError('INVALID_RESPONSE');
   const current = await request('/api/auth/get-session');
   if (current?.user?.id !== user.id || current.user.emailVerified !== true) throw new WorkspaceSettingsError('ACCOUNT_CHANGED');
   return Object.freeze({ user: Object.freeze({ id: user.id, name: typeof user.name === 'string' ? user.name : '' }),

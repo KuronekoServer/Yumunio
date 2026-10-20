@@ -7,6 +7,12 @@ const session={user:{id:'account-a',emailVerified:true}};
 const options=fetcher=>({workspaceId:'studio',accountId:'account-a',fetcher});
 const response=(value,status=200)=>Response.json(value,{status});
 
+test('the teamspace directory accepts more than 64 distinct authorized teams',()=>{
+ const value={workspaceId:'studio',revision:5,canCreate:true,teamspaces:Array.from({length:80},(_,i)=>({...team,id:'team-'+i}))};
+ assert.equal(validateTeamspaceList(value,'studio').teamspaces.length,80);
+ value.teamspaces[79].id='team-0';assert.throws(()=>validateTeamspaceList(value,'studio'),/INVALID_RESPONSE/);
+});
+
 test('default Window fetch keeps its global receiver contract for teamspace reads and writes',async t=>{
  const previous=Object.getOwnPropertyDescriptor(globalThis,'fetch'),calls=[];
  Object.defineProperty(globalThis,'fetch',{configurable:true,value:async function(path,init){assert.equal(this,undefined,'Window.fetch must not receive a TeamspaceClient as its receiver');calls.push({path,method:init.method});if(path.endsWith('/get-session'))return response(session);return response(init.method==='POST'?detail:{workspaceId:'studio',revision:4,canCreate:true,teamspaces:[team]});}});

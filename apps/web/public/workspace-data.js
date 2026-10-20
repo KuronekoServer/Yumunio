@@ -120,6 +120,11 @@ export class CollectionEdits {
     if(pageId===this.envelope.pageId)this.envelope.collection.title=title;else if(record)record.title=title;
     this.envelope.revision=nextRevision;
   }
+  /** An acknowledged navigation write changes no collection fields or drafts. */
+  advanceNavigationBasis({expectedRevision,revision:nextRevision}){
+    if(this.conflict||expectedRevision!==this.revision||!revision(nextRevision)||nextRevision!==expectedRevision+1)throw new Error('INVALID_COLLECTION');
+    this.envelope.revision=nextRevision;
+  }
   markConflict(){this.conflict=true;}
   /** Refresh the global revision without overwriting a property changed by somebody else. */
   rebase(envelope){
@@ -156,7 +161,7 @@ export function pageMoveTargets(pages,pageId) {
  const source=pages.find(page=>page.id===pageId); if(!source || source.recordId||source.templateId)return [];
  const byId=new Map(pages.map(page=>[page.id,page]));
  return pages.filter(page=> {
-  if(page.id===pageId || page.trashedAt!==null || !page.capabilities?.includes('manage'))return false;
+  if(page.id===pageId || page.trashedAt!==null || !page.capabilities?.includes('manage')||(page.teamspaceId??null)!==(source.teamspaceId??null))return false;
   let cursor=page; const seen=new Set();
   while(cursor) { if(seen.has(cursor.id) || cursor.id===pageId || cursor.trashedAt!==null || !cursor.capabilities?.includes('read'))return false; seen.add(cursor.id); if(cursor.parentId===null)return true; cursor=byId.get(cursor.parentId); }
   return false;

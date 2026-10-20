@@ -10,6 +10,7 @@
 | 更新やバックアップを行う | [運用と復旧](hosting/maintenance.md) |
 | 起動・ログインで困っている | [トラブルシューティング](hosting/troubleshooting.md) |
 | ページを編集する | [基本操作](editing-basics.md) |
+| 子ページを増やし、並び替える | [ページ階層とチームスペース](page-tree.md) |
 | 本文に一覧を置き、詳細を編集する | [本文内DBと右側の詳細](inline-databases.md) |
 | DBの新しい項目にひな形を使う | [DBテンプレートと自動項目](database-templates.md) |
 | 共通の内容を複数ページで使う | [同期ブロック](synced-blocks.md) |

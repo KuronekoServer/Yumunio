@@ -54,8 +54,8 @@ const revision = value => {
 export function validateContentPayload(value, workspaceId) {
   assertId(workspaceId);
   object(value, ['schemaVersion', 'pages', 'grants', 'grantBindings', 'imports', 'collections', 'pendingBlobs', 'attachments', 'trashGroups', 'history', 'rooms', 'discussion', 'forms', 'formGrants', 'formReceipts', 'publicFormReceipts', 'formRateCounters', 'publications', 'personalTemplates', 'personalTemplateReceipts', 'teamspaces', 'teamspaceMembers', 'teamspacePages', 'personalPageOwners','groups','groupMembers','groupGrants','teamspaceJoinRequests','activityNotifications','pageFavorites'], ['schemaVersion', 'pages', 'grants', 'grantBindings']);
-  if (value.schemaVersion !== 1 || !Array.isArray(value.pages) || value.pages.length > 1000 ||
-      !Array.isArray(value.grants) || value.grants.length > 5000 || !Array.isArray(value.grantBindings) ||
+  if (value.schemaVersion !== 1 || !Array.isArray(value.pages) ||
+      !Array.isArray(value.grants) || !Array.isArray(value.grantBindings) ||
       value.grantBindings.length !== value.grants.length) fail('INVALID_CONTENT');
   if (new TextEncoder().encode(JSON.stringify(value)).length > MAX_CONTENT_BYTES) fail('CONTENT_TOO_LARGE', 413);
   const pages = new Map(); const grants = new Set(); let blocks = 0;
@@ -70,15 +70,17 @@ export function validateContentPayload(value, workspaceId) {
     blocks += item.document.blocks.length;
     if (blocks > 20000) fail('CONTENT_TOO_LARGE', 413);
   }
+  const checkedAncestry=new Set();
   for (const item of pages.values()) {
     const seen = new Set(); let cursor = item;
-    while (cursor) {
+    while (cursor&&!checkedAncestry.has(cursor.page.id)) {
       if (seen.has(cursor.page.id)) fail('INVALID_CONTENT');
       seen.add(cursor.page.id);
       if (cursor.page.parentId === null) break;
       cursor = pages.get(cursor.page.parentId);
       if (!cursor) fail('INVALID_CONTENT');
     }
+    for(const id of seen)checkedAncestry.add(id);
   }
   validateTeamspaceState(value,{workspaceId,pages});
   validateTeamspaceJoinRequests(value,{workspaceId});
@@ -270,7 +272,7 @@ async function importPages({request,store,saved,payload,actor,accountId,workspac
   const receipt = payload.imports?.find(item=>item.importId === data.importId);
   if (receipt) return replayImport(payload,receipt,{accountId,actor,principals:saved.principals,workspaceId,digest});
   if (data.expectedRevision !== saved.revision) fail('CONTENT_CONFLICT',409);
-  if (payload.pages.length + data.pages.length > 1000 || payload.grants.length + 1 > 5000 || (payload.imports?.length ?? 0) >= 1000) fail('CONTENT_TOO_LARGE',413);
+  if ((payload.imports?.length ?? 0) >= 1000) fail('CONTENT_TOO_LARGE',413);
   const used = new Set([...payload.pages.map(item=>item.page.id),...payload.grants.map(item=>item.id),
     ...(payload.collections ?? []).flatMap(item=>[item.collection.id,...item.collection.properties.map(property=>property.id),...item.collection.records.map(record=>record.id)]),
     ...(payload.pendingBlobs ?? []).map(item=>item.id),...(payload.attachments ?? []).map(item=>item.id)]);

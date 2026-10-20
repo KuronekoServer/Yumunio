@@ -9,6 +9,17 @@ test('property drafts rebase over body and unrelated property changes but preser
  const value=model();value.setRaw('row-A','memo','日本語の下書き');const fresh=envelope();fresh.revision=9;fresh.collection.records[0].title='Peer title';fresh.collection.records[0].values.name='Other property changed';const rebased=value.rebase(fresh);assert.equal(rebased.patch('row-A').expectedRevision,9);assert.deepEqual(rebased.changes('row-A'),{memo:'日本語の下書き'});assert.equal(rebased.record('row-A').values.name,'Other property changed');assert.equal(value.revision,3);
  const collision=structuredClone(fresh);collision.collection.records[0].values.memo='Peer changed this field';assert.throws(()=>value.rebase(collision),/INVALID_RECORD_EDIT/);const revoked=structuredClone(fresh);revoked.collection.records[0].capabilities=['read'];assert.throws(()=>value.rebase(revoked),/INVALID_RECORD_EDIT/);assert.equal(value.rawValue('row-A','memo'),'日本語の下書き');
 });
+
+test('page reordering advances only its acknowledged collection basis and preserves all fields and raw drafts',()=>{
+ const value=model();value.setRaw('row-A','memo','日本語の入力を保持');const before=structuredClone(value.envelope);
+ value.advanceNavigationBasis({expectedRevision:3,revision:4});
+ assert.deepEqual(value.envelope,{...before,revision:4});assert.equal(value.rawValue('row-A','memo'),'日本語の入力を保持');
+ assert.deepEqual(value.patch('row-A'),{expectedRevision:4,values:{memo:'日本語の入力を保持'}});
+ for(const change of [{expectedRevision:3,revision:5},{expectedRevision:4,revision:6},{expectedRevision:4,revision:4}]){
+  assert.throws(()=>value.advanceNavigationBasis(change),/INVALID_COLLECTION/);assert.equal(value.revision,4);assert.equal(value.rawValue('row-A','memo'),'日本語の入力を保持');
+ }
+ value.markConflict();assert.throws(()=>value.advanceNavigationBasis({expectedRevision:4,revision:5}),/INVALID_COLLECTION/);
+});
 test('record drafts preserve exact source strings and patch only changed properties',()=> {
  const value=model(); value.set('row-A','memo','0009\nMika');
  assert.deepEqual(value.changes('row-A'),{memo:'0009\nMika'});

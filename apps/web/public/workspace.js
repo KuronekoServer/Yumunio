@@ -22,7 +22,7 @@ import {planBlockForestMove} from './block-forest.js';
 import {createPageBlockTransfer,validatePageBlockTransferResult} from './block-transfer.js';
 import {mountSettingsDialog,settingsHrefSection} from './settings-dialog.js';
 import {mountWorkspacePicker} from './workspace-picker.js';
-import {sidebarPageRows,revealSidebarPage} from './sidebar-model.js';
+import {sidebarPageRows,revealSidebarPage,sidebarSiblings,sidebarDropPlacement,readSidebarDisclosure,writeSidebarDisclosure} from './sidebar-model.js';
 import {TeamspaceClient} from './teamspace-client.js';
 import {validateCreatedPage,validateCreatedPageProjection} from './page-create-result.js';
 import {createSimpleTable,isSimpleTableData} from './simple-table.js';
@@ -74,6 +74,8 @@ const databasePlacements=new Map();const syncedPlacements=new Map();let revision
 const blockSelection={scope:null,mode:false,ids:new Set(),anchor:null};
 let settingsDialog=null,workspacePicker=null,settingsPolicyChanged=false;
 const collapsedTeamspaces=new Set(),expandedSidebarPages=new Set();
+let sidebarStorageScope=null;
+function persistSidebarDisclosure(){if(sidebarStorageScope)try{writeSidebarDisclosure(localStorage,sidebarStorageScope,expandedSidebarPages,collapsedTeamspaces);}catch{}}
 const collapsedToggles=new Set();
 const modalOpen=()=>modal.open||settingsDialog?.open===true||workspacePicker?.open===true;
 let room=null; const roomCompositions=new Set();
@@ -581,14 +583,15 @@ function afterModalExit(action){if(modal.open&&modal.inert){modal.addEventListen
 function focusContent() {if(afterModalExit(focusContent))return;document.getElementById('page-title')?.focus({preventScroll:true});}
 function paintChrome(){
  if(signal.aborted)return null;
+ if(state.user?.id){const key='yumunio.sidebar.v1:'+workspaceId+':'+state.user.id;if(key!==sidebarStorageScope){sidebarStorageScope=key;expandedSidebarPages.clear();collapsedTeamspaces.clear();let saved;try{saved=readSidebarDisclosure(localStorage,key);}catch{}if(saved){for(const id of saved.expanded)expandedSidebarPages.add(id);for(const id of saved.collapsedTeams)collapsedTeamspaces.add(id);}}}
  const activeTeams=state.teamspaces.filter(team=>team.role!==null&&!team.archivedAt);
  const mounted=renderChrome({workspaceId,t,room:!!room,selectionMode:blockSelection.mode,state:{...state,current:state.current?{...state.current,page:{...state.current.page}}:null,draft:state.draft?{title:state.draft.title}:null},
   activeTeams,pageRows:sidebarPageRows(state.pages,expandedSidebarPages),collapsedTeams:[...collapsedTeamspaces],expandedPages:[...expandedSidebarPages],
   newDisabled:!!room||!state.user||!!state.fatal||state.role==='guest'||state.busy||state.listLoading||state.locked,
-  handlers:{openWorkspacePicker,setNavigation,openSearch,openWorkspaceHome,openSettings,refreshList,openCreate,selectPage,prefetchPage,cancelPagePrefetch,startPageDrag,endPageDrag,overPageDrop,dropPage,openTrash,openExport,applyEditorHistory,openResourceSharing,openPageActions,reloadPage,showRoomStart,
+  handlers:{openWorkspacePicker,setNavigation,openSearch,openWorkspaceHome,openSettings,refreshList,openCreate,createSubpage,moveSidebarPage,openSidebarPageMove,openSidebarPageTrash,openSidebarTeamspaceMove,openCreateTeamspace,selectPage,prefetchPage,cancelPagePrefetch,startPageDrag,endPageDrag,overPageDrop,dropPage,openTrash,openExport,applyEditorHistory,openResourceSharing,openPageActions,reloadPage,showRoomStart,
    toggleFavorite:()=>{if(state.current)void runPageTool('favorite',{favorite:!state.current.page.favorite});},
-   toggleTeam:id=>{if(collapsedTeamspaces.has(id))collapsedTeamspaces.delete(id);else collapsedTeamspaces.add(id);paintChrome();},
-   togglePage:id=>{if(expandedSidebarPages.has(id))expandedSidebarPages.delete(id);else expandedSidebarPages.add(id);paintChrome();}}});
+   toggleTeam:id=>{if(collapsedTeamspaces.has(id))collapsedTeamspaces.delete(id);else collapsedTeamspaces.add(id);persistSidebarDisclosure();paintChrome();},
+   togglePage:id=>{if(expandedSidebarPages.has(id))expandedSidebarPages.delete(id);else expandedSidebarPages.add(id);persistSidebarDisclosure();paintChrome();}}});
  if(mounted){sidebar=mounted.sidebar;mainPanel=mounted.mainPanel;navButton=mounted.navButton;}
  return mounted;
 }
@@ -640,6 +643,8 @@ function render() {
     content.append(title);
     if(!canEdit())content.append(metadata);
     if (state.current.attachments?.length) content.append(renderPageAttachments());
+    content.append(node('nav',{class:'child-page-directory','data-child-pages':'','aria-label':t('pageTree.children')}));
+    refreshChildPages(content);
     if (state.collection) content.append(renderCollection());
     if (state.collectionError) content.append(node('p',{class:'message',role:'status'},t(state.collectionError)));
     if(canEdit()&&(!room||room.client?.protocol===2))content.append(node('details',{class:'document-tools',...(blockSelection.mode?{open:true}:{})},[node('summary',{},t('editorOptions')),metadata,renderBlockSelectionToolbar()]));
@@ -1631,7 +1636,7 @@ async function refreshList(announce = false) {
     if (announce) { state.notice = 'listRefreshed'; state.error = ''; }
     return true;
   } catch (error) { if (marker === state.listGeneration) state.error = errorKey(error, 'listFailed'); return false; }
-  finally { if (marker === state.listGeneration) { state.listLoading = false; if(state.current&&!state.loading){paintChrome();refreshSaveStatus();}else render(); } }
+  finally { if (marker === state.listGeneration) { state.listLoading = false; if(state.current&&!state.loading){paintChrome();refreshSaveStatus();refreshChildPages();}else render(); } }
 }
 function cancelPagePrefetch(){clearTimeout(prefetchTimer);prefetchTimer=null;}
 function prefetchPage(pageId){
@@ -1690,6 +1695,7 @@ async function selectPage(pageId, reload = false, discardConfirmed = false, owns
     }
     state.collection = collection; state.collectionError = collectionError; state.recordError = ''; state.people=people;
     revealSidebarPage(state.pages,pageId,expandedSidebarPages);
+    persistSidebarDisclosure();
     state.current = data; state.draft = { title: data.page.title, blocks: clone(data.document.blocks) };
     editorHistory=new EditorHistory(state.draft);
     state.dirty = false; state.conflict = false; state.locked = false; state.listRevision = data.revision;
@@ -1767,7 +1773,7 @@ async function openCreate(teamspaceId=null) {
   input.addEventListener('input', () => input.setCustomValidity(''));
   showModal('createPage', form); input.focus(); input.select();
 }
-async function createPage(title,teamspaceId=null) {
+async function createPage(title,teamspaceId=null,parentId=null) {
   if(!await settleBodySave())return;
   if (room || state.busy || state.listLoading) return;
   state.busy = true; state.error = ''; state.notice = '';
@@ -1777,12 +1783,14 @@ async function createPage(title,teamspaceId=null) {
   const ownsView=()=>state.user?.id===accountId&&state.selection===selection&&state.current?.page.id===previousPageId&&draftGeneration===generation;
   let createdId,acknowledged=false;
   try {
-    const submitted={expectedRevision:state.listRevision,title,blocks:[{id:crypto.randomUUID(),type:'paragraph',data:{text:''}}],...(teamspaceId?{teamspaceId}:{})};
+    const parent=parentId?state.pages.find(page=>page.id===parentId&&canManagePage(page)):null;
+    if(parentId&&!parent)throw new ApiError(404,'CONTENT_NOT_FOUND');
+    const submitted={expectedRevision:state.listRevision,title,blocks:[{id:crypto.randomUUID(),type:'paragraph',data:{text:''}}],...(parentId?{parentId}:teamspaceId?{teamspaceId}:{})};
     const data=validateCreatedPage(submitted,await request(basePath(),{method:'POST',body:submitted}),{workspaceId});
     acknowledged=true;if(!ownsView())return;
-    validateCreatedPageProjection(data,validatePageEnvelope(await request(basePath()+'/'+encodeURIComponent(data.page.id)),data.page.id),{workspaceId,teamspaceId});
+    validateCreatedPageProjection(data,validatePageEnvelope(await request(basePath()+'/'+encodeURIComponent(data.page.id)),data.page.id),{workspaceId,teamspaceId:parent?.teamspaceId??teamspaceId});
     if(!ownsView())return;
-    createdId = data.page.id; state.listRevision = data.revision;
+    createdId = data.page.id; state.listRevision = data.revision;if(parentId)expandedSidebarPages.add(parentId);
     // Only a successful creation replaces the previous tab draft.
     modal.close(); state.notice = 'created';
   } catch (error) {
@@ -1853,14 +1861,56 @@ async function openPageTeamspaceMove(page){
  }catch(error){fail(error);}
 }
 function canManagePage(page) { return state.role!=='guest' && page?.capabilities?.includes('manage') && !state.locked; }
+async function createSubpage(pageId){
+ const page=state.pages.find(item=>item.id===pageId);
+ if(!canManagePage(page)||room||state.busy||state.listLoading||!await confirmReplace())return;
+ const previous=state.current?.page.id;await closeModalFully();await createPage(t('newPage'),null,page.id);
+ if(state.current?.page.id!==previous&&state.current?.page.parentId===pageId){focusContent();document.getElementById('page-title')?.select();}
+}
+function refreshChildPages(root=app){
+ const host=root.querySelector('[data-child-pages]');if(!host||!state.current)return;
+ const children=state.pages.filter(page=>page.parentId===state.current.page.id);
+ const links=children.map(page=>node('a',{class:'child-page-link',href:'/workspace?workspace='+encodeURIComponent(workspaceId)+'&page='+encodeURIComponent(page.id),onClick:event=>{if(event.button||event.ctrlKey||event.metaKey||event.altKey||event.shiftKey)return;event.preventDefault();void selectPage(page.id);},onPointerEnter:()=>prefetchPage(page.id),onPointerLeave:cancelPagePrefetch},[icon(page.collectionId?'table':'page'),node('span',{translate:'no'},page.title||t('untitled'))]));
+ if(canManagePage(state.current.page)&&!room)links.push(button('pageTree.addChild',()=>void createSubpage(state.current.page.id),{class:'child-page-link child-page-create',icon:'plus',disabled:state.busy||state.listLoading}));
+ host.replaceChildren(...links);host.hidden=!links.length;
+}
+async function reorderSidebarPage(page,placement){
+ if(state.busy||state.listLoading||!canManagePage(page)||!await settleBodySave())return;
+ const accountId=state.user?.id,scope=collectionScope();state.busy=true;state.error='';paintChrome();
+ try{
+  const expectedRevision=state.listRevision,result=await request(basePath()+'/'+encodeURIComponent(page.id)+'/location',{method:'PATCH',body:{expectedRevision,parentId:placement.parentId,beforeId:placement.beforeId}});
+  if(result?.pageId!==page.id||result.revision!==expectedRevision+1||result.reordered!==true)throw new ApiError(0,'INVALID_RESPONSE');
+  if(scope===collectionScope()&&state.current?.revision===expectedRevision){state.collection?.advanceNavigationBasis({expectedRevision,revision:result.revision});state.current.revision=result.revision;}
+  const fresh=await request(basePath());if(state.user?.id!==accountId||signal.aborted)return;
+  if(fresh.workspaceId!==workspaceId||!Number.isSafeInteger(fresh.revision)||fresh.revision<result.revision||!Array.isArray(fresh.pages)||fresh.pages.some(item=>!validId(item.id)||item.workspaceId!==workspaceId||typeof item.title!=='string'||!Array.isArray(item.capabilities)||!item.capabilities.includes('read')))throw new ApiError(0,'INVALID_RESPONSE');
+  state.pages=fresh.pages;state.listRevision=fresh.revision;pageReads.clear();state.notice='pageTree.reordered';
+  if(state.current&&!fresh.pages.some(item=>item.id===state.current.page.id)){state.locked=true;state.error='operationAccessChanged';}
+  refreshChildPages();
+ }catch(error){state.error=operationError(error);}
+ finally{state.busy=false;paintChrome();refreshPageFeedback();autosave.refresh();}
+}
+function moveSidebarPage(pageId,direction){
+ const page=state.pages.find(item=>item.id===pageId),siblings=sidebarSiblings(state.pages,pageId),index=siblings.findIndex(item=>item.id===pageId);
+ if(!page||index<0||direction==='up'&&index===0||direction==='down'&&index===siblings.length-1)return;
+ void reorderSidebarPage(page,{parentId:page.parentId,beforeId:direction==='up'?siblings[index-1].id:siblings[index+2]?.id??null});
+}
+function openSidebarPageMove(pageId){const page=state.pages.find(item=>item.id===pageId);if(page)openPageOperation('move',page);}
+function openSidebarPageTrash(pageId){const page=state.pages.find(item=>item.id===pageId);if(page)openPageOperation('trash',page);}
+async function openSidebarTeamspaceMove(pageId){if(room||state.busy||state.loading||!await confirmReplace())return;await closeModalFully();if(state.current?.page.id!==pageId)await selectPage(pageId);if(state.current?.page.id===pageId)await openPageTeamspaceMove(state.current.page);}
+function openCreateTeamspace(){void openSettings('teamspaces',null,null,true);}
 function startPageDrag(event,page) {
-  if(room || draggedBlockId || !canManagePage(page) || page.recordId || state.busy) { event.preventDefault(); return; }
+  if(draggedBlockId || !canManagePage(page) || page.recordId || page.templateId || state.busy) { event.preventDefault(); return; }
   draggedPageId=page.id; event.dataTransfer.setData('application/x-yumunio-page',page.id); event.dataTransfer.effectAllowed='move'; app.classList.add('page-dragging');
 }
-function endPageDrag() { draggedPageId=null; app.classList.remove('page-dragging'); for(const item of app.querySelectorAll('.drop-target'))item.classList.remove('drop-target'); }
-function validPageDrop(targetId) { if(room)return false;return draggedPageId && (targetId===null || pageMoveTargets(state.pages,draggedPageId).some(page=>page.id===targetId)); }
-function overPageDrop(event,targetId) { if(!validPageDrop(targetId))return; event.preventDefault();event.dataTransfer.dropEffect='move';event.currentTarget.classList.add('drop-target'); }
-function dropPage(event,targetId) { if(!validPageDrop(targetId) || event.dataTransfer.getData('application/x-yumunio-page')!==draggedPageId)return;event.preventDefault();const page=state.pages.find(item=>item.id===draggedPageId);endPageDrag();openPageOperation('move',page,targetId); }
+function endPageDrag() { draggedPageId=null; app.classList.remove('page-dragging'); for(const item of app.querySelectorAll('[data-page-drop]'))delete item.dataset.pageDrop; }
+function pageDrop(event,targetId){
+ const source=state.pages.find(page=>page.id===draggedPageId);if(!source)return null;
+ if(targetId===null)return !room&&!source.teamspaceId?{parentId:null,beforeId:null}:null;
+ const rect=event.currentTarget.getBoundingClientRect(),ratio=(event.clientY-rect.top)/Math.max(1,rect.height),edge=ratio<.25?'before':ratio>.75?'after':'inside';
+ const placement=sidebarDropPlacement(state.pages,source.id,targetId,edge);if(!placement||room&&placement.parentId!==source.parentId)return null;return{...placement,edge};
+}
+function overPageDrop(event,targetId) { const placement=pageDrop(event,targetId);if(!placement)return;event.preventDefault();event.stopPropagation();event.dataTransfer.dropEffect='move';for(const item of app.querySelectorAll('[data-page-drop]'))delete item.dataset.pageDrop;event.currentTarget.dataset.pageDrop=placement.edge??'inside'; }
+function dropPage(event,targetId) { const placement=pageDrop(event,targetId);if(!placement||event.dataTransfer.getData('application/x-yumunio-page')!==draggedPageId)return;event.preventDefault();event.stopPropagation();const page=state.pages.find(item=>item.id===draggedPageId);endPageDrag();if(placement.parentId===page.parentId)void reorderSidebarPage(page,placement);else openPageOperation('move',page,placement.parentId,placement.beforeId); }
 async function openPageAppearance(){
  if(!state.current?.page.capabilities.includes('editBody')||room||state.busy||state.locked)return;
  const scope=blockDragScope();await closeModalFully();await autosave.flush();await settleBodySave();
@@ -1945,9 +1995,9 @@ async function openPageActions() {
     node('p',{class:'hint'},t(page.recordId?'recordCannotMove':'pageOperationHint'))
   ]);
 }
-function openPageOperation(action,page,parentId) {
+function openPageOperation(action,page,parentId,beforeId=undefined) {
   if(room || state.busy || !page || (action==='restore'?!page.capabilities?.includes('restore'):!canManagePage(page)))return;
-  operation={action,page,parent:parentId===undefined?(action==='restore'?'previous':page.parentId??''):parentId??'',inherit:false,revision:action==='restore'?page.trashRevision:state.listRevision,pending:false,error:'',recheck:false,unavailable:false};
+  operation={action,page,beforeId,parent:parentId===undefined?(action==='restore'?'previous':page.parentId??(page.teamspaceId?'@team-root':'')):parentId??'',inherit:false,revision:action==='restore'?page.trashRevision:state.listRevision,pending:false,error:'',recheck:false,unavailable:false};
   renderPageOperation();
 }
 function operationError(error) {
@@ -1962,12 +2012,12 @@ function renderPageOperation() {
   const op=operation;if(!op)return;
   const targets=op.action==='restore'?state.pages.filter(page=>canManagePage(page)):pageMoveTargets(state.pages,op.page.id);
   const parent=node('select',{'aria-label':t('moveDestination')},[
-    ...(op.action==='restore'?[node('option',{value:'previous'},t('previousLocation'))]:[]),node('option',{value:''},t('workspaceTop')),
+    ...(op.action==='restore'?[node('option',{value:'previous'},t('previousLocation'))]:[]),node('option',{value:op.page.teamspaceId&&op.action==='move'?'@team-root':''},t(op.page.teamspaceId&&op.action==='move'?'pageTree.teamspaceRoot':'workspaceTop')),
     ...targets.map(page=>node('option',{value:page.id,translate:'no'},page.title))
   ]);
-  parent.value=op.parent;if(parent.value!==op.parent) {op.parent=op.action==='restore'?'previous':'';parent.value=op.parent;}
-  parent.addEventListener('change',()=> {op.parent=parent.value;op.inherit=false;renderPageOperation();});
-  const inherit=node('input',{type:'checkbox',checked:op.inherit,disabled:!op.parent}); inherit.addEventListener('change',()=>op.inherit=inherit.checked);
+  parent.value=op.parent;if(parent.value!==op.parent) {op.parent=op.action==='restore'?'previous':op.page.teamspaceId?'@team-root':'';parent.value=op.parent;}
+  parent.addEventListener('change',()=> {op.parent=parent.value;op.beforeId=undefined;op.inherit=false;renderPageOperation();});
+  const inherit=node('input',{type:'checkbox',checked:op.inherit,disabled:!op.parent||op.parent==='@team-root'}); inherit.addEventListener('change',()=>op.inherit=inherit.checked);
   const title={move:'movePage',trash:'trashPage',restore:'restorePage'}[op.action];
   const content=[node('p',{translate:'no',class:'operation-page-title'},op.page.title),node('p',{},t(op.action==='trash'?'trashPageHint':op.action==='restore'?'restorePageHint':'movePageHint'))];
   if(op.action!=='trash')content.push(node('label',{class:'field'},[t('moveDestination'),parent]),node('label',{class:'acknowledgement'},[inherit,node('span',{},t('inheritPermissions'))]),node('p',{class:'hint'},t('inheritPermissionsHint')));
@@ -1988,18 +2038,19 @@ async function recheckPageOperation() {
     }else {
       const page=state.pages.find(page=>page.id===op.page.id);if(!page){op.unavailable=true;op.error='operationResultCheck';return;}op.page=page;op.revision=state.listRevision;
     }
-    op.inherit=false;op.error='operationReviewed';op.recheck=false;
+    op.inherit=false;op.beforeId=undefined;op.error='operationReviewed';op.recheck=false;
   }catch(error){op.error=operationError(error);}finally{op.pending=false;renderPageOperation();}
 }
 function clearCurrentPage() {collectionView?.destroy();collectionView=null;collectionViewId=null;collectionRecovery=false;collectionRefresh=false;editorHistory=null;state.current=null;state.draft=null;state.collection=null;state.collectionError='';state.recordError='';state.people=[];state.dirty=false;state.conflict=false;const url=new URL(location.href);url.searchParams.delete('page');url.searchParams.delete('view');url.hash='';history.replaceState(null,'',url);}
 async function executePageOperation() {
   if(!await settleBodySave())return;
   const op=operation;if(!op || op.pending || op.recheck || op.unavailable || state.busy)return;
+  if(op.action==='move'&&op.parent==='@team-root'){operation=null;await closeModalFully();await openSidebarTeamspaceMove(op.page.id);return;}
   if(!await confirmReplace()) {renderPageOperation();return;}
   op.pending=true;state.busy=true;renderPageOperation();render();
   try {
     const suffix=op.action==='move'?'/location':op.action==='restore'?'/restore':'';
-    const body={expectedRevision:op.revision,...(op.action==='trash'?{}:{...(op.parent==='previous'?{}:{parentId:op.parent||null}),inheritPermissions:op.inherit===true})};
+    const body={expectedRevision:op.revision,...(op.action==='trash'?{}:{...(op.parent==='previous'?{}:{parentId:op.parent||null}),inheritPermissions:op.inherit===true,...(op.action==='move'&&op.beforeId!==undefined?{beforeId:op.beforeId}:{})})};
     const result=await request(basePath()+'/'+encodeURIComponent(op.page.id)+suffix,{method:op.action==='move'?'PATCH':op.action==='restore'?'POST':'DELETE',body});
     if(result?.pageId!==op.page.id || !Number.isSafeInteger(result.revision) || result.revision<=op.revision || !Number.isSafeInteger(result.affectedPageCount) || result.affectedPageCount<1)throw new ApiError(0,'INVALID_RESPONSE');
     modal.close();operation=null;state.busy=false;state.conflict=!!state.current;
@@ -2115,7 +2166,7 @@ async function openWorkspaceHome(route={}){
  rememberPagePosition();pageIntent++;destroyRoom();state.selection++;pageController?.abort();pageController=null;state.loading=false;state.pendingPageId=null;pageHistory(null,route);clearCurrentPage();state.locked=false;bodySaveBlocked='';render();autosave.refresh();
 }
 function openResourceSharing(){if(!state.current)return;openSettings('members',null,{kind:state.collection&&!state.current.page.recordId?'collection':'page',title:state.current.page.title||t('untitled')});}
-async function openSettings(section='appearance',teamspaceId=null,resource=null){
+async function openSettings(section='appearance',teamspaceId=null,resource=null,createTeamspace=false){
  if(settingsDialog?.open){settingsDialog.requestSection(section);return;}
  if(!state.user||state.fatal||state.busy||roomCompositions.size)return;
  if(modal.open||!await prepareEditorDialog())return;
@@ -2123,7 +2174,7 @@ async function openSettings(section='appearance',teamspaceId=null,resource=null)
  const accountId=state.user.id,pageId=state.current?.page.id,priorLocale=preferences.snapshot().locale;
  let preferenceTask=Promise.resolve();
  settingsPolicyChanged=false;
- settingsDialog=mountSettingsDialog({background:app,workspaceId,expectedAccountId:accountId,pageId,workspaceName:state.name,accountName:state.user.name,resource,initialSection:section,initialTeamspaceId:teamspaceId,labels:key=>t('settingsDialog.'+key),
+ settingsDialog=mountSettingsDialog({background:app,workspaceId,expectedAccountId:accountId,pageId,workspaceName:state.name,accountName:state.user.name,resource,initialSection:section,initialTeamspaceId:teamspaceId,createTeamspace,labels:key=>t('settingsDialog.'+key),
   onPreferencesChanged:()=>{preferenceTask=preferenceTask.then(async()=>{
    if(state.user?.id!==accountId)return;
    preferences=new PreferencesStore({profileId:accountId});

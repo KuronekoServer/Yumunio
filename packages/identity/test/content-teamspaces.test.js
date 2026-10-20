@@ -255,17 +255,27 @@ test('duplicate requires an active owner, explicit settings-only consent and exa
  await ok(await f.mutate(path+'/archive',{archived:true}));const archived=await f.read();await error(await f.mutate(path+'/duplicate',{name:'Copy',confirmSettingsOnly:true}),409,'TEAMSPACE_ARCHIVED');assert.deepEqual(await f.read(),archived);
 });
 
-test('duplicate rejects capacity limits and a changed creator membership at the same storage CAS',async t=>{
- for(const kind of ['teams','members','generation','verification']){
+test('duplicate rejects a changed creator membership at the same storage CAS',async t=>{
+ for(const kind of ['generation','verification']){
   const f=await fixture(t),{teamspace:source}=await f.create({visibility:'private'}),path=teamPath(source);
-  if(kind==='teams')await f.change(payload=>{for(let index=1;index<64;index++)payload.teamspaces.push({...payload.teamspaces[0],id:'synthetic-'+index,name:'Bounded '+index});});
-  if(kind==='members')await f.change(payload=>{for(let index=1;index<1000;index++)payload.teamspaceMembers.push({id:'synthetic-member-'+index,workspaceId:'workspace',teamspaceId:source.id,accountId:'synthetic-person-'+index,membershipId:'synthetic-membership-'+index,role:'member'});});
   const before=await f.read();
   if(kind==='generation')f.setBeforeWrite(()=>f.db.prepare('UPDATE yumunio_memberships SET id=? WHERE userId=?').run('replacement-owner','owner'));
   if(kind==='verification')f.setBeforeWrite(()=>f.db.prepare('UPDATE yumunio_users SET emailVerified=0 WHERE id=?').run('owner'));
-  await error(await f.mutate(path+'/duplicate',{name:'Copy',confirmSettingsOnly:true}),kind==='teams'||kind==='members'?413:404);
+  await error(await f.mutate(path+'/duplicate',{name:'Copy',confirmSettingsOnly:true}),404);
   const after=f.db.prepare('SELECT revision,payload_json FROM yumunio_account_content WHERE workspace_id=?').get('workspace');assert.equal(after.revision,before.revision);assert.deepEqual(JSON.parse(after.payload_json),before.payload);
  }
+});
+
+test('creation and duplication grow past 64 teams and a full source membership does not exhaust other teams',async t=>{
+ const f=await fixture(t),{teamspace:source}=await f.create({visibility:'private'});
+ await f.change(payload=>{for(let index=1;index<70;index++){
+  const id='team-'+index;payload.teamspaces.push({...payload.teamspaces[0],id,name:'Team '+index});payload.teamspaceMembers.push({id:'owner-'+index,workspaceId:'workspace',teamspaceId:id,accountId:'owner',membershipId:'membership-owner',role:'owner'});
+ }for(let index=1;index<1000;index++)payload.teamspaceMembers.push({id:'source-member-'+index,workspaceId:'workspace',teamspaceId:source.id,accountId:'synthetic-person-'+index,membershipId:'generation-'+index,role:'member'});});
+ const created=await f.create({name:'Next team',visibility:'private'});assert.equal(created.teamspace.memberCount,1);
+ const copy=await ok(await f.mutate(teamPath(source)+'/duplicate',{name:'Copy',confirmSettingsOnly:true}));assert.equal(copy.members.length,1);assert.equal(copy.members[0].accountId,'owner');
+ const listed=await ok(await f.request('/teamspaces'));assert.equal(listed.teamspaces.length,72);
+ assert.equal((await ok(await f.request('/teamspaces',{account:'second'}))).teamspaces.length,0);
+ assert.equal((await f.read()).payload.teamspaceMembers.filter(row=>row.teamspaceId===source.id).length,1000);
 });
 
 test('duplicate cannot commit after source settings or its creator ownership changes before storage CAS',async t=>{

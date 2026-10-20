@@ -114,6 +114,13 @@ test('a different control focused during exit keeps its focus', async t => {
   assert.equal(f.doc.activeElement, f.editor);
 });
 
+test('a dialog opened from a portal menu returns to its persistent page trigger',async t=>{
+ const f=fixture(t),trigger=f.doc.createElement('button'),popover=f.doc.createElement('div'),action=f.doc.createElement('button');
+ trigger.setAttribute('id','page-menu-trigger');popover.setAttribute('data-menu-trigger-id',trigger.id);popover.append(action);f.doc.body.append(trigger,popover);
+ action.focus();f.dialog.showModal();f.input.focus();popover.remove();f.dialog.close();f.animations.at(-1).complete();await flush();
+ assert.equal(f.doc.activeElement,trigger);
+});
+
 test('Escape honors composition and existing busy guards', async t => {
   const f = fixture(t);
   f.dialog.showModal();

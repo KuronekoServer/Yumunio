@@ -8,6 +8,13 @@ import {settingsDomFixture} from './fixtures/settings-dom.js';
 
 const catalogs=Object.fromEntries(await Promise.all(['ja','en'].map(async locale=>[locale,JSON.parse(await readFile(new URL('../public/teamspace-locales/'+locale+'.json',import.meta.url),'utf8'))])));
 const text=catalogs.ja;
+
+test('a sidebar creation intent opens the existing teamspace form with safe defaults',async t=>{
+ const f=fixture(t,{initialId:null});await f.controller.ready;
+ assert.equal(f.controller.focusSection('teamspaces',{create:true}),true);
+ assert.equal(f.root.querySelector('#teamspace-name').value,'');assert.equal(f.root.querySelector('#teamspace-visibility').value,'closed');assert.equal(f.root.querySelector('#teamspace-defaultPermission').value,'viewer');
+ assert.equal(f.doc.activeElement,f.root.querySelector('#teamspace-name'));f.controller.destroy();
+});
 const pendingRow={id:'request-c',accountId:'account-c',name:'Chika pending',createdAt:'2026-10-16T00:00:00.000Z',currentUser:false};
 test('closed outsider requests and cancels only after native confirmation and fresh queue reload',async t=>{
  const value=detail({role:null,capabilities:['read']});value.members=[];value.candidates=[];const f=fixture(t,{value});await f.controller.ready;assert.ok(f.button('requestJoin'));f.button('requestJoin').dispatch('click');assert.equal(f.calls.filter(call=>call.kind==='requestJoin').length,0);f.cancel();f.button('requestJoin').dispatch('click');f.confirm();await flush();assert.deepEqual(f.calls.find(call=>call.kind==='requestJoin').body,{expectedRevision:4,confirmRequest:true});assert.ok(f.root.textContent.includes(text.requestPending));assert.equal(f.button('requestJoin'),undefined);assert.ok(f.button('cancelRequest'));assert.equal(f.controller.closeState.dirty,false);f.button('cancelRequest').dispatch('click');f.confirm();await flush();assert.deepEqual(f.calls.find(call=>call.kind==='cancelRequest').body,{expectedRevision:5,requestId:'pending-a',confirmCancel:true});assert.ok(f.button('requestJoin'));assert.equal(f.changes.length,2);f.controller.destroy();

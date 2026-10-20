@@ -38,6 +38,12 @@ test('guest keeps the current workspace context and has no import action',async(
  assert.equal(value.canImport,false);
  assert.equal(value.role,'guest');
 });
+
+test('workspace settings remain available after the account workspace grows beyond one thousand pages',async()=>{
+ const pages=Array.from({length:1001},(_,index)=>({id:'page-'+index,title:'Page '+index,capabilities:['read']}));
+ const f=fixture({metadata:{pages}}),value=await loadWorkspaceSettings({workspaceId:'studio',request:f.request});
+ assert.equal(value.workspace.id,'studio');assert.equal(value.canImport,true);assert.equal(Object.hasOwn(value,'pages'),false);
+});
 test('disabled accounts and unverified sessions never request workspace content',async()=>{
  const disabled=fixture({config:{enabled:false}});
  await assert.rejects(loadWorkspaceSettings({workspaceId:'studio',request:disabled.request}),{code:'ACCOUNTS_DISABLED'});

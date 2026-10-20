@@ -1,6 +1,7 @@
 import {DomainError,assertId,assertPlainObject,assertJsonSerializable} from './index.js';
 
-export const TEAMSPACE_LIMITS=Object.freeze({teamspaces:64,members:1000,pages:1000,requests:1000});
+// Capacity belongs to the storage/validation budget. Member limits are per team.
+export const TEAMSPACE_LIMITS=Object.freeze({members:1000,requests:1000});
 export const TEAMSPACE_VISIBILITIES=Object.freeze(['open','closed','private']);
 export const TEAMSPACE_ROLES=Object.freeze(['owner','member']);
 export const TEAMSPACE_PERMISSIONS=Object.freeze(['viewer','commenter','editor']);
@@ -30,11 +31,12 @@ export function validateTeamspaceJoinRequests(value,{workspaceId}={}){
 /** Missing arrays mean the pre-teamspace policy, never an implicit assignment of old pages. */
 export function validateTeamspaceState(value,{workspaceId,pages}={}){
  assertPlainObject(value);assertJsonSerializable(value);
- const result={teamspaces:[],teamspaceMembers:[],teamspacePages:[],personalPageOwners:[]},validators={teamspaces:validateTeamspace,teamspaceMembers:validateTeamspaceMember,teamspacePages:validateTeamspacePage,personalPageOwners:validatePersonalPageOwner},limits={teamspaces:64,teamspaceMembers:1000,teamspacePages:1000,personalPageOwners:1000};
- for(const name of Object.keys(result)){const entries=Object.hasOwn(value,name)?value[name]:[];if(!Array.isArray(entries)||entries.length>limits[name])fail();result[name]=entries.map(validators[name]);if(workspaceId&&result[name].some(row=>row.workspaceId!==workspaceId))fail();}
+ const result={teamspaces:[],teamspaceMembers:[],teamspacePages:[],personalPageOwners:[]},validators={teamspaces:validateTeamspace,teamspaceMembers:validateTeamspaceMember,teamspacePages:validateTeamspacePage,personalPageOwners:validatePersonalPageOwner};
+ for(const name of Object.keys(result)){const entries=Object.hasOwn(value,name)?value[name]:[];if(!Array.isArray(entries))fail();result[name]=entries.map(validators[name]);if(workspaceId&&result[name].some(row=>row.workspaceId!==workspaceId))fail();}
  const teams=new Map(),memberIds=new Set(),memberKeys=new Set(),pageIds=new Set();
  for(const team of result.teamspaces){if(teams.has(team.id))fail();teams.set(team.id,team);}
- for(const member of result.teamspaceMembers){const team=teams.get(member.teamspaceId),key=member.teamspaceId+'\0'+member.accountId;if(!team||member.workspaceId!==team.workspaceId||memberIds.has(member.id)||memberKeys.has(key))fail();memberIds.add(member.id);memberKeys.add(key);}
+ const memberCounts=new Map();
+ for(const member of result.teamspaceMembers){const team=teams.get(member.teamspaceId),key=member.teamspaceId+'\0'+member.accountId,count=(memberCounts.get(member.teamspaceId)??0)+1;if(!team||member.workspaceId!==team.workspaceId||memberIds.has(member.id)||memberKeys.has(key)||count>TEAMSPACE_LIMITS.members)fail();memberIds.add(member.id);memberKeys.add(key);memberCounts.set(member.teamspaceId,count);}
  for(const binding of result.teamspacePages){const team=teams.get(binding.teamspaceId),page=pages?.get(binding.workspaceId+'\0'+binding.pageId)??pages?.get(binding.pageId),model=page?.page??page;if(!team||binding.workspaceId!==team.workspaceId||pageIds.has(binding.pageId)||pages&&(!model||model.workspaceId!==binding.workspaceId||model.parentId!==null))fail();pageIds.add(binding.pageId);}
  const personalIds=new Set();for(const owner of result.personalPageOwners){const page=pages?.get(owner.workspaceId+'\0'+owner.pageId)??pages?.get(owner.pageId),model=page?.page??page;if(personalIds.has(owner.pageId)||pageIds.has(owner.pageId)||pages&&(!model||model.workspaceId!==owner.workspaceId||model.parentId!==null))fail();personalIds.add(owner.pageId);}
  return result;

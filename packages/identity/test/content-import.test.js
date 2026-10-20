@@ -95,7 +95,7 @@ test('invalid hierarchy, authorization injection and request/page limits have no
   assert.equal(f.writes,0);assert.equal((await f.raw.read(workspaceId,'member')).revision,0);
 });
 
-test('aggregate byte/page ceilings reject the entire new import while existing pages remain',async t=>{
+test('the byte budget remains atomic while imports grow beyond a thousand existing pages',async t=>{
   const f=fixture(t);await f.request('member');
   let saved=await f.raw.read(workspaceId,'member');saved.payload.pages[0].document.blocks[0].data.text='';
   const bytes=value=>new TextEncoder().encode(JSON.stringify(value)).length,nearLimit=CONTENT_STORAGE_LIMITS.logicalBytes-20000;
@@ -111,9 +111,9 @@ test('aggregate byte/page ceilings reject the entire new import while existing p
     document:{pageId:'existing-'+i,workspaceId,version:1,blocks:[],updatedAt:stamp},inheritPermissions:false});
   validateContentPayload(saved.payload,workspaceId);
   await f.raw.write(workspaceId,'member',{expectedRevision:2,payload:saved.payload,actorMembershipId:'membership-member',actorRole:'member'});
-  await error(await f.request('member',bundle({expectedRevision:3,importId:'page-overflow'})),413,'CONTENT_TOO_LARGE');
-  saved=await f.raw.read(workspaceId,'member');assert.equal(saved.revision,3);assert.equal(saved.payload.pages.length,1000);
-  assert.equal(f.writes,1);
+  const imported=await f.request('member',bundle({expectedRevision:3,importId:'next-pages'}));assert.equal(imported.status,201);
+  saved=await f.raw.read(workspaceId,'member');assert.equal(saved.revision,4);assert.equal(saved.payload.pages.length,1003);assert.equal(saved.payload.pages[0].document.blocks[0].data.text,'small');
+  assert.equal(f.writes,2);
 });
 
 test('old payloads remain valid and receipt metadata is strictly validated without changing public reads',async t=>{

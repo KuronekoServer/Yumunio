@@ -87,7 +87,6 @@ function answersFor(definition,properties,answers){
   validatePropertyValues(properties,values);return{values,normalized};
 }
 function appendResponse(context,entry,published,manager,values,normalized,stamp){
-  if(context.payload.pages.length>=1000||context.payload.grants.length>=5000)fail('FORM_UNAVAILABLE',503);
   const create=mint(context),pageId=create(),recordId=create(),grantId=create(),sourceId=create();
   const source={formTitle:published.definition.title,formVersion:published.version,acceptedAt:stamp,questions:published.definition.fields.filter(field=>own(normalized,field.id)).map(field=>({label:field.label,value:normalized[field.id]}))},sourceText=JSON.stringify(source);if(sourceText.length>100000)fail('FORM_TOO_LARGE',413);
   const page=validatePage({id:pageId,workspaceId:context.workspaceId,title:published.definition.title,parentId:entry.pageId,createdAt:stamp,updatedAt:stamp,trashedAt:null}),document=validateDocument({pageId,workspaceId:context.workspaceId,version:1,updatedAt:stamp,blocks:[{id:sourceId,type:'code',data:{text:sourceText,language:'json',purpose:'import-source',sourceKind:'form-response'}}]});
@@ -159,7 +158,7 @@ async function submit(initial,formId,data){
     const stamp=context.now(),time=Date.parse(stamp);if(!Number.isFinite(time))fail('FORM_UNAVAILABLE',503);
     const prior=(context.payload.formReceipts??[]).filter(row=>row.formId===formId&&row.accountId===context.accountId&&row.membershipId===context.actor.id);
     if(prior.filter(row=>Date.parse(row.acceptedAt)>time-60000).length>=5||prior.filter(row=>Date.parse(row.acceptedAt)>time-3600000).length>=50)fail('FORM_RATE_LIMITED',429);
-    if(context.payload.pages.length>=1000||context.payload.grants.length>=5000||(context.payload.formReceipts?.length??0)>=1000)fail('FORM_UNAVAILABLE',503);
+    if((context.payload.formReceipts?.length??0)>=1000)fail('FORM_UNAVAILABLE',503);
     const{pageId,recordId}=appendResponse(context,entry,published,manager,values,normalized,stamp);
     context.payload.formReceipts??=[];context.payload.formReceipts.push({requestId:data.requestId,formId,accountId:context.accountId,membershipId:context.actor.id,version:data.version,digest:hash,acceptedAt:stamp,pageId,recordId});
     const captured=context.validatePayload(context.payload,context.workspaceId);

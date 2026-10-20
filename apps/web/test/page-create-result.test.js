@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {validateCreatedPage,validateCreatedPageProjection} from '../public/page-create-result.js';
 const submitted={expectedRevision:4,title:'My note',blocks:[{id:'body',type:'paragraph',data:{text:''}}]};
-const ack={revision:5,page:{id:'new-page',workspaceId:'studio',title:'My note'},document:{pageId:'new-page',workspaceId:'studio',version:1,blocks:submitted.blocks}};
+const ack={revision:5,page:{id:'new-page',workspaceId:'studio',title:'My note',parentId:null},document:{pageId:'new-page',workspaceId:'studio',version:1,blocks:submitted.blocks}};
 test('page creation accepts the legacy raw acknowledgement and separately confirms projected access and placement',()=>{
  const created=validateCreatedPage(submitted,structuredClone(ack),{workspaceId:'studio'});assert.equal(created.page.id,'new-page');
  const projected=structuredClone(ack);Object.assign(projected.page,{teamspaceId:'team-a',capabilities:['read','editBody','manage']});

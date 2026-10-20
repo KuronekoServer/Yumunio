@@ -18,7 +18,7 @@ const defaultMounts={
  groups:async options=>(await import('./groups-settings.js')).mountGroupsSettings(options)
 };
 /** Independent top-layer host: the underlying editor DOM, draft and room stay mounted. */
-export function mountSettingsDialog({document=globalThis.document,background,workspaceId,expectedAccountId,pageId=null,initialSection='appearance',initialTeamspaceId=null,workspaceName='',accountName='',resource=null,labels=key=>key,onClose,onPreferencesChanged,onWorkspaceChanged,onNavigateOut,mounts=defaultMounts}={}){
+export function mountSettingsDialog({document=globalThis.document,background,workspaceId,expectedAccountId,pageId=null,initialSection='appearance',initialTeamspaceId=null,createTeamspace=false,workspaceName='',accountName='',resource=null,labels=key=>key,onClose,onPreferencesChanged,onWorkspaceChanged,onNavigateOut,mounts=defaultMounts}={}){
  if(!document?.createElement||!background||!workspaceId||!expectedAccountId)throw new TypeError('INVALID_SETTINGS_DIALOG');
  if(resource!==null&&(!pageId||!['page','collection'].includes(resource.kind)||typeof resource.title!=='string'))throw new TypeError('INVALID_RESOURCE_SHARING');
  const personal=resource?[]:personalSections,workspace=resource?['members','groups']:workspaceSections,available=[...personal,...workspace];
@@ -77,7 +77,7 @@ export function mountSettingsDialog({document=globalThis.document,background,wor
    if(destroyed||marker!==generation){next?.destroy?.();return;}
    view=next;await next.ready;
    if(destroyed||marker!==generation)return;
-   next.focusSection?.(section,section==='teamspaces'?{teamspaceId:initialTeamspaceId}:undefined);
+   next.focusSection?.(section,section==='teamspaces'?{teamspaceId:initialTeamspaceId,...(createTeamspace?{create:true}:{})}:undefined);if(section==='teamspaces')createTeamspace=false;
   }catch{if(!destroyed&&marker===generation)panel.replaceChildren(node('p',{role:'alert'},labels('unavailable')));}
  }
  function requestSection(value){
