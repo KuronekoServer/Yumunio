@@ -27,6 +27,55 @@ async function row(f,c,expectedRevision,title,values={}){return ok(await f.reque
 async function get(f,c,account='owner'){return ok(await f.request('/collections/'+c.collectionId,'GET',undefined,account));}
 async function grant(f,pageId,accountId,permission,expectedRevision,includeDescendants=false){return ok(await f.request('/pages/'+pageId+'/grants','POST',{expectedRevision,accountId,permission}));}
 
+test('database templates apply independent bodies and typed defaults atomically and enforce both database and template access',async t=>{
+ const f=fixture(t),c=await create(f,[property('state','status',{options:['未着手','進行中','完了']}),property('url','url'),property('created','created_time'),property('edited','last_edited_time')]);let rev=1;
+ const body=[{id:'summary',type:'heading',data:{text:'概要',level:2}},{id:'steps',type:'heading',data:{text:'再現手順',level:2}},{id:'done',type:'heading',data:{text:'完了条件',level:2}}],path='/collections/'+c.collectionId;
+ const template=await ok(await f.request(path+'/templates','POST',{expectedRevision:rev++,name:'新しい課題',values:{state:'未着手',url:'https://example.invalid/'},blocks:body}),201);
+ const list=await get(f,c);assert.equal(list.collection.templates[0].id,template.templateId);assert.equal(list.collection.templates[0].values.state,'未着手');assert.equal(list.collection.templates[0].pageId,template.pageId);
+ const page=await ok(await f.request('/pages/'+template.pageId));assert.equal(page.page.templateId,template.templateId);assert.equal(page.page.recordId,undefined);
+ const a=await ok(await f.request(path+'/records','POST',{expectedRevision:rev++,title:'課題 A',values:{},templateId:template.templateId}),201),b=await ok(await f.request(path+'/records','POST',{expectedRevision:rev++,title:'課題 B',values:{state:'進行中'},templateId:template.templateId}),201);
+ assert.equal(a.record.values.state,'未着手');assert.equal(b.record.values.state,'進行中');assert.equal(a.record.values.created,stamp);assert.equal(a.record.values.edited,stamp);
+ const docA=await ok(await f.request('/pages/'+a.record.pageId)),docB=await ok(await f.request('/pages/'+b.record.pageId));assert.deepEqual(docA.document.blocks.map(block=>block.data.text),body.map(block=>block.data.text));assert.notEqual(docA.document.blocks[0].id,body[0].id);assert.notEqual(docA.document.blocks[0].id,docB.document.blocks[0].id);
+ await ok(await f.request('/pages/'+template.pageId,'PATCH',{expectedRevision:rev++,expectedVersion:1,blocks:[...body,{id:'new',type:'paragraph',data:{text:'今後だけ反映'}}]}));assert.equal((await ok(await f.request('/pages/'+a.record.pageId))).document.blocks.length,3);
+ await error(await f.request(path+'/records/'+a.record.id,'PATCH',{expectedRevision:rev,values:{created:stamp}}),400,'COMPUTED_PROPERTY_READ_ONLY');await error(await f.request(path+'/records','POST',{expectedRevision:rev,title:'bad',values:{url:'javascript:alert(1)'}}),400,'INVALID_CONTENT');
+ await grant(f,c.pageId,'member','full',rev++);await grant(f,template.pageId,'member','deny',rev++);const hidden=await get(f,c,'member');assert.deepEqual(hidden.collection.templates,[]);await error(await f.request(path+'/records','POST',{expectedRevision:rev,title:'Cannot use hidden',values:{},templateId:template.templateId},'member'),404,'CONTENT_NOT_FOUND');
+ await ok(await f.request(path+'/templates/'+template.templateId,'DELETE',{expectedRevision:rev++}));assert.equal((await get(f,c)).collection.templates,undefined);assert.equal((await ok(await f.request('/pages/'+template.pageId))).page.templateId,undefined);assert.equal((await ok(await f.request('/pages/'+a.record.pageId))).document.blocks.length,3);
+});
+
+test('automatic time fields project page times, support typed filtering, and never store caller timestamps',async t=>{
+ const f=fixture(t),c=await create(f,[property('state','status',{options:['未着手','進行中','完了']}),property('created','created_time'),property('edited','last_edited_time')]),a=await row(f,c,1,'A',{state:'未着手'}),path='/collections/'+c.collectionId;
+ const stored=await f.raw.read(workspaceId,'owner');assert.equal(stored.payload.collections[0].collection.records[0].values.created,null);assert.equal(a.record.values.created,stamp);
+ const v=await ok(await f.request(path+'/views','POST',{expectedRevision:2,view:view('table',{filters:[{propertyId:'created',operator:'gte',value:stamp}],sorts:[{propertyId:'edited',direction:'desc'}]})}),201);assert.equal((await ok(await f.request(path+'/views/'+v.viewId))).collection.records.length,1);
+ await error(await f.request(path+'/views','POST',{expectedRevision:3,view:view('table',{filters:[{propertyId:'created',operator:'eq',value:'2026-10-15'}]})}),400,'INVALID_CONTENT');
+ const board=await ok(await f.request(path+'/views','POST',{expectedRevision:3,view:view('board',{groupBy:'state'})}),201);const moved=await ok(await f.request(path+'/views/'+board.viewId,'PATCH',{expectedRevision:4,boardMove:{recordId:a.record.id,targetValue:'完了',beforeRecordId:null,visibleRecordIds:[a.record.id]}}));assert.equal(moved.record.values.state,'完了');
+});
+
+test('inline placements keep independent view configuration and always require source and row access',async t=>{
+ const f=fixture(t),c=await create(f,[property('project'),property('priority','number')]);
+ const a=await row(f,c,1,'Issue A',{project:'Website',priority:2}),b=await row(f,c,2,'Private issue B',{project:'Other',priority:1});let rev=b.revision;
+ const config=view('table',{filters:[{propertyId:'project',operator:'eq',value:'Website'}],sorts:[{propertyId:'priority',direction:'desc'}]}),other=view('gallery',{filters:[{propertyId:'project',operator:'eq',value:'Other'}]});
+ const block=(id,view,visible)=>({id,type:'database',data:{format:'collection-view-v1',collectionId:c.collectionId,view,visiblePropertyIds:visible}});
+ const page1=await ok(await f.request('/pages','POST',{expectedRevision:rev++,title:'Project explanation',blocks:[{id:'intro',type:'paragraph',data:{text:'Project introduction'}},block('db-one',config,['priority']),{id:'after',type:'heading',data:{text:'Next steps',level:2}}]}),201);
+ const page2=await ok(await f.request('/pages','POST',{expectedRevision:rev++,title:'Other project',blocks:[block('db-two',other,[])]}),201);
+ await grant(f,page1.page.id,'member','viewer',rev++);
+ const shared=await ok(await f.request('/pages/'+page1.page.id,'GET',undefined,'member'));assert.equal(shared.document.blocks[1].type,'database');assert.doesNotMatch(JSON.stringify(shared),/Private issue B|Issue A/);
+ const path='/collections/'+c.collectionId+'/query';await error(await f.request(path,'POST',{view:config},'member'),404,'CONTENT_NOT_FOUND');
+ await grant(f,c.pageId,'member','viewer',rev++);await grant(f,a.record.pageId,'member','viewer',rev++);await grant(f,b.record.pageId,'member','deny',rev++);
+ const writes=f.writes,visible=await ok(await f.request(path,'POST',{view:config},'member'));assert.deepEqual(visible.collection.records.map(row=>row.title),['Issue A']);assert.equal(f.writes,writes);assert.equal(visible.collection.views.length,0);
+ assert.deepEqual((await ok(await f.request(path,'POST',{view:other},'member'))).collection.records,[]);
+ await ok(await f.request('/collections/'+c.collectionId+'/records/'+a.record.id,'PATCH',{expectedRevision:rev++,values:{project:'Other',priority:9}}));
+ assert.equal((await ok(await f.request(path,'POST',{view:config}))).collection.records.length,0);assert.equal((await ok(await f.request(path,'POST',{view:other}))).collection.records.find(row=>row.id===a.record.id).values.priority,9);
+ assert.deepEqual((await ok(await f.request('/pages/'+page1.page.id))).document.blocks[1],block('db-one',config,['priority']));assert.deepEqual((await ok(await f.request('/pages/'+page2.page.id))).document.blocks[0],block('db-two',other,[]));
+ await grant(f,c.pageId,'member','deny',rev++);await error(await f.request(path,'POST',{view:config},'member'),404,'CONTENT_NOT_FOUND');
+});
+
+test('ad hoc database projections reject invalid schemas and do not mutate saved views or revisions',async t=>{
+ const f=fixture(t),c=await create(f,[property('project')]),path='/collections/'+c.collectionId+'/query',before=await f.raw.read(workspaceId,'owner');
+ for(const config of [view('board'),view('table',{sorts:[{propertyId:'unknown',direction:'asc'}]}),view('table',{filters:[{propertyId:'project',operator:'execute',value:'x'}]}),{...view(),id:'injected'}])await error(await f.request(path,'POST',{view:config}),400,'INVALID_CONTENT');
+ await error(await f.request(path,'GET'),405,'METHOD_NOT_ALLOWED');await error(await f.request(path,'POST',{view:view()},'guest'),404,'CONTENT_NOT_FOUND');
+ await ok(await f.request(path,'POST',{view:view()}));assert.deepEqual(await f.raw.read(workspaceId,'owner'),before);
+});
+
 test('saved board reorders visible rows and crosses groups in one CAS while retaining hidden slots, row identities and view independence',async t=>{
  const f=fixture(t),c=await create(f,[property('status','select',{options:['Todo','Done']}),property('note')]);let rev=1;const rows=[];
  for(const [title,status]of [['A','Todo'],['Hidden','Todo'],['B','Todo'],['C','Done']]){const saved=await row(f,c,rev,title,{status,note:'original '+title});rev=saved.revision;rows.push(saved.record);}

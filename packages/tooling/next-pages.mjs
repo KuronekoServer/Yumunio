@@ -22,12 +22,13 @@ async function checkedDirectory(path){
 }
 
 /** Build real App Router pages, keeping generated server bundles out of the public artifact. */
-export async function buildNextPages(root,{publicFiles=[]}={}){
+export async function buildNextPages(root,{publicFiles=[],editorVersion=''}={}){
+ if(editorVersion!==''&&!/^[a-f0-9]{64}$/.test(editorVersion))throw new Error('Invalid editor build version.');
  const app=resolve(root,'apps/web'),output=resolve(app,'out');
  if(relative(resolve(root),output)!==join('apps','web','out'))throw new Error('Unexpected Next export destination.');
  await checkedDirectory(app);await checkedDirectory(join(app,'.next'));await checkedDirectory(output);
  await new Promise((done,reject)=>{
-  const child=spawn(process.execPath,[join(root,'node_modules/next/dist/bin/next'),'build','--webpack'],{cwd:app,env:{...process.env,NEXT_TELEMETRY_DISABLED:'1'},windowsHide:true,stdio:['ignore','pipe','pipe']});
+  const child=spawn(process.execPath,[join(root,'node_modules/next/dist/bin/next'),'build','--webpack'],{cwd:app,env:{...process.env,NEXT_PUBLIC_EDITOR_VERSION:editorVersion,NEXT_TELEMETRY_DISABLED:'1'},windowsHide:true,stdio:['ignore','pipe','pipe']});
   let errors='';
   child.stdout.on('data',bytes=>process.stdout.write(bytes));
   child.stderr.on('data',bytes=>{process.stderr.write(bytes);errors=(errors+bytes).slice(-3000);});

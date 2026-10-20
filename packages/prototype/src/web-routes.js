@@ -1,4 +1,4 @@
-export const WEB_PAGE_NAMES=Object.freeze(['account','admin','attachments','backlinks','backups','collections','comments','forms','history','import','install','integrations','notes','offline','preferences','publication','setup','share','site','templates','webhooks','workspace-settings','workspace']);
+export const WEB_PAGE_NAMES=Object.freeze(['account','admin','attachments','backlinks','backups','collections','comments','forms','history','import','install','integrations','notes','offline','preferences','publication','setup','share','site','templates','webhooks','workspace-settings','workspace-detail','workspace']);
 const names=new Set(WEB_PAGE_NAMES);
 /** Explicit page routes keep APIs, unknown paths and asset names out of the HTML fallback. */
 export function webPageRoute(pathname){

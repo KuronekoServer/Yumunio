@@ -28,6 +28,7 @@ export function mountWorkspaceCollectionView({root,getModel,isCurrent,canRead,ca
  }
  function paint(){
   if(!current())return;board?.destroy();board=null;const model=getModel();
+  const positions=[...root.querySelectorAll('.collection-scroll,.collection-board')].map(element=>[element.scrollLeft,element.scrollTop]),selected=root.querySelector('.record-selected')?.dataset.recordId;
   root.replaceChildren();
   if(error)root.append(node('p',{class:'message',role:'alert'},text(error)));if(notice)root.append(node('p',{class:'hint',role:'status'},text(notice)));
   if(!model)return;
@@ -45,6 +46,8 @@ export function mountWorkspaceCollectionView({root,getModel,isCurrent,canRead,ca
    onBoardDrop:move=>moveBoard(move),
   });
   root.append(rendered.element);
+  [...root.querySelectorAll('.collection-scroll,.collection-board')].forEach((element,index)=>{element.scrollLeft=positions[index]?.[0]??0;element.scrollTop=positions[index]?.[1]??0;});
+  if(selected)for(const element of root.querySelectorAll('[data-record-id]'))element.classList.toggle('record-selected',element.dataset.recordId===selected);
   // Read-only views remain navigable; row mutation controls have their own current ACL guards.
   if(rendered.board){const config=rendered.board,move=config.canMove,drop=config.canDrop;config.canMove=id=>available()&&move(id);config.canDrop=(id,key)=>available()&&drop(id,key);board=boardFactory(config);}
  }

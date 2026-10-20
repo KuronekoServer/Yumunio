@@ -8,6 +8,8 @@ import {createHmac,randomUUID} from 'node:crypto';
 import { createAccountContentApi } from '../src/content.js';
 import { createSqliteContentStore,createD1ContentStore } from '../src/content-store.js';
 import { Y,fromBase64,toBase64,loadRoomDocument,encodeRoomState,loadStructuredRoom,structuredRoomOperation,structuredRoomText,structuredRoomFormat } from '@yumunio/collaboration';
+import {HttpRoomClient} from '../../collaboration/src/client.js';
+import {createSimpleTable,setSimpleTableCell} from '@yumunio/domain';
 
 const schema=await readFile(new URL('../../../apps/worker/auth-schema.sql',import.meta.url),'utf8');
 const stamp='2026-10-15T00:00:00.000Z',origin='https://room.example',secret='room-test-secret-not-a-real-key-1234567890';
@@ -42,6 +44,16 @@ async function update(f,opened,mutate,accountId='owner'){
   try{const vector=Y.encodeStateVector(doc);mutate(doc);return{epoch:opened.epoch,ticket:opened.ticket,update:toBase64(Y.encodeStateAsUpdate(doc,vector))};}finally{doc.destroy();}
 }
 async function expectError(response,status,code){assert.equal(response.status,status,await response.clone().text());const result=await response.json();assert.equal(result.error.code,code);assert.deepEqual(Object.keys(result),['error']);return result;}
+
+for(const d1 of [false,true])test((d1?'D1-shaped':'SQLite')+' content-block clients merge table edits and pastes while legacy clients are fenced without losing pending input',async t=>{
+ const blocks=[{id:'table',type:'table',data:createSimpleTable({rows:[['名前','内容'],['課題','共有']]})}],f=await fixture(t,{d1,blocks}),draft={title:'Shared title',blocks};
+ const transport=accountId=>async({path,method='GET',body,headers={}})=>{const response=await f.request(accountId,path.slice('/api/content/workspaces/workspace/pages/page'.length),method,body,headers),value=await response.json();if(!response.ok)throw Object.assign(new Error(value.error.code),{code:value.error.code,status:response.status});return value;};
+ const a=new HttpRoomClient({accountId:'owner',workspaceId:'workspace',pageId:'page',protocol:2,draft,request:transport('owner')}),b=new HttpRoomClient({accountId:'editor',workspaceId:'workspace',pageId:'page',protocol:2,draft,request:transport('editor')});t.after(()=>{a.destroy();b.destroy();});await a.open({expectedRevision:1});await b.open({expectedRevision:a.revision});
+ a.setTable({blockId:'table',data:setSimpleTableCell(a.snapshot().blocks[0].data,1,1,'共有の文章'),change:{kind:'text',row:1,column:1}});b.setTable({blockId:'table',data:setSimpleTableCell(b.snapshot().blocks[0].data,1,1,'共同の共有'),change:{kind:'text',row:1,column:1}});const marker=a.captureRelativeSelection({key:a.tableCellKey({blockId:'table',row:1,column:1}),start:5});assert.ok(marker);
+ await a.sync();await b.sync();await a.sync();assert.equal(a.snapshot().blocks[0].data.rows[1][1],'共同の共有の文章');assert.deepEqual(a.snapshot(),b.snapshot());assert.ok(a.resolveRelativeSelection(marker));
+ const epoch=a.epoch;a.pasteTree([...a.snapshot().blocks,{id:'copied',type:'heading',data:{text:'概要',level:2,marks:[{start:0,end:2,styles:['bold']}]}}]);await a.sync();await b.sync();assert.equal(a.epoch,epoch);assert.deepEqual(a.snapshot(),b.snapshot());
+ await expectError(await f.request('owner','/room','GET',undefined,{'X-Yumunio-Room-Protocol':'2','X-Yumunio-Room-Ticket':a.ticket}),409,'ROOM_PROTOCOL_UNSUPPORTED');
+});
 
 for(const d1 of [false,true])test((d1?'D1-shaped':'SQLite')+' room initialization is explicit and text is acknowledged only after atomic content+CRDT persistence',async t=>{
   const f=await fixture(t,{d1,persistent:!d1});

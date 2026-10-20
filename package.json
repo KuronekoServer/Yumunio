@@ -25,6 +25,7 @@
     "start": "node --env-file-if-exists=.env --import ./apps/server/production.mjs apps/server/server.mjs",
     "test": "node packages/tooling/test/run.mjs",
     "check": "node packages/tooling/check-syntax.mjs",
+    "repo:check": "node packages/tooling/repository-hygiene.mjs",
     "docs:check": "node packages/tooling/documentation.mjs",
     "test:worker": "node packages/tooling/test/run-worker.mjs",
     "build": "node packages/tooling/build-web.mjs",

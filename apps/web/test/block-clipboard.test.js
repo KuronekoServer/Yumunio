@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {validateBlocks} from '@yumunio/domain';
-import {BLOCK_CLIPBOARD_TYPE,serializeEditorBlockClipboard,readEditorBlockClipboard,writeEditorBlockClipboard} from '../public/block-clipboard.js';
+import {BLOCK_CLIPBOARD_TYPE,serializeEditorBlockClipboard,serializeEditorTextSelection,readEditorBlockClipboard,writeEditorBlockClipboard} from '../public/block-clipboard.js';
 import {removeEditorBlocks,replaceEditorBlockSelection} from '../public/editor-tree.js';
 import {createSimpleTable} from '../public/simple-table.js';
 import {EditorHistory,markdownPrefix} from '../public/editor-model.js';
@@ -36,6 +36,18 @@ test('same-page attachment references survive; cross-page attachments fail and f
  const attachment={id:'file',type:'file',data:{format:'attachment-v1',text:'file.pdf',links:[{start:0,end:8,label:'file.pdf',pageId:'page',attachmentId:'asset'}]}};
  const value=serializeEditorBlockClipboard([attachment],['file'],context);assert.equal(readEditorBlockClipboard(transfer(value),context)[0].data.links[0].attachmentId,'asset');assert.throws(()=>readEditorBlockClipboard(transfer(value),{...context,pageId:'other'}),/BLOCK_CLIPBOARD_ATTACHMENT_PAGE/);
  const linked={...paragraph('p','Linked'),data:{text:'Linked',links:[{start:0,end:6,label:'Linked',pageId:'target'}]}};const linkValue=serializeEditorBlockClipboard([linked],['p'],context);assert.equal(readEditorBlockClipboard(transfer(linkValue),{...context,workspaceId:'other'})[0].data.links,undefined);
+});
+
+test('partial multi-paragraph copy clips formatting at the ends and retains the intervening block forest',()=>{
+ const blocks=[{...paragraph('a','Before bold'),data:{text:'Before bold',marks:[{start:7,end:11,styles:['bold']}]}},{id:'heading',type:'heading',data:{text:'Heading',level:2}},{...paragraph('parent','List'),type:'bulleted-list',children:[paragraph('nested','Nested')]},paragraph('last','Japanese 日本語 suffix')];
+ const value=serializeEditorTextSelection(blocks,{startBlockId:'a',start:8,endBlockId:'last',end:12},context),result=readEditorBlockClipboard(transfer(value),context);
+ assert.equal(result[0].data.text,'old');assert.deepEqual(result[0].data.marks,[{start:0,end:3,styles:['bold']}]);assert.equal(result[1].type,'heading');assert.equal(result[2].children[0].data.text,'Nested');assert.equal(result.at(-1).data.text,'Japanese 日本語');assert.match(value.html,/<strong>old<\/strong>/);assert.equal(blocks[0].data.text,'Before bold');
+});
+
+test('cross-page attachment parsing is explicit and remains unavailable across accounts or workspaces',()=>{
+ const block={id:'file',type:'file',data:{format:'attachment-v1',text:'file.pdf',links:[{start:0,end:8,label:'file.pdf',pageId:'page',attachmentId:'asset'}]}},value=serializeEditorBlockClipboard([block],['file'],context);
+ assert.equal(readEditorBlockClipboard(transfer(value),{...context,pageId:'other'},{allowAttachmentTransfer:true})[0].data.links[0].pageId,'page');
+ for(const other of [{...context,accountId:'other'},{...context,workspaceId:'other'}])assert.throws(()=>readEditorBlockClipboard(transfer(value),other,{allowAttachmentTransfer:true}),/BLOCK_CLIPBOARD_ATTACHMENT_PAGE/);
 });
 
 test('familiar keyboard and Markdown shortcuts apply inline code, strike, toggles and quotes without affecting IME',t=>{

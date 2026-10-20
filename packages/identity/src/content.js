@@ -7,9 +7,10 @@ import {ContentGroupsError,handleGroupRequest} from './content-groups.js';
 import {requireAccessSubtreeManagement,protectAccessTransition} from './content-access-transition.js';
 import {CONTENT_STORAGE_LIMITS} from './content-codec.js';
 import {ContentPageLinksError,preparePageLinkBlocks} from './content-page-links.js';
+import {prepareSyncedBlocks} from './content-synced.js';
 import {ContentMentionsError,prepareMentionBlocks,projectMentionBlocks} from './content-mentions.js';
 import {ContentPublicationError, validatePublications, handlePublicationRequest, createPublicPageApi} from './content-publication.js';
-import { commitPageAttachment, listPageUploads, removePageAttachment } from './content-attachments.js';
+import { commitPageAttachment, listPageUploads, removePageAttachment,copyPageBlockAttachments } from './content-attachments.js';
 import { ContentFormsError, validateForms, handleFormRequest, createPublicFormApi } from './content-forms.js';
 import { ContentCommentsError, validateDiscussion, handleDiscussion } from './content-comments.js';
 import {ContentActivityError,validateActivityNotifications,recordInlineMentions} from './content-activity.js';
@@ -360,6 +361,7 @@ export function createAccountContentApi({ store, resolveSession, origin, blobSto
       const pageTools=/^\/api\/content\/workspaces\/([A-Za-z0-9._:-]+)\/pages\/([A-Za-z0-9._:-]+)\/(appearance|duplicate|favorite)$/.exec(url.pathname);
       const discussing = /^\/api\/content\/workspaces\/([A-Za-z0-9._:-]+)\/pages\/([A-Za-z0-9._:-]+)\/comments(?:\/([A-Za-z0-9._:-]+)(?:\/(resolve|messages)(?:\/([A-Za-z0-9._:-]+))?)?)?$/.exec(url.pathname);
       const uploading = /^\/api\/content\/workspaces\/([A-Za-z0-9._:-]+)\/pages\/([A-Za-z0-9._:-]+)\/uploads(?:\/([A-Za-z0-9._:-]+)\/assets(?:\/([A-Za-z0-9._:-]+)(?:\/(commit))?)?)?$/.exec(url.pathname);
+      const copyingAttachments=/^\/api\/content\/workspaces\/([A-Za-z0-9._:-]+)\/pages\/([A-Za-z0-9._:-]+)\/attachment-copies$/.exec(url.pathname);
       const managingForm = /^\/api\/content\/workspaces\/([A-Za-z0-9._:-]+)\/collections\/([A-Za-z0-9._:-]+)\/forms(?:\/([A-Za-z0-9._:-]+)(?:\/(acceptance))?)?$/.exec(url.pathname);
       const respondingForm = /^\/api\/content\/workspaces\/([A-Za-z0-9._:-]+)\/forms\/([A-Za-z0-9._:-]+)(?:\/(responses))?$/.exec(url.pathname);
       const people = /^\/api\/content\/workspaces\/([A-Za-z0-9._:-]+)\/pages\/([A-Za-z0-9._:-]+)\/people$/.exec(url.pathname);
@@ -392,13 +394,14 @@ export function createAccountContentApi({ store, resolveSession, origin, blobSto
       const previewingFormula=/^\/api\/content\/workspaces\/([A-Za-z0-9._:-]+)\/collections\/([A-Za-z0-9._:-]+)\/formulas\/preview$/.exec(url.pathname);
       const previewingRollup=/^\/api\/content\/workspaces\/([A-Za-z0-9._:-]+)\/collections\/([A-Za-z0-9._:-]+)\/rollups\/preview$/.exec(url.pathname);
       if((previewingFormula||previewingRollup)&&request.method!=='POST')fail('METHOD_NOT_ALLOWED',405);
-      const collecting = /^\/api\/content\/workspaces\/([A-Za-z0-9._:-]+)\/collections(?:\/([A-Za-z0-9._:-]+)(?:\/(records|views|property-conversions)(?:\/([A-Za-z0-9._:-]+))?)?)?$/.exec(url.pathname);
-      const match = pageTools ?? groups ?? groupGrants ?? teamspaces ?? teamspacePage ?? templating ?? backlinks ?? previewingRollup ?? previewingFormula ?? publishing ?? uploading ?? managingForm ?? respondingForm ?? people ?? discussing ?? notifying ?? rooming ?? historical ?? movingBlock ?? importing ?? staging ?? collecting ?? downloading ?? lifecycle ?? searching ?? exporting ?? trashing ?? /^\/api\/content\/workspaces\/([A-Za-z0-9._:-]+)\/pages(?:\/([A-Za-z0-9._:-]+)(?:\/(grants)(?:\/([A-Za-z0-9._:-]+))?)?)?$/.exec(url.pathname);
+      const collecting = /^\/api\/content\/workspaces\/([A-Za-z0-9._:-]+)\/collections(?:\/([A-Za-z0-9._:-]+)(?:\/(records|views|query|templates|property-conversions)(?:\/([A-Za-z0-9._:-]+))?)?)?$/.exec(url.pathname);
+      const match = copyingAttachments ?? pageTools ?? groups ?? groupGrants ?? teamspaces ?? teamspacePage ?? templating ?? backlinks ?? previewingRollup ?? previewingFormula ?? publishing ?? uploading ?? managingForm ?? respondingForm ?? people ?? discussing ?? notifying ?? rooming ?? historical ?? movingBlock ?? importing ?? staging ?? collecting ?? downloading ?? lifecycle ?? searching ?? exporting ?? trashing ?? /^\/api\/content\/workspaces\/([A-Za-z0-9._:-]+)\/pages(?:\/([A-Za-z0-9._:-]+)(?:\/(grants)(?:\/([A-Za-z0-9._:-]+))?)?)?$/.exec(url.pathname);
       if (!match) missing();
       if (request.method === 'PUT' && !staging && !uploading) fail('METHOD_NOT_ALLOWED',405);
       const [, workspaceId] = match;
       const collectionId = previewingRollup?.[2] ?? previewingFormula?.[2] ?? collecting?.[2], collectionKind = previewingRollup ? 'rollupPreview' : previewingFormula ? 'formulaPreview' : collecting?.[3] ?? 'collection';
       const recordId = collectionKind === 'records' ? collecting?.[4] : undefined, viewId = collectionKind === 'views' ? collecting?.[4] : undefined;
+      const collectionTemplateId=collectionKind==='templates'?collecting?.[4]:undefined;if(collectionKind==='query'&&collecting?.[4])missing();
       const pageId = groupGrants?.[2] ?? teamspacePage?.[2] ?? templateReview?.[2] ?? (!groups && !teamspaces && !templating && !previewingRollup && !previewingFormula && !managingForm && !respondingForm && !collecting && !staging ? match[2] : undefined);
       const grantsPath = !pageTools && !teamspaces && !teamspacePage && !templating && !backlinks && !previewingRollup && !previewingFormula && !publishing && !uploading && !managingForm && !respondingForm && !people && !discussing && !notifying && !rooming && !historical && !movingBlock && !lifecycle && !downloading && !collecting && !staging ? match[3] : undefined;
       const grantId = !pageTools && !teamspaces && !teamspacePage && !templating && !backlinks && !previewingRollup && !previewingFormula && !publishing && !uploading && !managingForm && !respondingForm && !people && !discussing && !notifying && !rooming && !historical && !movingBlock && !lifecycle && !downloading && !collecting && !staging ? match[4] : undefined;
@@ -409,7 +412,7 @@ export function createAccountContentApi({ store, resolveSession, origin, blobSto
       if (!session?.user?.id || session.user.emailVerified !== true) fail('UNAUTHORIZED', 401);
       const accountId = assertId(session.user.id);
       if (importing && request.method !== 'POST') fail('METHOD_NOT_ALLOWED',405);
-      if (pageTools || groups || groupGrants || teamspaces || teamspacePage || (downloading && mutation) || templating || backlinks || publishing || uploading || managingForm || respondingForm || people || discussing || notifying || previewingRollup || previewingFormula || (collecting && mutation) || rooming || (historical && mutation) || movingBlock || importing || staging || lifecycleAction || request.headers.has('x-yumunio-expected-account')) {
+      if (copyingAttachments || pageTools || groups || groupGrants || teamspaces || teamspacePage || (downloading && mutation) || templating || backlinks || publishing || uploading || managingForm || respondingForm || people || discussing || notifying || previewingRollup || previewingFormula || (collecting && mutation) || rooming || (historical && mutation) || movingBlock || importing || staging || lifecycleAction || request.headers.has('x-yumunio-expected-account')) {
         let expectedAccount;
         try { expectedAccount = assertId(request.headers.get('x-yumunio-expected-account')); }
         catch { fail('INVALID_CONTENT'); }
@@ -434,13 +437,14 @@ export function createAccountContentApi({ store, resolveSession, origin, blobSto
       const personCanRead = (recipientId, sourcePageId) => evaluate({accountId:recipientId,workspaceId,pageId:sourcePageId}).capabilities.includes('read');
       const projectAccountDocument = (document, readable) => projectDocument(document,readable,{principals:saved.principals,personCanRead});
       const prepareDocumentBlocks = (blocks, previousBlocks, sourcePageId, referenceAccess = access, recipientAccess = personCanRead) => prepareMentionBlocks({
-        blocks:preparePageLinkBlocks({blocks,previousBlocks,access:referenceAccess,attachments:payload.attachments??[],pageId:sourcePageId}),
+        blocks:preparePageLinkBlocks({blocks:prepareSyncedBlocks({blocks,previousBlocks,access:referenceAccess,pageId:sourcePageId}),previousBlocks,access:referenceAccess,attachments:payload.attachments??[],pageId:sourcePageId}),
         previousBlocks,access:referenceAccess,principals:saved.principals,personCanRead:recipientAccess,pageId:sourcePageId});
       const bindings = new Map();
       for (const entry of payload.collections ?? []) {
         if (!visible.has(entry.pageId)) continue;
         bindings.set(entry.pageId,{collectionId:entry.collection.id});
         for (const row of entry.recordPages) bindings.set(row.pageId,{collectionId:entry.collection.id,recordId:row.recordId});
+        for (const template of entry.templates??[]) bindings.set(template.pageId,{collectionId:entry.collection.id,templateId:template.id});
       }
       const project = item => ({ ...item.page,...pagePlacement(currentState,item.page.id,accountId,payload.grants), parentId: visible.has(item.page.parentId) ? item.page.parentId : null,
         version: item.document.version, capabilities: access(item.page.id),...((payload.pageFavorites??[]).some(row=>row.membershipId===actor.id&&row.accountId===accountId&&row.pageId===item.page.id)?{favorite:true}:{}),...(bindings.get(item.page.id) ?? {}) });
@@ -449,6 +453,7 @@ export function createAccountContentApi({ store, resolveSession, origin, blobSto
       if (templating) return await handlePersonalTemplates({request,kind:templateKind,pageId:templateReview?.[2],templateId:templateItem?.[2]??templateApply?.[2],requestId:templateReceipt?.[2],store,saved,payload,actor,accountId,workspaceId,access,policy,readJson,readPayload,validatePayload:validateContentPayload,now,createId});
       if(pageTools)return await handlePageTools({request,action:pageTools[3],pageId,store,saved,payload,actor,accountId,workspaceId,access,policy,readJson,readPayload,validatePayload:validateContentPayload,now,createId});
       if (publishing) return await handlePublicationRequest({request,kind:publishing[3]?'review':'manage',pageId,store,saved,payload,actor,accountId,workspaceId,access,policy,readJson,readPayload,validatePayload:validateContentPayload,now,createId,publicationSecret});
+      if(copyingAttachments)return await copyPageBlockAttachments({request,pageId,payload,saved,actor,accountId,workspaceId,access,policy,readJson,readPayload,store,validatePayload:validateContentPayload});
       if (uploading) {
         const context={request,pageId,importId:uploading[3],assetId:uploading[4],blobStore,store,saved,payload,actor,accountId,workspaceId,access,policy,readJson,readPayload,validatePayload:validateContentPayload};
         return !uploading[3]?listPageUploads(context):uploading[5]?await commitPageAttachment(context):await handleAssetRequest(context);
@@ -467,7 +472,7 @@ export function createAccountContentApi({ store, resolveSession, origin, blobSto
       if (searching) return searchPages({query:url.searchParams.get('q'),payload,saved,workspaceId,visible,project});
       if (backlinks) return handleBacklinks({request,pageId,payload,saved,access});
       if (exporting) { const projectionContext={payload,saved,workspaceId,accountId,access}; return exportPages({format:url.searchParams.get('format'),payload,saved,workspaceId,visible,projectDocument:(document,readable)=>projectDocument(document,readable,{stripReferences:true}),now,projectCollection:entry=>projectAccountCollection(entry,projectionContext)}); }
-      if (collecting || previewingFormula || previewingRollup) return await handleCollectionRequest({request,kind:collectionKind,collectionId,recordId,viewId,conversionAction:collectionKind==='property-conversions'?collecting?.[4]:undefined,store,saved,payload,actor,accountId,workspaceId,access,policy,readJson,readPayload,validatePayload:validateContentPayload,now,createId});
+      if (collecting || previewingFormula || previewingRollup) return await handleCollectionRequest({request,kind:collectionKind,collectionId,recordId,viewId,templateId:collectionTemplateId,prepareDocumentBlocks,conversionAction:collectionKind==='property-conversions'?collecting?.[4]:undefined,store,saved,payload,actor,accountId,workspaceId,access,policy,readJson,readPayload,validatePayload:validateContentPayload,now,createId});
       const item = pageId ? payload.pages.find(row => row.page.id === pageId) : null;
       if (pageId && (!item || !visible.has(pageId))) missing();
       if (downloading) {

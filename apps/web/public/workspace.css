@@ -1,5 +1,8 @@
 @import url('./simple-table.css');
 @import url("./collection-projection.css");
+@import url('./record-panel.css');
+@import url('./synced-block.css');
+@import url('./database-placement.css');
 
 .workspace-collection-views{min-width:0;max-width:100%}.workspace-collection-tabs{display:flex;align-items:center;gap:6px;overflow-x:auto;max-width:100%;padding:4px 0 12px;margin-bottom:12px;border-bottom:1px solid var(--border)}.workspace-collection-tabs .collection-view-tab{flex:0 0 auto;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.workspace-collection-tabs .active{background:var(--soft);border-color:var(--accent);color:var(--accent)}.workspace-collection-views .record-properties{min-width:0}.workspace-collection-views .message{margin-bottom:12px}
 [hidden] { display:none!important; }

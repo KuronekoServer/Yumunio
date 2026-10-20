@@ -4,7 +4,7 @@ import { splitInlineMarks, joinInlineMarks,replaceInlineMarks,validateInlineMark
 import { splitMentions, joinMentions, rebaseMentions,replaceMentions } from './mentions.js';
 import {isSimpleTableData} from './simple-table.js';
 import {isAttachmentBlock} from './attachment-block-model.js';
-import {BLOCK_PARENT_TYPES,GENERATED_BLOCK_TYPES,isBookmarkBlock} from './block-types.js';
+import {BLOCK_PARENT_TYPES,GENERATED_BLOCK_TYPES,isBookmarkBlock,isDatabaseBlock,isSyncedBlock} from './block-types.js';
 
 export const MAX_EDITOR_NESTING = 8;
 export const EDITOR_PARENT_TYPES = BLOCK_PARENT_TYPES;
@@ -37,7 +37,7 @@ function editablePath(location) {
   });
 }
 export function canEditNestedBlock(location, { ignoreDepth = false } = {}) {
-  return !!location && (ignoreDepth || location.depth < MAX_EDITOR_NESTING) && (editable.has(location.block.type)||GENERATED_BLOCK_TYPES.includes(location.block.type)&&!location.block.children||isBookmarkBlock(location.block)||columnsShape(location.block)||isAttachmentBlock(location.block)||location.block.type==='table'&&isSimpleTableData(location.block.data)&&!Object.hasOwn(location.block,'children')) &&
+  return !!location && (ignoreDepth || location.depth < MAX_EDITOR_NESTING) && (editable.has(location.block.type)||GENERATED_BLOCK_TYPES.includes(location.block.type)&&!location.block.children||(isDatabaseBlock(location.block)||isSyncedBlock(location.block))||isBookmarkBlock(location.block)||columnsShape(location.block)||isAttachmentBlock(location.block)||location.block.type==='table'&&isSimpleTableData(location.block.data)&&!Object.hasOwn(location.block,'children')) &&
     location.block.data?.purpose !== 'import-source' && editablePath(location) && !(location.block.type==='columns'&&location.ancestors.some(parent=>parent.type==='columns'));
 }
 /** Fixed column wrappers can receive blocks, but cannot be selected or moved alone. */

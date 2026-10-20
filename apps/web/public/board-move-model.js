@@ -1,6 +1,6 @@
 import {validateCollectionEnvelope,validateCollectionValue,validateRecordSaveResponse,isComputedProperty} from './collections-model.js';
 import {orderedBoardIds,moveVisibleBoardRecord,validateBoardOrder} from './board-order.js';
-const TYPES=new Set(['text','number','checkbox','date','select']),key=value=>JSON.stringify(value),same=(a,b)=>key(a)===key(b);
+const TYPES=new Set(['text','number','checkbox','date','select','status']),key=value=>JSON.stringify(value),same=(a,b)=>key(a)===key(b);
 export class BoardMoveError extends Error{constructor(code){super(code);this.code=code;}}
 const fail=code=>{throw new BoardMoveError(code);};
 function captured(envelope){try{if(![envelope?.collection?.workspaceId,envelope?.collection?.id].every(value=>typeof value==='string'&&/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(value)))throw new Error();return validateCollectionEnvelope(envelope,{workspaceId:envelope?.collection?.workspaceId,collectionId:envelope?.collection?.id});}catch{fail('BOARD_INVALID_RESPONSE');}}
@@ -14,7 +14,7 @@ export function collectionBoardModel(envelope){
  const add=value=>{const id=key(value);if(!byValue.has(id)){const group={value,records:[]};byValue.set(id,group);groups.push(group);}return byValue.get(id);};
  const ordered=data.view.sorts.length?data.collection.records:orderedBoardIds(data.collection.records.map(row=>row.id),data.view.boardOrder).map(id=>data.collection.records.find(row=>row.id===id));
  for(const record of ordered)add(record.values[property.id]).records.push(record);
- if(!reason){if(property.type==='select')for(const value of property.options??[])if(targetValid(property,value))add(value);if(property.type==='checkbox')for(const value of [false,true])add(value);if(targetValid(property,null))add(null);}
+ if(!reason){if(['select','status'].includes(property.type))for(const value of property.options??[])if(targetValid(property,value))add(value);if(property.type==='checkbox')for(const value of [false,true])add(value);if(targetValid(property,null))add(null);}
  const targets=reason?[]:groups.filter(group=>targetValid(property,group.value)).map(group=>group.value);
  const reasonFor=recordId=>{const row=data.collection.records.find(row=>row.id===recordId);if(!row)return'BOARD_ROW_UNAVAILABLE';if(reason)return reason;if(row.redactedProperties?.includes(property.id))return'BOARD_REDACTED_GROUP';if(!row.capabilities.includes('editRecordValues'))return'BOARD_READ_ONLY';return null;};
  const orderReasonFor=recordId=>reasonFor(recordId)??(view.sorts.length?'BOARD_SORTED':!data.capabilities.includes('manage')?'BOARD_ORDER_READ_ONLY':null);

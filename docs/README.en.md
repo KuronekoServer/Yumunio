@@ -8,6 +8,10 @@ Yumunio is a self-hostable workspace for notes, pages and databases. AI generati
 | Host on Cloudflare | [Workers guide, Japanese](hosting/cloudflare.md) |
 | Contribute a translation | [Translate through GitHub](community-translations.en.md) |
 | Learn the editor | [Editing basics, Japanese](editing-basics.md) |
+| Embed a database and edit a row beside the list | [Inline databases and record details, Japanese](inline-databases.md) |
+| Apply a record template | [Database templates and automatic properties, Japanese](database-templates.md) |
+| Reuse shared content across pages | [Synced blocks, Japanese](synced-blocks.md) |
+| Contribute UI transitions | [Motion and accessibility policy, Japanese](ui-motion.md) |
 | Connect an application | [API, MCP and Webhooks, Japanese](integrations.md), [OpenAPI](../openapi.yaml) |
 | Check current limitations | [Feature coverage, Japanese](feature-coverage.md) |
 | Contribute code or documentation | [Contributing, Japanese](../CONTRIBUTING.md) |

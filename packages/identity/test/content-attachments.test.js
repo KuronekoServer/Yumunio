@@ -6,6 +6,7 @@ import { createSqliteContentStore } from '../src/content-store.js';
 import { createAccountContentApi } from '../src/content.js';
 import {ClipboardUploadBatch} from '../../../apps/web/public/clipboard-upload.js';
 import {createAttachmentBlock} from '../../../apps/web/public/attachment-block.js';
+import {HttpRoomClient} from '../../collaboration/src/client.js';
 const schema=await readFile(new URL('../../../apps/worker/auth-schema.sql',import.meta.url),'utf8');
 const stamp='2026-10-15T00:00:00.000Z',origin='https://uploads.example.invalid',workspaceId='workspace';
 const bytes=new TextEncoder().encode('Synthetic page attachment.');
@@ -21,7 +22,7 @@ async function fixture(t){
   const raw=createSqliteContentStore(db);await raw.write(workspaceId,'author',{expectedRevision:0,payload,actorMembershipId:'membership-author',actorRole:'member'});
   const objects=new Map();let beforeWrite,beforeGet,beforeDelete,putCount=0,reads=0;
   const blobStore={profileId:'synthetic',async put(key,value){putCount++;if(objects.has(key))throw Object.assign(new Error('exists'),{code:'BLOB_EXISTS'});objects.set(key,value.slice());return{size:value.length,checksum:await hash(value)};},async get(key){await beforeGet?.();beforeGet=null;return objects.get(key)?.slice()??null;},async delete(key){if(beforeDelete){const cb=beforeDelete;beforeDelete=null;await cb();}objects.delete(key);}};
-  const api=createAccountContentApi({origin,blobStore,resolveSession:async request=>({user:{id:request.headers.get('x-fixture-account'),emailVerified:true}}),store:{read(...args){reads++;return raw.read(...args);},async write(...args){if(beforeWrite){const cb=beforeWrite;beforeWrite=null;await cb();}return raw.write(...args);}}});
+  const api=createAccountContentApi({origin,blobStore,roomSecret:'synthetic-attachment-room-secret-1234567890',resolveSession:async request=>({user:{id:request.headers.get('x-fixture-account'),emailVerified:true}}),store:{read(...args){reads++;return raw.read(...args);},async write(...args){if(beforeWrite){const cb=beforeWrite;beforeWrite=null;await cb();}return raw.write(...args);}}});
   const request=(accountId,path,method='GET',body,extra={})=>api(new Request(origin+'/api/content/workspaces/'+workspaceId+path,{method,headers:{'x-fixture-account':accountId,'X-Yumunio-Expected-Account':accountId,...(method==='GET'?{}:{Origin:origin,'Content-Type':body instanceof Uint8Array?'application/octet-stream':'application/json'}),...extra},...(body===undefined?{}:{body:body instanceof Uint8Array?body:JSON.stringify(body)})}));
   const read=()=>raw.read(workspaceId,'author');
   const change=async fn=>{const row=await read();fn(row.payload);db.prepare('UPDATE yumunio_account_content SET revision=revision+1,payload_json=? WHERE workspace_id=?').run(JSON.stringify(row.payload),workspaceId);};
@@ -49,6 +50,24 @@ async function clipboardFixture(t,{lose=null}={}){
  },onAttachment:(attachment,result)=>{attached.push(attachment);envelope.revision=result.revision;draft.push(createAttachmentBlock(attachment,{pageId,id:'block-'+attachment.id}));}});
  return{...f,batch,calls,attached,draft,get putCount(){return f.putCount;},get envelope(){return envelope;},setActor:value=>actor=value};
 }
+
+test('cross-page attachment resolution checks both ACLs, reuses bytes and retries without duplicating metadata',async t=>{
+ const f=await clipboardFixture(t);await f.batch.run();await f.change(payload=>{payload.grants.push({id:'destination-editor',workspaceId,pageId:'other',accountId:'editor',permission:'editor',includeDescendants:false,status:'active'});payload.grantBindings.push({grantId:'destination-editor',membershipId:'membership-editor'});});
+ const saved=await f.read(),blocks=f.draft.slice(1),copies=f.attached.map((asset,n)=>({sourceId:asset.id,targetId:'copy-'+n})),body={expectedRevision:saved.revision,expectedVersion:1,sourcePageId:'page',blocks,copies},path='/pages/other/attachment-copies';
+ const denied=await f.request('viewer',path,'POST',body);await error(denied,404,'CONTENT_NOT_FOUND');
+ const copied=await f.request('editor',path,'POST',body);assert.equal(copied.status,201,await copied.clone().text());const result=await copied.json();assert.equal(result.version,1);assert.deepEqual(result.blocks.map(block=>block.data.links[0].pageId),['other','other']);assert.deepEqual(result.blocks.map(block=>block.data.links[0].attachmentId),['copy-0','copy-1']);assert.equal(f.putCount,2);assert.equal(f.objects.size,2);
+ const replay=await f.request('editor',path,'POST',body);assert.equal(replay.status,200);assert.deepEqual(await replay.json(),result);assert.equal((await f.read()).payload.attachments.length,4);
+ const preview=await f.request('editor','/pages/other/attachments/copy-0/preview');assert.equal(preview.status,200);assert.deepEqual(new Uint8Array(await preview.arrayBuffer()),png);
+ await f.change(payload=>{payload.grants.find(row=>row.id==='grant-editor').permission='deny';});await error(await f.request('editor',path,'POST',body),404,'CONTENT_NOT_FOUND');
+ const after=await f.read();assert.equal(after.payload.attachments.length,4);assert.doesNotMatch(JSON.stringify(result),/objectKey|profileId|membershipId|checksum/);
+});
+
+test('images and files can be uploaded, pasted and durably synchronized without ending a structured room',async t=>{
+ const f=await clipboardFixture(t),prefix='/api/content/workspaces/'+workspaceId+'/pages/page',transport=async({path,method='GET',body,headers={}})=>{const response=await f.request('editor',path.slice(('/api/content/workspaces/'+workspaceId).length),method,body,headers),value=await response.json();if(!response.ok)throw Object.assign(new Error(value.error.code),{code:value.error.code,status:response.status});return value;};
+ const client=new HttpRoomClient({accountId:'editor',workspaceId,pageId:'page',protocol:2,draft:{title:'page',blocks:f.envelope.document.blocks},request:transport});t.after(()=>client.destroy());await client.open({expectedRevision:f.envelope.revision});const epoch=client.epoch;await f.batch.run();client.pasteTree(f.draft);await client.sync();assert.equal(client.epoch,epoch);assert.equal(client.pending,false);
+ const stored=(await f.read()).payload.pages[0].document;assert.deepEqual(stored.blocks.map(block=>block.type),['paragraph','image','file']);const after=await f.request('viewer','/pages/page/attachments/'+f.attached[0].id+'/preview');assert.equal(after.status,200);assert.deepEqual(new Uint8Array(await after.arrayBuffer()),png);
+ const forged={...createAttachmentBlock({id:'foreign',name:'secret.pdf',mediaType:'application/pdf'},{pageId:'page',id:'forged'})};client.pasteTree([...client.snapshot().blocks,forged]);await assert.rejects(client.sync(),{code:'CONTENT_NOT_FOUND'});assert.deepEqual((await f.read()).payload.pages[0].document,stored);
+});
 
 test('clipboard files publish sequentially and image/file blocks persist with page-bound references and private previews',async t=>{
  const f=await clipboardFixture(t);await f.batch.run();assert.equal(f.batch.state,'done');assert.equal(f.attached.length,2);assert.equal(f.putCount,2);

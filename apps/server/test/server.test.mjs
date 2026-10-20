@@ -13,6 +13,8 @@ test('static host confines files, handles methods, and distinguishes the unavail
   await writeFile(join(root, 'index.html'), '<h1>Yumunio</h1>');
   await writeFile(join(root, 'notes.html'), '<h1>Yumunio</h1>');
   await writeFile(join(root,'setup.html'),'<h1>Setup route</h1>');
+  await writeFile(join(root,'workspace.html'),'<h1>Page editor</h1>');
+  await writeFile(join(root,'workspace-detail.html'),'<h1>Detail editor</h1>');
   await writeFile(join(root, 'app.js'), 'export const test = true;');
   await writeFile(join(root, 'openapi.yaml'), 'openapi: 3.1.0\n');
   await writeFile(join(fixture, 'secret.txt'), 'outside-root');
@@ -39,6 +41,8 @@ test('static host confines files, handles methods, and distinguishes the unavail
   assert.equal((await raw('/notes')).body,'<h1>Yumunio</h1>');assert.equal((await raw('/setup')).body,'<h1>Setup route</h1>');
   const legacy=await raw('/setup.html?source=fixture');assert.equal(legacy.status,308);assert.equal(legacy.headers.location,'/setup?source=fixture');
   assert.equal((await raw('/setup/')).headers.location,'/setup');assert.equal((await raw('/missing')).status,404);
+  const detail=await raw('/workspace-detail?detail=1');assert.match(detail.headers['content-security-policy'],/frame-ancestors 'self'/);assert.equal(detail.headers['cache-control'],'no-store');assert.equal(detail.body,'<h1>Detail editor</h1>');
+  for(const path of ['/workspace','/workspace?detail=1','/workspace?detail=0','/setup?detail=1','/app.js?detail=1'])assert.match((await raw(path)).headers['content-security-policy'],/frame-ancestors 'none'/);
   assert.match((await raw('/app.js')).headers['content-type'], /javascript/);
   assert.equal((await raw('/app.js', 'HEAD')).body, '');
   assert.equal((await raw('/app.js', 'POST')).status, 405);

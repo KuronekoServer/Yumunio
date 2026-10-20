@@ -21,6 +21,15 @@ test('all eight saved projections render from the same DTO without interpreting 
  }
 });
 
+test('placement columns are local and every record projection opens the shared detail callback',tcase=>{
+ const f=settingsDomFixture(tcase),opened=[],before=envelope();
+ for(const type of ['table','board','list','gallery','calendar','timeline','feed']){
+  const input=envelope(type),result=renderCollectionProjection({document:f.doc,envelope:input,t,month:'2026-10',visiblePropertyIds:['status'],onOpenRecord:row=>opened.push(row.id)});f.background.append(result.element);
+  result.element.querySelector('.record-title').dispatch('click');assert.equal(opened.at(-1),'record-0');if(type==='table'){assert.equal(result.element.querySelectorAll('th[scope="col"]').length,3);assert.equal(result.element.querySelectorAll('[data-record-id]').length,2);}if(['gallery','board','feed'].includes(type))assert.doesNotMatch(result.element.querySelector('dl').textContent,/Date|End/);result.element.remove();
+ }
+ assert.equal(before.collection.properties.length,3);
+});
+
 test('board exposes typed current targets and fences stale hosts, readonly rows and sorted views before a commit callback',tcase=>{
  const f=settingsDomFixture(tcase),data=envelope('board'),moves=[];let current=true;
  const result=renderCollectionProjection({document:f.doc,envelope:data,t,available:()=>current,onBoardDrop:move=>{moves.push(move);return true;}});f.background.append(result.element);assert.equal(result.board.canMove('record-0'),true);

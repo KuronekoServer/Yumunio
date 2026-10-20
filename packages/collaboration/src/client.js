@@ -1,5 +1,5 @@
 import { Y, CollaborationError, ROOM_LIMITS, editableRoomKeys, loadRoomDocument, validateRoomDocument, inspectUpdate, inspectStateVector, toBase64, fromBase64,
- loadStructuredRoom,validateStructuredRoom,structuredRoomKeys,structuredRoomOperation,structuredRoomFormat,structuredRoomText,structuredRoomConflicts,structuredRoomFeatures,structuredRoomSelection,resolveStructuredRoomSelection,STRUCTURED_ROOM_FEATURES } from './index.js';
+ loadStructuredRoom,validateStructuredRoom,structuredRoomKeys,structuredRoomOperation,structuredRoomPaste,structuredRoomFormat,structuredRoomText,structuredRoomTableEdit,structuredRoomTableKey,structuredRoomTablePosition,structuredRoomConflicts,structuredRoomFeatures,structuredRoomSelection,resolveStructuredRoomSelection,STRUCTURED_ROOM_FEATURES } from './index.js';
 import {PRESENCE_LIMITS,validPresenceClientId,validatePresenceCursor,validatePresenceSnapshot} from './presence.js';
 
 function readonlyCopy(value) {
@@ -28,7 +28,7 @@ export class HttpRoomClient {
     this.request=request;this.doc=null;this.epoch=null;this.ticket=null;this.status='closed';this.pending=false;this.generation=0;this.busy=false;this.sequence=0;
     this.path='/api/content/workspaces/'+encodeURIComponent(workspaceId)+'/pages/'+encodeURIComponent(pageId)+'/room';
   }
-  requestHeaders(extra={}){return{'X-Yumunio-Expected-Account':this.accountId,...(this.protocol===2?{'X-Yumunio-Room-Protocol':'2'}:{}),...(this.features.includes('check-state')?{'X-Yumunio-Room-Features':'check-state'}:{}),...(this.features.includes('block-transforms')?{'X-Yumunio-Room-Extensions':'block-transforms'}:{}),...extra};}
+  requestHeaders(extra={}){return{'X-Yumunio-Expected-Account':this.accountId,...(this.protocol===2?{'X-Yumunio-Room-Protocol':'2'}:{}),...(this.features.includes('check-state')?{'X-Yumunio-Room-Features':'check-state'}:{}),...(this.features.includes('block-transforms')?{'X-Yumunio-Room-Extensions':'block-transforms'}:{}),...(this.features.includes('content-blocks')?{'X-Yumunio-Room-Content':'content-blocks'}:{}),...extra};}
   async #request(suffix,method,body,extra={}) {
     const lifecycle=this.#lifecycle;
     try{return await this.request({path:this.path+suffix,method,headers:this.requestHeaders(extra),...(body===undefined?{}:{body})});}
@@ -113,12 +113,27 @@ export class HttpRoomClient {
   get operationConflicts(){return this.protocol===2&&this.doc?structuredRoomConflicts(this.doc,this.seed):[];}
   supportsFeature(feature){return this.protocol===2&&this.features.includes(feature)&&this.serverFeatures.includes(feature);}
   setChecked({blockId,checked}){return this.operation({kind:'check',blockId,checked});}
+  tableCellKey(position){return structuredRoomTableKey(this.doc,this.seed,position);}
+  pasteTree(blocks){
+   if(!this.doc||this.status!=='ready'||!this.editable||!this.supportsFeature('content-blocks'))throw new CollaborationError('ROOM_NOT_EDITABLE');const candidate=loadStructuredRoom(Y.encodeStateAsUpdate(this.doc),this.seed),ids=[];let at=0;
+   try{candidate.clientID=this.doc.clientID;structuredRoomPaste(candidate,this.seed,blocks,{createId:()=>{const id=crypto.randomUUID();ids.push(id);return id;}});inspectUpdate(Y.encodeStateAsUpdate(candidate,this.serverVector),{protocol:2});}finally{candidate.destroy();}
+   this.undoManager.stopCapturing();const result=structuredRoomPaste(this.doc,this.seed,blocks,{origin:this.localOrigin,createId:()=>ids[at++],onField:key=>this.undoManager.addToScope(this.doc.getText(key))});this.allowed=new Set(structuredRoomKeys(this.doc,this.seed));this.undoManager.stopCapturing();this.pending=true;this.generation++;return result;
+  }
+  tableCellPosition(key){return structuredRoomTablePosition(this.doc,this.seed,key);}
+  setTable(command){
+   if(!this.doc||this.status!=='ready'||!this.editable||!this.supportsFeature('content-blocks'))throw new CollaborationError('ROOM_NOT_EDITABLE');
+   const candidate=loadStructuredRoom(Y.encodeStateAsUpdate(this.doc),this.seed),ids=[];let at=0;
+   try{candidate.clientID=this.doc.clientID;structuredRoomTableEdit(candidate,this.seed,command,{createId:()=>{const id=crypto.randomUUID();ids.push(id);return id;}});inspectUpdate(Y.encodeStateAsUpdate(candidate,this.serverVector),{protocol:2});}finally{candidate.destroy();}
+   if(command.change?.kind!=='text')this.undoManager.stopCapturing();
+   const result=structuredRoomTableEdit(this.doc,this.seed,command,{origin:this.localOrigin,createId:()=>ids[at++],onField:key=>this.undoManager.addToScope(this.doc.getText(key))});
+   this.allowed=new Set(structuredRoomKeys(this.doc,this.seed));for(const key of this.allowed)this.undoManager.addToScope(this.doc.getText(key));if(command.change?.kind!=='text')this.undoManager.stopCapturing();this.pending=true;this.generation++;return result;
+  }
   operation(operation,{text,marks=[]}={}){if(this.protocol!==2||!this.doc||this.status!=='ready'||!this.editable)throw new CollaborationError('ROOM_NOT_EDITABLE');if((operation?.kind==='check'&&!this.supportsFeature('check-state')||['split','merge','convert'].includes(operation?.kind)&&!this.supportsFeature('block-transforms'))||['check','split','merge','convert'].includes(operation?.kind)&&text!==undefined)throw new CollaborationError('ROOM_FEATURE_UNSUPPORTED',409);const id=crypto.randomUUID(),candidate=loadStructuredRoom(Y.encodeStateAsUpdate(this.doc),this.seed);let noOp=false;try{candidate.clientID=this.doc.clientID;structuredRoomOperation(candidate,this.seed,operation,{createId:()=>id});noOp=operation.kind==='check'&&candidate.getArray('operations').length===this.doc.getArray('operations').length;if(text!==undefined)structuredRoomText(candidate,'block:'+operation.blockId,text,{marks,base:this.seed});validateStructuredRoom(candidate,this.seed);inspectUpdate(Y.encodeStateAsUpdate(candidate,this.serverVector),{protocol:2});}finally{candidate.destroy();}if(noOp)return this.snapshot();this.undoManager.stopCapturing();structuredRoomOperation(this.doc,this.seed,operation,{origin:this.localOrigin,createId:()=>id});this.allowed=new Set(structuredRoomKeys(this.doc,this.seed));for(const key of this.allowed)this.undoManager.addToScope(this.doc.getText(key));if(text!==undefined)this.setText('block:'+operation.blockId,text,{marks});this.undoManager.stopCapturing();this.pending=true;this.generation++;return this.snapshot();}
   setMarks({blockId,start,end,marks}){if(this.protocol!==2||!this.doc||this.status!=='ready'||!this.editable)throw new CollaborationError('ROOM_NOT_EDITABLE');const candidate=loadStructuredRoom(Y.encodeStateAsUpdate(this.doc),this.seed);try{candidate.clientID=this.doc.clientID;structuredRoomFormat(candidate,this.seed,{blockId,start,end,marks});inspectUpdate(Y.encodeStateAsUpdate(candidate,this.serverVector),{protocol:2});}finally{candidate.destroy();}this.undoManager.stopCapturing();structuredRoomFormat(this.doc,this.seed,{blockId,start,end,marks},{origin:this.localOrigin});this.undoManager.stopCapturing();this.pending=true;this.generation++;return this.snapshot();}
   history(direction){if(this.protocol!==2||!this.doc||this.status!=='ready'||!this.editable||!['undo','redo'].includes(direction))throw new CollaborationError('ROOM_NOT_EDITABLE');this.undoManager.stopCapturing();const result=this.undoManager[direction]();if(result){this.pending=true;this.generation++;}return this.snapshot();}
   setText(key,value,{marks=[]}={}) {
     if(!this.doc||this.status!=='ready'||!this.editable||!this.allowed.has(key)||typeof value!=='string'||value.length>(key==='title'?240:100000))throw new CollaborationError('ROOM_NOT_EDITABLE');
-    const text=this.doc.getText(key),previous=this.protocol===2?(key==='title'?this.snapshot().title:(()=>{const visit=blocks=>blocks.flatMap(block=>[block,...visit(block.children??[])]);return visit(this.snapshot().blocks).find(block=>'block:'+block.id===key)?.data?.text;})()):text.toString();if(previous===value)return;
+    const text=this.doc.getText(key),previous=this.protocol===2&&!key.startsWith('cell/')?(key==='title'?this.snapshot().title:(()=>{const visit=blocks=>blocks.flatMap(block=>[block,...visit(block.children??[])]);return visit(this.snapshot().blocks).find(block=>'block:'+block.id===key)?.data?.text;})()):text.toString();if(previous===value)return;
     if(this.protocol===2){const candidate=loadStructuredRoom(Y.encodeStateAsUpdate(this.doc),this.seed);try{candidate.clientID=this.doc.clientID;structuredRoomText(candidate,key,value,{marks,base:this.seed});validateStructuredRoom(candidate,this.seed);inspectUpdate(Y.encodeStateAsUpdate(candidate,this.serverVector),{protocol:2});}finally{candidate.destroy();}structuredRoomText(this.doc,key,value,{origin:this.localOrigin,marks,base:this.seed});this.pending=true;this.generation++;return;}
     let start=0;while(start<previous.length&&start<value.length&&previous[start]===value[start])start++;
     let end=0;while(end<previous.length-start&&end<value.length-start&&previous[previous.length-1-end]===value[value.length-1-end])end++;
@@ -216,7 +231,7 @@ export class HttpRoomClient {
     if(!usable)return{left:false};
     // Keep DELETE ordered after every earlier publish even when stop/destroy runs during unload.
     // It must not change a closed room's authorization status or accept any presence metadata.
-    const call={path:this.path+'/presence',method:'DELETE',headers:{'X-Yumunio-Expected-Account':this.accountId,...(this.protocol===2?{'X-Yumunio-Room-Protocol':'2'}:{}),...(this.features.includes('check-state')?{'X-Yumunio-Room-Features':'check-state'}:{}),...(this.features.includes('block-transforms')?{'X-Yumunio-Room-Extensions':'block-transforms'}:{})},body};
+    const call={path:this.path+'/presence',method:'DELETE',headers:{'X-Yumunio-Expected-Account':this.accountId,...(this.protocol===2?{'X-Yumunio-Room-Protocol':'2'}:{}),...(this.features.includes('check-state')?{'X-Yumunio-Room-Features':'check-state'}:{}),...(this.features.includes('block-transforms')?{'X-Yumunio-Room-Extensions':'block-transforms'}:{}),...(this.features.includes('content-blocks')?{'X-Yumunio-Room-Content':'content-blocks'}:{})},body};
     const result=await this.#queuePresence(()=>this.request(call));
     if(!result||Object.keys(result).length!==1||result.left!==true)throw new CollaborationError('INVALID_ROOM_RESPONSE');return result;
   }

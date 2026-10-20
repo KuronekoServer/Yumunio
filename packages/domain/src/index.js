@@ -5,7 +5,7 @@ import { validateInlineMarks } from './inline.js';
 import {validateMentions} from './mentions.js';
 import {validateSimpleTableData} from './simple-table.js';
 import {isAttachmentBlock} from './attachment-block-model.js';
-import {RICH_BLOCK_TYPES,GENERATED_BLOCK_TYPES,isBookmarkBlock,validateBlockPresentation} from './block-types.js';
+import {RICH_BLOCK_TYPES,GENERATED_BLOCK_TYPES,isBookmarkBlock,isDatabaseBlock,isSyncedBlock,validateBlockPresentation} from './block-types.js';
 export * from './block-types.js';
 import {validatePageAppearance} from './page-appearance.js';
 export * from './page-appearance.js';
@@ -35,6 +35,7 @@ export {BLOCK_MOVE_NESTING,BlockForestMoveError,planBlockForestMove,moveBlockFor
 
 export const PROPERTY_TYPES = Object.freeze([
   "text", "number", "checkbox", "date", "select", "multi_select", "person", "relation", "formula", "rollup",
+  "status", "url", "created_time", "last_edited_time",
 ]);
 
 /** A machine-readable validation or storage error without resource contents. */
@@ -137,7 +138,7 @@ export function assertVersion(value, field = "version") {
   return value;
 }
 
-const assertTimestamp = (value, field) => {
+export const assertTimestamp = (value, field) => {
   if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(value)) {
     invalid(field, "Expected a canonical UTC timestamp.");
   }
@@ -161,6 +162,8 @@ export function validateBlocks(blocks) {
       const block = assertPlainObject(items[index], field);
       const id = assertId(block.id, field + ".id");
       assertId(block.type, field + ".type");
+      if(block.type==='database'&&block.data?.format==='collection-view-v1'&&!isDatabaseBlock(block))invalid(field+'.data','Invalid database placement.');
+      if(block.type==='synced-block'&&block.data?.format==='synced-page-v1'&&!isSyncedBlock(block))invalid(field+'.data','Invalid synced placement.');
       if(GENERATED_BLOCK_TYPES.includes(block.type)&&Object.hasOwn(block,'children'))invalid(field+'.children','This block cannot contain children.');
       if(block.type==='bookmark'&&block.data?.format==='web-link-v1'&&!isBookmarkBlock(block))invalid(field+'.data','Invalid web link.');
       if(block.type==='equation'&&(typeof block.data?.text!=='string'||block.data.text.length>10000||Object.hasOwn(block,'children')))invalid(field+'.data','Invalid equation.');
@@ -249,6 +252,7 @@ function validateDefinitions(value, checkFormulas) {
     }
     if (!PROPERTY_TYPES.includes(property.type)) invalid(field + ".type", "Unsupported property type.");
     if (Object.hasOwn(property, "required") && typeof property.required !== "boolean") invalid(field + ".required", "Expected a boolean.");
+    if(['created_time','last_edited_time'].includes(property.type)&&property.required===true)invalid(field+'.required','A system timestamp cannot require a stored value.');
     if (property.type === "formula") {
       try { validateFormulaDefinition(property.formula); parseFormula(property.formula.expression); } catch (error) { formulaInvalid(error, field + ".formula"); }
       if (property.required === true) invalid(field + ".required", "A computed property cannot require a stored value.");
@@ -258,7 +262,7 @@ function validateDefinitions(value, checkFormulas) {
       if (property.required === true) invalid(field + ".required", "A computed property cannot require a stored value.");
     } else if (Object.hasOwn(property, "rollup")) invalid(field + ".rollup", "Only rollup properties have a rollup definition.");
     if (Object.hasOwn(property, "options")) {
-      if (!["select", "multi_select"].includes(property.type)) invalid(field + ".options", "Only selection properties have options.");
+      if (!["select", "multi_select", "status"].includes(property.type)) invalid(field + ".options", "Only selection properties have options.");
       if (!Array.isArray(property.options)) invalid(field + ".options", "Expected selection options.");
       const options = new Set();
       for (const option of property.options) {
@@ -292,11 +296,18 @@ function validateValue(property, value, checkDefinition) {
   switch (property.type) {
     case "rollup":
     case "formula":
+    case "created_time":
+    case "last_edited_time":
       invalid(field, "Computed values cannot be stored.");
       break;
     case "text":
       if (typeof value !== "string") invalid(field, "Expected text.");
       break;
+    case "url": {
+      let url;try{url=new URL(value);}catch{invalid(field,'Expected an HTTP or HTTPS URL.');}
+      if(typeof value!=='string'||value.length>2048||!['http:','https:'].includes(url.protocol)||url.username||url.password)invalid(field,'Expected an HTTP or HTTPS URL.');
+      break;
+    }
     case "number":
       if (typeof value !== "number") invalid(field, "Expected a finite number.");
       break;
@@ -310,6 +321,7 @@ function validateValue(property, value, checkDefinition) {
       break;
     }
     case "select":
+    case "status":
       if (typeof value !== "string" || !(property.options ?? []).includes(value)) invalid(field, "Expected one of the configured options.");
       break;
     case "multi_select":

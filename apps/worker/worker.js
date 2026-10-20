@@ -41,7 +41,8 @@ export default {
   },
   async fetch(request, env, context) {
     const url = new URL(request.url);
-    const policy={...basePolicy,'Content-Security-Policy':basePolicy['Content-Security-Policy'].replace("connect-src 'self'","connect-src 'self' "+url.origin.replace(/^http/,'ws'))};
+    const isDetail=url.pathname==='/workspace-detail',frameAncestors=isDetail?"frame-ancestors 'self'":"frame-ancestors 'none'";
+    const policy={...basePolicy,'Content-Security-Policy':basePolicy['Content-Security-Policy'].replace("connect-src 'self'","connect-src 'self' "+url.origin.replace(/^http/,'ws')).replace("frame-ancestors 'none'",frameAncestors)};
     const pageRoute=webPageRoute(url.pathname);
     if(pageRoute?.redirectPath)return new Response(null,{status:['GET','HEAD'].includes(request.method)?308:405,headers:{...policy,'Cache-Control':'no-store',...(['GET','HEAD'].includes(request.method)?{Location:pageRoute.redirectPath+url.search}:{Allow:'GET, HEAD'})}});
     if ((env.YUMUNIO_SETUP_TOKEN || env.YUMUNIO_INSTANCE_SECRET) && env.YUMUNIO_PUBLIC_ORIGIN && ['/', '/setup'].includes(url.pathname) && ['GET', 'HEAD'].includes(request.method)) {
@@ -178,6 +179,7 @@ export default {
     const response = await env.ASSETS.fetch(assetRequest);
     const result = new Response(response.body, response);
     for (const [name, value] of Object.entries(policy)) result.headers.set(name, value);
+    if(isDetail){result.headers.set('Cache-Control','no-store');result.headers.delete('ETag');}
     return result;
   }
 };

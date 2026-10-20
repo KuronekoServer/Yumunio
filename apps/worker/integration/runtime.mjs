@@ -338,6 +338,7 @@ test('local workerd serves generated assets with security headers and preserves 
   assert.equal(workspace.status, 200); checkPolicy(workspace); assert.equal(workspace.headers.get('location'), null);
   const workspaceHtml=await workspace.text(),nextChunk=workspaceHtml.match(/<script[^>]+src="(\/_next\/static\/[^\"]+\.js)"/)?.[1];
   assert.ok(nextChunk,'the workspace serves its Next.js application scripts');
+  const detail=await f.request('/workspace-detail?detail=1');assert.equal(detail.status,200);assert.match(detail.headers.get('content-security-policy'),/frame-ancestors 'self'/);assert.equal(detail.headers.get('cache-control'),'no-store');assert.equal(detail.headers.get('etag'),null);await detail.arrayBuffer();
   const workspaceScript=await f.request(nextChunk);assert.equal(workspaceScript.status,200);checkPolicy(workspaceScript);await workspaceScript.arrayBuffer();
   const legacy=await f.request('/workspace.html?workspace=preview');assert.equal(legacy.status,308);assert.equal(legacy.headers.get('location'),'/workspace?workspace=preview');
   assert.equal((await f.request('/unknown-page')).status, 404, 'unknown paths must not become HTML fallbacks');

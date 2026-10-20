@@ -32,6 +32,10 @@ test('every exported Next page uses local executable assets and carries no inlin
   }
  }
 });
+
+test('workspace and embedded editor preload the same content-versioned controller',async()=>{
+ const read=name=>readFile(new URL('../../../.build/web/'+name+'.html',import.meta.url),'utf8'),workspace=await read('workspace'),detail=await read('workspace-detail'),version=workspace.match(/href="\/workspace\.js\?v=([a-f0-9]{64})"/)?.[1];assert.ok(version);assert.ok(detail.includes('/workspace.js?v='+version));
+});
 test('initial setup authorization is consumed once from the fragment without losing other URL parameters',()=>{
  const calls=[],location={pathname:'/setup',search:'?locale=en',hash:'#start=synthetic'},history={state:{position:1},replaceState(...args){calls.push(args);}};
  assert.equal(consumeSetupAuthorization(location,history),'synthetic');assert.deepEqual(calls,[[{position:1},'','/setup?locale=en']]);

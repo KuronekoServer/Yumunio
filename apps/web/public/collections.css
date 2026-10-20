@@ -20,3 +20,5 @@
 .conversion-review:empty{display:none}.conversion-table{max-height:360px;overflow:auto;border:1px solid var(--border);border-radius:6px}.conversion-table th,.conversion-table td{white-space:pre-wrap;overflow-wrap:anywhere;max-width:320px;vertical-align:top}.conversion-table thead th{position:sticky;top:0;background:var(--surface)}
 .conversion-consent[hidden]{display:none}
 .collection-form{grid-template-columns:minmax(0,1fr);min-width:0}.collection-form>*{min-width:0;max-width:100%}.conversion-review{min-width:0}.conversion-table{max-width:100%}
+@import url('./record-panel.css');
+@import url('./synced-block.css');

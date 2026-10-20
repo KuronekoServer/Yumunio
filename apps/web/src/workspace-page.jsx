@@ -1,12 +1,16 @@
 'use client';
 import {memo,useCallback,useEffect,useRef,useState} from 'react';
 import {flushSync} from 'react-dom';
+import {motion} from 'motion/react';
+import {MotionDialog,SidebarMenu,useReducedMotionPreference} from './ui-motion.jsx';
+import {surfaceTransition} from '../public/ui-motion-policy.js';
 import {Icon} from './icons.jsx';
 
 function Action({label,icon,onClick,disabled=false,className='',children,...props}){
  return <button type="button" className={className||'icon-button'} aria-label={label} title={label} disabled={!!disabled} onClick={onClick} {...props}>{icon&&<Icon name={icon}/>} {children}</button>;
 }
-const Sidebar=memo(function Sidebar({model,onCollapse}){
+const Sidebar=memo(function Sidebar({model,onCollapse,desktop,collapsed}){
+ const reduced=useReducedMotionPreference(),hidden=desktop?collapsed:!model.state.navOpen;
  const {state:s,t,handlers:h,workspaceId,pageRows,activeTeams,collapsedTeams,expandedPages,newDisabled}=model;
  const query='?workspace='+encodeURIComponent(workspaceId),disabled=!s.user||!!s.fatal||s.busy;
  const sections=[];
@@ -26,13 +30,13 @@ const Sidebar=memo(function Sidebar({model,onCollapse}){
   </li>;
  }
  const favorites=s.pages.filter(page=>page.favorite);
- return <aside id="workspace-sidebar" className="workspace-sidebar" aria-label={t('pages')}>
+ return <motion.aside id="workspace-sidebar" className="workspace-sidebar" aria-label={t('pages')} aria-hidden={hidden||undefined} inert={hidden} initial={false} animate={{x:hidden?'-100%':0}} transition={surfaceTransition('sidebar',reduced)}>
   <div className="workspace-brand"><button type="button" className="workspace-switcher" aria-label={t('workspacePicker.title')} disabled={disabled} onClick={h.openWorkspacePicker}><img data-instance-logo="" alt="" width="22" height="22" hidden/><Icon name="notebook" data-instance-default-logo=""/><span translate="no">{s.name||'Yumunio'}</span><span aria-hidden="true">⌄</span></button><Action label={t('collapseSidebar')} icon="sidebar" className="desktop-sidebar-toggle icon-button" onClick={onCollapse}/><Action label={t('closeMenu')} icon="close" className="mobile-close icon-button" onClick={()=>h.setNavigation(false)}/></div>
   <nav className="workspace-links" aria-label={t('pages')}>
    <Action className="nav-link sidebar-search" label={t('sidebarSearch')} icon="search" onClick={h.openSearch} disabled={disabled}><span>{t('sidebarSearch')}</span><kbd>Ctrl K</kbd></Action>
    <Action className="nav-link" label={t('sidebarHome')} icon="home" onClick={h.openWorkspaceHome} disabled={disabled}>{t('sidebarHome')}</Action>
    {s.user&&!s.fatal&&<a href={'/comments'+query} className="nav-link"><Icon name="inbox"/>{t('sidebarInbox')}</a>}
-   <details className="sidebar-library"><summary><Icon name="template"/>{t('sidebarLibrary')}</summary><div className="sidebar-library-links"><a href={'/collections'+query} className="nav-link"><Icon name="table"/>{t('collections')}</a><a href={'/forms'+query} className="nav-link"><Icon name="page"/>{t('forms')}</a>{s.role&&s.role!=='guest'&&<a href={'/templates'+query} className="nav-link"><Icon name="template"/>{t('personalTemplates')}</a>}</div></details>
+   <SidebarMenu label={t('sidebarLibrary')} icon={<Icon name="template"/>}><a href={'/collections'+query} className="nav-link"><Icon name="table"/>{t('collections')}</a><a href={'/forms'+query} className="nav-link"><Icon name="page"/>{t('forms')}</a>{s.role&&s.role!=='guest'&&<a href={'/templates'+query} className="nav-link"><Icon name="template"/>{t('personalTemplates')}</a>}</SidebarMenu>
   </nav>
   <div className="page-list-heading"><span>{t('pages')}</span><Action label={t('refreshList')} icon="refresh" disabled={!s.user||s.busy||s.listLoading||!!s.fatal} onClick={()=>h.refreshList(true)}/><Action label={t('createPage')} icon="plus" disabled={newDisabled} onClick={()=>h.openCreate()}/></div>
   <button type="button" className="root-drop-target" onDragOver={event=>h.overPageDrop(event,null)} onDragLeave={event=>event.currentTarget.classList.remove('drop-target')} onDrop={event=>h.dropPage(event,null)}>{t('moveToRoot')}</button>
@@ -47,15 +51,15 @@ const Sidebar=memo(function Sidebar({model,onCollapse}){
   </div>
   <footer className="sidebar-footer">
    {s.user&&!s.fatal&&<a href={'/workspace-settings'+query} className="nav-link"><Icon name="settings"/>{t('sidebarSettings')}</a>}
-   <details className="sidebar-library sidebar-tools"><summary><Icon name="more"/>{t('sidebarTools')}</summary><div className="sidebar-library-links">
+   <SidebarMenu className="sidebar-tools" label={t('sidebarTools')} icon={<Icon name="more"/>}>
     {s.user&&!s.fatal&&<Action className="nav-link" label={t('sidebarInvite')} icon="users" onClick={()=>h.openSettings('members')} disabled={s.busy}>{t('sidebarInvite')}</Action>}
     <Action className="nav-link" label={t('trashPages')} icon="trash" onClick={h.openTrash} disabled={disabled}>{t('trashPages')}</Action><Action className="nav-link" label={t('exportWorkspace')} icon="download" onClick={h.openExport} disabled={disabled}>{t('exportWorkspace')}</Action>
     {s.user&&!s.fatal&&s.role&&s.role!=='guest'&&<a href={'/workspace-settings'+query+'&section=import'} className="nav-link"><Icon name="plus"/>{t('importContent')}</a>}
     <a href="/notes" className="nav-link"><Icon name="arrow"/>{t('deviceNotes')}</a><a href={'/integrations'+query+(s.current?'&page='+encodeURIComponent(s.current.page.id):'')} className="nav-link">{t('integrations')}</a><a href="/install" className="nav-link">{t('installApp')}</a><a href="/LICENSE.txt" className="license-link">{t('footerLicense')}</a>
-   </div></details>
+   </SidebarMenu>
    <button type="button" className="profile-link" disabled={!s.user||s.busy} onClick={h.openWorkspacePicker}><span className="profile-symbol" aria-hidden="true">{Array.from(s.user?.name||'Y')[0]}</span><span translate="no">{s.user?.name||t('account')}</span></button>
   </footer>
- </aside>;
+ </motion.aside>;
 });
 function Toolbar({model,controls,sidebarCollapsed,onExpandSidebar}){
  const {state:s,t,handlers:h,workspaceId}=model;
@@ -73,11 +77,14 @@ function Toolbar({model,controls,sidebarCollapsed,onExpandSidebar}){
 
 /** The editor engine owns the content host; React owns navigation, toolbar and route lifecycle. */
 export function WorkspacePage(){
+ const reduced=useReducedMotionPreference(),[desktop,setDesktop]=useState(true);
+ useEffect(()=>{const media=matchMedia('(min-width:761px)'),change=()=>setDesktop(media.matches);change();media.addEventListener('change',change);return()=>media.removeEventListener('change',change);},[]);
  const root=useRef(null),modal=useRef(null),content=useRef(null),lastControls=useRef(''),[model,setModel]=useState(null),[controls,setControls]=useState({}),[failed,setFailed]=useState(false),[sidebarCollapsed,setSidebarCollapsed]=useState(false);
- const collapseSidebar=useCallback(()=>setSidebarCollapsed(true),[]),expandSidebar=useCallback(()=>setSidebarCollapsed(false),[]);
+ const collapseSidebar=useCallback(()=>{flushSync(()=>setSidebarCollapsed(true));root.current?.querySelector('.workspace-main .desktop-sidebar-toggle')?.focus({preventScroll:true});},[]),expandSidebar=useCallback(()=>{flushSync(()=>setSidebarCollapsed(false));root.current?.querySelector('.workspace-sidebar .desktop-sidebar-toggle')?.focus({preventScroll:true});},[]);
  useEffect(()=>{
   const lifetime=new AbortController();
-  import(/* webpackIgnore: true */ '/workspace.js').then(module=>{
+  const version=process.env.NEXT_PUBLIC_EDITOR_VERSION,editorModule='/workspace.js'+(version?'?v='+version:'');
+  import(/* webpackIgnore: true */ editorModule).then(module=>{
    if(lifetime.signal.aborted)return;
    return module.mountWorkspace({app:root.current,modal:modal.current,signal:lifetime.signal,
     renderChrome:next=>{if(lifetime.signal.aborted)return null;flushSync(()=>setModel(next));return{sidebar:root.current.querySelector('.workspace-sidebar'),mainPanel:root.current.querySelector('.workspace-main'),navButton:root.current.querySelector('.nav-toggle'),scroll:content.current};},
@@ -86,7 +93,7 @@ export function WorkspacePage(){
   }).catch(error=>{if(!lifetime.signal.aborted){console.error('Workspace could not start',error);setFailed(true);}});
   return()=>lifetime.abort();
  },[]);
- return <><a className="skip-link" href="#workspace-document">本文に移動</a><div id="workspace-app" ref={root} className={'workspace-shell'+(model?.state.navOpen?' nav-open':'')+(model?.selectionMode?' block-selection-mode':'')+(sidebarCollapsed?' sidebar-collapsed':'')}>
-  {model?<><Sidebar model={model} onCollapse={collapseSidebar}/><button type="button" className="nav-scrim" aria-label={model.t('closeMenu')} tabIndex={-1} onClick={()=>model.handlers.setNavigation(false)}/><main className="workspace-main"><Toolbar model={model} controls={controls} sidebarCollapsed={sidebarCollapsed} onExpandSidebar={expandSidebar}/><div className="workspace-scroll" data-locale-notice-host="" ref={content}/></main><p id="block-dnd-instructions" className="sr-only">{model.t('blockDnd.instructions')}</p><p id="block-dnd-status" className="sr-only" role="status" aria-live="polite" aria-atomic="true"/></>:<><aside className="workspace-sidebar workspace-loading-nav"><div className="workspace-brand"><Icon name="notebook"/>Yumunio</div></aside><main className="workspace-main"><p className="startup" role={failed?'alert':'status'}>{failed?'画面を読み込めませんでした。再読み込みしてください。':'ワークスペースを確認しています…'}</p></main></>}
- </div><dialog id="workspace-modal" ref={modal} aria-labelledby="workspace-modal-heading"/><noscript>この画面を利用するには JavaScript を有効にしてください。</noscript></>;
+ return <><a className="skip-link" href="#workspace-document">本文に移動</a><motion.div id="workspace-app" ref={root} initial={false} animate={model?{gridTemplateColumns:desktop?(sidebarCollapsed?'0px minmax(0,1fr)':'256px minmax(0,1fr)'):'minmax(0,1fr)'}:undefined} transition={surfaceTransition('sidebar',reduced)} className={'workspace-shell motion-workspace'+(model?.state.navOpen?' nav-open':'')+(model?.selectionMode?' block-selection-mode':'')+(sidebarCollapsed?' sidebar-collapsed':'')}>
+  {model?<><Sidebar model={model} onCollapse={collapseSidebar} desktop={desktop} collapsed={sidebarCollapsed}/><button type="button" className="nav-scrim" aria-label={model.t('closeMenu')} tabIndex={-1} onClick={()=>model.handlers.setNavigation(false)}/><main className="workspace-main"><Toolbar model={model} controls={controls} sidebarCollapsed={sidebarCollapsed} onExpandSidebar={expandSidebar}/><div className="workspace-scroll" data-locale-notice-host="" ref={content}/></main><p id="block-dnd-instructions" className="sr-only">{model.t('blockDnd.instructions')}</p><p id="block-dnd-status" className="sr-only" role="status" aria-live="polite" aria-atomic="true"/></>:<><aside className="workspace-sidebar workspace-loading-nav"><div className="workspace-brand"><Icon name="notebook"/>Yumunio</div></aside><main className="workspace-main"><p className="startup" role={failed?'alert':'status'}>{failed?'画面を読み込めませんでした。再読み込みしてください。':'ワークスペースを確認しています…'}</p></main></>}
+ </motion.div><MotionDialog id="workspace-modal" ref={modal} aria-labelledby="workspace-modal-heading"/><noscript>この画面を利用するには JavaScript を有効にしてください。</noscript></>;
 }

@@ -2,7 +2,7 @@
  * authority for sessions, membership, room epochs and every Yjs update. */
 export const ROOM_SOCKET_LIMITS=Object.freeze({messageBytes:100000,responseBytes:400000,peers:64,accountPeers:8,queued:8,idleMs:90000});
 const route=/^\/api\/content\/workspaces\/([A-Za-z0-9._:-]+)\/pages\/([A-Za-z0-9._:-]+)\/room(?:\/ws)?$/;
-const allowedHeaders=new Set(['x-yumunio-expected-account','x-yumunio-room-protocol','x-yumunio-room-features','x-yumunio-room-extensions','x-yumunio-room-ticket','x-yumunio-state-vector','x-yumunio-presence-client']);
+const allowedHeaders=new Set(['x-yumunio-expected-account','x-yumunio-room-protocol','x-yumunio-room-features','x-yumunio-room-extensions','x-yumunio-room-content','x-yumunio-room-ticket','x-yumunio-state-vector','x-yumunio-presence-client']);
 const fail=()=>{throw Object.assign(new Error('Invalid room socket request.'),{code:'ROOM_SOCKET_PROTOCOL'});};
 export function roomSocketScope(path){const match=route.exec(path);return match?{workspaceId:match[1],pageId:match[2],path:'/api/content/workspaces/'+match[1]+'/pages/'+match[2]+'/room'}:null;}
 export function roomSocketRoute(path){return /^\/api\/content\/workspaces\/[A-Za-z0-9._:-]+\/pages\/[A-Za-z0-9._:-]+\/room(?:\/(?:ws|open|updates|renew|presence))?$/.test(path);}

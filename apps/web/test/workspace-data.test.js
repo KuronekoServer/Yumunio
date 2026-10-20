@@ -4,6 +4,11 @@ import { CollectionEdits, validateInlineBlockMetadata, readableLinks, editableBl
 const record=(id,pageId,editable=true)=>({id,pageId,title:id,values:{name:'=SUM(A1)',memo:'007\nRen'},sourceValues:{name:'=SUM(A1)',memo:'007\nRen'},capabilities:['read',...(editable?['editRecordValues']:[])]});
 const envelope=()=>({revision:3,pageId:'table-page',capabilities:['read'],collection:{id:'table',workspaceId:'workspace-A',title:'Table',views:[],properties:[{id:'name',name:'Name',type:'text'},{id:'memo',name:'Memo',type:'text'}],records:[record('row-A','page-A'),record('row-B','page-B',false)]}});
 const model=()=>new CollectionEdits(envelope(),{workspaceId:'workspace-A',collectionId:'table'});
+
+test('property drafts rebase over body and unrelated property changes but preserve conflicts and revoked rights',()=>{
+ const value=model();value.setRaw('row-A','memo','日本語の下書き');const fresh=envelope();fresh.revision=9;fresh.collection.records[0].title='Peer title';fresh.collection.records[0].values.name='Other property changed';const rebased=value.rebase(fresh);assert.equal(rebased.patch('row-A').expectedRevision,9);assert.deepEqual(rebased.changes('row-A'),{memo:'日本語の下書き'});assert.equal(rebased.record('row-A').values.name,'Other property changed');assert.equal(value.revision,3);
+ const collision=structuredClone(fresh);collision.collection.records[0].values.memo='Peer changed this field';assert.throws(()=>value.rebase(collision),/INVALID_RECORD_EDIT/);const revoked=structuredClone(fresh);revoked.collection.records[0].capabilities=['read'];assert.throws(()=>value.rebase(revoked),/INVALID_RECORD_EDIT/);assert.equal(value.rawValue('row-A','memo'),'日本語の下書き');
+});
 test('record drafts preserve exact source strings and patch only changed properties',()=> {
  const value=model(); value.set('row-A','memo','0009\nMika');
  assert.deepEqual(value.changes('row-A'),{memo:'0009\nMika'});

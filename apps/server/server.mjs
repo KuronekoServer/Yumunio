@@ -61,7 +61,8 @@ export function createAppServer({ root = defaultRoot, snapshotStore = null, acce
   const server = createServer(async (request, response) => {
     const send = (status, body, type = 'text/plain; charset=utf-8', extraHeaders = {}) => {
       const socketOrigin=(runtime?.publicOrigin||'http://127.0.0.1:'+server.address().port).replace(/^http/,'ws');
-      response.writeHead(status, mergeHeaders({...headers,'Content-Security-Policy':headers['Content-Security-Policy'].replace("connect-src 'self'","connect-src 'self' "+socketOrigin)},{'Content-Type':type},extraHeaders));
+      const detailUrl=new URL(request.url,'http://localhost'),isDetail=detailUrl.pathname==='/workspace-detail',frameAncestors=isDetail?"frame-ancestors 'self'":"frame-ancestors 'none'";if(isDetail)extraHeaders={...extraHeaders,'Cache-Control':'no-store'};
+      response.writeHead(status, mergeHeaders({...headers,'Content-Security-Policy':headers['Content-Security-Policy'].replace("connect-src 'self'","connect-src 'self' "+socketOrigin).replace("frame-ancestors 'none'",frameAncestors)},{'Content-Type':type},extraHeaders));
       response.end(request.method === 'HEAD' ? undefined : body);
     };
     let runtime=baseRuntime,pathname;

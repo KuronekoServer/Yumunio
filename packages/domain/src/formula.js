@@ -3,7 +3,7 @@ export const FORMULA_LIMITS=Object.freeze({expression:2000,tokens:512,nodes:256,
 export class FormulaError extends Error{constructor(code,position=null){super(code);this.name='FormulaError';this.code=code;if(Number.isSafeInteger(position)&&position>=0)this.position=position;}}
 const fail=(code,position)=>{throw new FormulaError(code,position);};
 const scalar=new Set(['text','number','boolean','date','null']);
-const propertyType=property=>property.type==='checkbox'?'boolean':property.type==='select'?'text':property.type==='multi_select'?'list':property.type;
+const propertyType=property=>property.type==='checkbox'?'boolean':['select','status','url','created_time','last_edited_time'].includes(property.type)?'text':property.type==='multi_select'?'list':property.type;
 const resultType=value=>value==='checkbox'?'boolean':value;
 const own=(value,key)=>Object.hasOwn(value,key);
 const numberPattern=/^-?[0-9]+(?:\.[0-9]+)?(?:[eE][+-]?[0-9]{1,3})?$/;

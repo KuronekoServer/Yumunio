@@ -6,7 +6,7 @@ Yumunio本体は[MIT License](LICENSE)で公開しています。依存ライブ
 
 `npm run build` は、Next.js・Reactの画面出力、共同編集、数式、ドラッグ＆ドロップに使う依存ライブラリのライセンス本文を `.build/web/shared/THIRD_PARTY_LICENSES.txt` にまとめます。起動後は `/shared/THIRD_PARTY_LICENSES.txt` から参照できます。配信物を再配布する際は、この生成ファイルも含めてください。
 
-現在の出力にはNext.js、React、React DOM、Scheduler、styled-jsx、Yjs、lib0、dnd-kit、Preact Signals、KaTeXのコードが含まれます。Next.js内のReact・React DOM・Scheduler・React Server DOMの通知も含めます。esbuildで収録する対象はバンドラーの入力情報から決まり、[ビルド処理](packages/tooling/build-web.mjs)に許可リストのない依存関係が現れるとビルドが失敗します。許可リストには、組み込まれた場合に備えて `isomorphic.js`（MIT）と `tslib`（0BSD）のライセンス取得先も指定しています。
+現在の出力にはNext.js、React、React DOM、Scheduler、styled-jsx、Motion、Yjs、lib0、dnd-kit、Preact Signals、KaTeXのコードが含まれます。Motionに含まれるframer-motion、motion-dom、motion-utilsと、Next.js内のReact・React DOM・Scheduler・React Server DOMの通知も含めます。esbuildで収録する対象はバンドラーの入力情報から決まり、[ビルド処理](packages/tooling/build-web.mjs)に許可リストのない依存関係が現れるとビルドが失敗します。許可リストには、組み込まれた場合に備えて `isomorphic.js`（MIT）と `tslib`（0BSD）のライセンス取得先も指定しています。
 
 ## 直接利用する外部パッケージ
 
@@ -15,6 +15,7 @@ Yumunio本体は[MIT License](LICENSE)で公開しています。依存ライブ
 | パッケージ | バージョン | ライセンス | 用途 |
 | --- | --- | --- | --- |
 | `@dnd-kit/dom` | 0.5.1 | MIT | ドラッグ＆ドロップ |
+| `motion` | 14.4.0 | MIT | パネル・メニュー・モーダルなどのアニメーション |
 | `next` | 16.4.2 | MIT | App Routerと画面の静的出力 |
 | `react` | 19.3.0 | MIT | 画面コンポーネント |
 | `react-dom` | 19.3.0 | MIT | ブラウザー画面の描画 |

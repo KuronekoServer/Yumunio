@@ -173,7 +173,7 @@ export function roomDiff(state, baseline, stateVector = null) {
   try { if (stateVector) inspectStateVector(stateVector); return {update:Y.encodeStateAsUpdate(doc,stateVector ?? undefined),stateVector:Y.encodeStateVector(doc)}; }
   finally { doc.destroy(); }
 }
-export {createStructuredRoom,loadStructuredRoom,validateStructuredRoom,applyStructuredUpdate,structuredRoomDiff,structuredRoomOperation,structuredRoomFormat,structuredRoomText,structuredRoomKeys,structuredRoomConflicts,structuredRoomFeatures,structuredRoomSelection,resolveStructuredRoomSelection,STRUCTURED_ROOM_LIMITS,STRUCTURED_ROOM_FEATURES} from './structure.js';
+export {createStructuredRoom,loadStructuredRoom,validateStructuredRoom,applyStructuredUpdate,structuredRoomDiff,structuredRoomOperation,structuredRoomPaste,structuredRoomFormat,structuredRoomText,structuredRoomTableKey,structuredRoomTablePosition,structuredRoomTableEdit,structuredRoomKeys,structuredRoomConflicts,structuredRoomFeatures,structuredRoomSelection,resolveStructuredRoomSelection,STRUCTURED_ROOM_LIMITS,STRUCTURED_ROOM_FEATURES} from './structure.js';
 export function toBase64(bytes) {
   if (!(bytes instanceof Uint8Array)) fail(); let result='';
   for(let i=0;i<bytes.length;i+=8192) result += String.fromCharCode(...bytes.subarray(i,i+8192));

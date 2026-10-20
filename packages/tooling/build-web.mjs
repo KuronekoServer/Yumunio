@@ -126,8 +126,11 @@ export async function buildWeb(root = projectRoot) {
   ]);
   const notices = [];
   if(nextEnabled){
-    for(const[name,content]of await buildNextPages(root,{publicFiles:files}))generated.set(name,content);
-    for(const name of ['next','react','react-dom','scheduler','styled-jsx']){
+    const editorDigest=createHash('sha256');
+    for(const name of [...files].sort())if(/\.(?:js|json)$/.test(name)&&name!=='sw.js')editorDigest.update(name+'\0').update((await readFile(join(publicRoot,name),'utf8')).replaceAll('\r\n','\n'));
+    for(const[name,bytes]of [...shared].sort(([a],[b])=>a<b?-1:a>b?1:0))editorDigest.update(name+'\0').update(Buffer.from(bytes).toString('utf8').replaceAll('\r\n','\n'));
+    for(const[name,content]of await buildNextPages(root,{publicFiles:files,editorVersion:editorDigest.digest('hex')}))generated.set(name,content);
+    for(const name of ['next','react','react-dom','scheduler','styled-jsx','motion','framer-motion','motion-dom','motion-utils']){
       let license;for(const file of ['LICENSE','license.md','LICENSE.md']){try{license=await readFile(join(projectRoot,'node_modules',name,file),'utf8');break;}catch(error){if(error.code!=='ENOENT')throw error;}}
       if(!license)throw new Error('Next dependency requires a license notice: '+name);
       notices.push(name+'\n\n'+license);

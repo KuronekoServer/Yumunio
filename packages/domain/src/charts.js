@@ -5,7 +5,7 @@ export const CHART_AGGREGATIONS=Object.freeze(['count','sum','average']);
 export const CHART_UNAVAILABLE_REASONS=Object.freeze(['CHART_INPUT_UNAVAILABLE','CHART_GROUP_LIMIT','CHART_NUMBER_RANGE','CHART_NEGATIVE_DONUT']);
 const object=value=>value!==null&&typeof value==='object'&&!Array.isArray(value);
 const id=value=>typeof value==='string'&&/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/.test(value);
-const effective=property=>['formula','rollup'].includes(property?.type)?property[property.type]?.resultType:property?.type;
+const effective=property=>['formula','rollup'].includes(property?.type)?property[property.type]?.resultType:property?.type==='status'?'select':property?.type==='url'?'text':property?.type;
 const invalid=()=>{throw new ChartError();};
 export function validateChartDefinition(view,properties){
  if(!object(view)||!Array.isArray(properties)||properties.length>128||!object(view.chart)||Object.keys(view.chart).length!==3||!Object.hasOwn(view.chart,'type')||!Object.hasOwn(view.chart,'aggregation')||!Object.hasOwn(view.chart,'valuePropertyId')||!CHART_TYPES.includes(view.chart.type)||!CHART_AGGREGATIONS.includes(view.chart.aggregation)||view.type!=='chart'||!id(view.groupBy)||view.datePropertyId!==null||view.endDatePropertyId!==null)invalid();

@@ -494,6 +494,12 @@ test('documented teamspace duplication copies settings only, creates one current
  const archived=await documentedTeamspaceMutation(f,path+'/duplicate',template,{name:'Archived copy',confirmSettingsOnly:true},{status:409});assert.equal(archived.error.code,'TEAMSPACE_ARCHIVED');assert.deepEqual(await fixtureState(f),archivedBefore);
 });
 
+test('documented content-blocks header advertises all three bounded parser features on every room route',async t=>{
+ const f=fixture(t),{content}=await f.ready,headers={'X-Yumunio-Room-Protocol':'2','X-Yumunio-Room-Features':'check-state','X-Yumunio-Room-Extensions':'block-transforms','X-Yumunio-Room-Content':'content-blocks'};
+ assert.equal(validator(spec.components.parameters.RoomContent.schema).validate('content-blocks').valid,true);assert.equal(validator(spec.components.parameters.RoomContent.schema).validate('unknown').valid,false);for(const suffix of ['', '/open','/updates','/renew','/presence'])assert.ok(spec.paths[roomTemplate+suffix].parameters.some(row=>row.$ref==='#/components/parameters/RoomContent'));
+ const opened=await responseMatches(roomTemplate+'/open','post',await f.request(roomPath+'/open',{method:'POST',body:{expectedRevision:(await content.read('workspace','owner')).revision,protocol:2},headers}),201);assert.deepEqual(opened.supportedFeatures,['check-state','block-transforms','content-blocks']);
+});
+
 test('documented block-transforms advertisement, split/merge/convert ACK and check-only rejection match actual SQLite routes',async t=>{
  const f=fixture(t,{sourceBlock:true}),{content}=await f.ready,input={expectedRevision:(await content.read('workspace','owner')).revision,protocol:2},headers={'X-Yumunio-Room-Protocol':'2','X-Yumunio-Room-Features':'check-state','X-Yumunio-Room-Extensions':'block-transforms'};
  assert.equal(validator(spec.components.parameters.RoomExtensions.schema).validate('block-transforms').valid,true);assert.equal(validator(spec.components.parameters.RoomExtensions.schema).validate('unknown').valid,false);for(const suffix of ['', '/open','/updates','/renew','/presence'])assert.ok(spec.paths[roomTemplate+suffix].parameters.some(row=>row.$ref==='#/components/parameters/RoomExtensions'));

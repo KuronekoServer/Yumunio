@@ -1,7 +1,7 @@
 import {validateMentions,rebaseMentions} from './mentions.js';
 import {validateSimpleTableData} from './simple-table.js';
 import {isAttachmentBlock} from './attachment-block-model.js';
-import {RICH_BLOCK_TYPES,validateBlockPresentation} from './block-types.js';
+import {RICH_BLOCK_TYPES,isDatabaseBlock,isSyncedBlock,validateBlockPresentation} from './block-types.js';
 import {validateCollectionEnvelope,validateCollectionValue,parseCollectionValue,isComputedProperty,recordPatch} from './collections-model.js';
 import {validatePageLinks,rebasePageLinks} from './page-links.js';
 import { validateInlineMarks, rebaseInlineMarks } from './inline-text.js';
@@ -15,6 +15,8 @@ export function validateInlineBlockMetadata(blocks) {
     for(const block of items) {
       if(!block || typeof block!=='object' || ++count>10000)throw new Error('INVALID_INLINE_BLOCKS');
       validateBlockPresentation(block.data);
+      if(block.type==='database'&&block.data?.format==='collection-view-v1'&&!isDatabaseBlock(block))throw new Error('INVALID_INLINE_BLOCKS');
+      if(block.type==='synced-block'&&block.data?.format==='synced-page-v1'&&!isSyncedBlock(block))throw new Error('INVALID_INLINE_BLOCKS');
       if(block.type==='table'&&block.data?.format==='simple-table-v1'){validateSimpleTableData(block.data);if(Object.hasOwn(block,'children'))throw new Error('INVALID_INLINE_BLOCKS');}
       if(['file','image'].includes(block.type)&&block.data?.format==='attachment-v1'&&!isAttachmentBlock(block))throw new Error('INVALID_INLINE_BLOCKS');
       if(block.data && Object.hasOwn(block.data,'mentions')){if(!RICH_BLOCK_TYPES.includes(block.type)||block.data.purpose==='import-source')throw new Error('INVALID_INLINE_BLOCKS');validateMentions(block.data.text,block.data.mentions,{allowUnavailable:true});}
@@ -114,11 +116,18 @@ export class CollectionEdits {
   advanceDocumentBasis({expectedRevision,revision:nextRevision,pageId,title}){
     if(this.conflict||expectedRevision!==this.revision||!revision(nextRevision)||nextRevision<=expectedRevision||!validId(pageId)||typeof title!=='string'||title.length>240)throw new Error('INVALID_COLLECTION');
     const record=this.collection.records.find(record=>record.pageId===pageId);
-    if(pageId!==this.envelope.pageId&&!record)throw new Error('INVALID_COLLECTION');
-    if(pageId===this.envelope.pageId)this.envelope.collection.title=title;else record.title=title;
+    if(pageId!==this.envelope.pageId&&!record&&!this.collection.templates?.some(template=>template.pageId===pageId))throw new Error('INVALID_COLLECTION');
+    if(pageId===this.envelope.pageId)this.envelope.collection.title=title;else if(record)record.title=title;
     this.envelope.revision=nextRevision;
   }
   markConflict(){this.conflict=true;}
+  /** Refresh the global revision without overwriting a property changed by somebody else. */
+  rebase(envelope){
+    const next=new CollectionEdits(envelope,{workspaceId:this.collection.workspaceId,collectionId:this.collection.id});
+    if(this.conflict||next.revision<this.revision||!same(next.collection.properties,this.collection.properties))throw new Error('INVALID_RECORD_EDIT');
+    for(const [recordId,values]of this.drafts){const before=this.record(recordId),after=next.record(recordId);if(!before||!after||before.pageId!==after.pageId)throw new Error('INVALID_RECORD_EDIT');for(const [propertyId,raw]of Object.entries(values)){if(!next.canEdit(recordId,propertyId)||!same(before.values[propertyId],after.values[propertyId]))throw new Error('INVALID_RECORD_EDIT');next.setRaw(recordId,propertyId,raw);}}
+    return next;
+  }
   markUnknown(){this.conflict=true;}
   discard(recordId){this.drafts.delete(recordId);}
   accept(response,recordId){
@@ -133,7 +142,7 @@ export class CollectionEdits {
 }
 
 export function pageMoveTargets(pages,pageId) {
- const source=pages.find(page=>page.id===pageId); if(!source || source.recordId)return [];
+ const source=pages.find(page=>page.id===pageId); if(!source || source.recordId||source.templateId)return [];
  const byId=new Map(pages.map(page=>[page.id,page]));
  return pages.filter(page=> {
   if(page.id===pageId || page.trashedAt!==null || !page.capabilities?.includes('manage'))return false;

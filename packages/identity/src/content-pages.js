@@ -76,7 +76,7 @@ export async function handlePageLifecycle({request,action,pageId,store,saved,pay
     parentId=Object.hasOwn(data,'parentId')?data.parentId:item.page.parentId;if(parentId!==null)assertId(parentId);
     if(Object.hasOwn(data,'inheritPermissions')&&typeof data.inheritPermissions!=='boolean')fail();
     if(parentId!==null){if(affected.some(row=>row.page.id===parentId))fail('HIERARCHY_CYCLE');if(!access(parentId).includes('manage'))missing();ancestryVisible(payload,parentId,access);}
-    const rowBinding=payload.collections?.flatMap(entry=>entry.recordPages.map(row=>({...row,container:entry.pageId}))).find(row=>row.pageId===pageId);
+    const rowBinding=payload.collections?.flatMap(entry=>[...entry.recordPages,...(entry.templates??[])].map(row=>({...row,container:entry.pageId}))).find(row=>row.pageId===pageId);
     if(rowBinding&&rowBinding.container!==parentId)fail('COLLECTION_ROW_LOCATION',409);
   }
   if(action==='location'||action==='restore'){

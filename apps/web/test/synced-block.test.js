@@ -1,0 +1,9 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {mountSyncedBlock} from '../public/synced-block.js';
+import {settingsDomFixture} from './fixtures/settings-dom.js';
+test('synced preview reads only its source, keeps surrounding editors, and erases content when source access is revoked',async t=>{
+ const f=settingsDomFixture(t),root=f.doc.createElement('section'),neighbor=f.doc.createElement('textarea');f.background.append(neighbor,root);const lifetime=new AbortController(),reads=[],lost=[];let response={revision:1,page:{id:'private-source',title:'Source',capabilities:['read','editBody']},document:{blocks:[{id:'notice',type:'paragraph',data:{text:'Shared instructions',marks:[{start:0,end:6,styles:['bold']}]}}]}};
+ const controller=mountSyncedBlock({root,block:{id:'placement',type:'synced-block',data:{format:'synced-page-v1',pageId:'private-source'}},workspaceId:'studio',request:async path=>{reads.push(path);if(response instanceof Error)throw response;return structuredClone(response);},isCurrent:()=>true,canDetach:()=>false,onEdit:()=>{},onDetach:()=>{},onRemove:()=>{},onAccessLost:()=>lost.push(true),t:key=>key,signal:lifetime.signal});t.after(()=>lifetime.abort());await controller.ready;assert.equal(reads[0],'/api/content/workspaces/studio/pages/private-source');assert.match(root.textContent,/Shared instructions/);assert.equal(root.querySelector('strong').textContent,'Shared');assert.ok(f.background.childNodes.includes(neighbor));
+ response=Object.assign(new Error('lost'),{status:404});await controller.refresh();assert.doesNotMatch(root.textContent,/Shared instructions|Source/);assert.match(root.textContent,/synced.unavailable/);assert.equal(lost.length,1);controller.destroy();const count=reads.length;await controller.refresh();assert.equal(reads.length,count);
+});

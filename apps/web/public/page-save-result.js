@@ -72,13 +72,13 @@ export function validateSavedPage(sentBasis,response,{workspaceId,pageId}={}){
   exact(saved,['revision','page','document'],['attachments']);
   if(saved.revision!==sent.expectedRevision+1||!Number.isSafeInteger(saved.revision))fail();
   const page=saved.page,document=saved.document;
-  exact(page,['id','workspaceId','title','parentId','createdAt','updatedAt','trashedAt','version','capabilities'],['collectionId','recordId','teamspaceId','sidebarSection','appearance','favorite']);
+  exact(page,['id','workspaceId','title','parentId','createdAt','updatedAt','trashedAt','version','capabilities'],['collectionId','recordId','templateId','teamspaceId','sidebarSection','appearance','favorite']);
   if(own(page,'favorite')&&page.favorite!==true)fail();
   if(own(page,'appearance'))validatePageAppearance(page.appearance);
   exact(document,['pageId','workspaceId','version','updatedAt','blocks']);
   if(page.id!==pageId||page.workspaceId!==workspaceId||document.pageId!==pageId||document.workspaceId!==workspaceId||document.version!==sent.expectedVersion+1||page.version!==document.version||!Number.isSafeInteger(document.version)||page.title!==sent.title||page.trashedAt!==null||page.parentId!==null&&(!id(page.parentId)||page.parentId===pageId))fail();
   if(!Array.isArray(page.capabilities)||page.capabilities.length>32||page.capabilities.some(capability=>typeof capability!=='string'||!id(capability))||new Set(page.capabilities).size!==page.capabilities.length||!page.capabilities.includes('read'))fail();
-  for(const key of ['collectionId','recordId'])if(own(page,key)&&!id(page[key]))fail();
+  for(const key of ['collectionId','recordId','templateId'])if(own(page,key)&&!id(page[key]))fail();
   if(own(page,'teamspaceId')&&page.teamspaceId!==null&&!id(page.teamspaceId))fail();
   if(own(page,'sidebarSection')&&!['personal','shared','legacy','teamspace'].includes(page.sidebarSection))fail();
   utc(page.createdAt);utc(page.updatedAt);utc(document.updatedAt);if(document.updatedAt!==page.updatedAt)fail();

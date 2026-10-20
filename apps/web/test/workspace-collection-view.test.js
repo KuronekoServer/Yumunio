@@ -25,6 +25,11 @@ test('saved views switch inside their section while body nodes, live selection a
  assert.deepEqual(f.selected,['board','gallery','feed',null]);assert.equal(f.calls.filter(call=>call.kind==='write').length,0);f.controller.destroy();
 });
 
+test('refresh keeps table scroll and the selected record while replacing only the current projection',async t=>{
+ const f=fixture(t);await f.controller.ready;const nodes=[...f.editor.childNodes],scroll=f.root.querySelector('.collection-scroll');scroll.scrollTop=420;scroll.scrollLeft=160;f.root.querySelector('[data-record-id]').classList.add('record-selected');
+ await f.controller.refresh();assert.equal(f.root.querySelector('.collection-scroll').scrollTop,420);assert.equal(f.root.querySelector('.collection-scroll').scrollLeft,160);assert.equal(f.root.querySelector('.record-selected').dataset.recordId,'row');assert.deepEqual(f.editor.childNodes,nodes);f.controller.destroy();
+});
+
 test('a canceled dirty-row review never fetches or discards properties; a failed accepted read also preserves the raw draft',async t=>{
  const canceled=fixture(t,{confirm:false});canceled.model.setRaw('row','notes','Unsaved');assert.equal(await canceled.controller.switchView('list'),false);assert.equal(canceled.calls.length,0);assert.equal(canceled.model.rawValue('row','notes'),'Unsaved');canceled.controller.destroy();
  const failed=fixture(t,{read:async()=>{throw Object.assign(new Error('offline'),{status:503});}});failed.model.setRaw('row','notes','Keep this');assert.equal(await failed.controller.switchView('list'),false);assert.equal(failed.model.rawValue('row','notes'),'Keep this');assert.equal(failed.model.dirty,true);assert.equal(failed.calls.length,1);failed.controller.destroy();

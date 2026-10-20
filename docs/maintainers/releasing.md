@@ -4,7 +4,7 @@
 
 ## 変更を確認する
 
-公開対象のブランチ・コミットを確認し、既存の作業中の変更を混ぜずにレビューします。画面、API、翻訳、導入手順を変更した場合は、対応するコードと案内を同じ公開版へ含めます。
+公開対象のブランチ・コミットを確認し、既存の作業中の変更を混ぜずにレビューします。画面、API、翻訳、導入手順を変更した場合は、対応するコードと案内を同じ公開版へ含めます。確認したファイルだけをステージし、Gitの索引を検査してからコミットします。
 
 ```sh
 npm ci
@@ -12,6 +12,7 @@ npm run l10n:sync
 npm run l10n:check
 npm run l10n:report -- --markdown
 npm run docs:check
+npm run repo:check
 npm run check
 npm test
 npm run test:worker
@@ -19,6 +20,8 @@ npm run hosting:bundle
 ```
 
 ローカルではDockerが使えない場合もあるため、Dockerのビルド・起動や公開パッケージからの導入は別に確認します。CIは [ci.yaml](../../.github/workflows/ci.yaml)、コンテナーの公開は [container.yaml](../../.github/workflows/container.yaml) に定義しています。
+
+`repo:check`はGitの索引にあるファイル名と内容を検査します。ローカル設定・DB・検証記録・生成物のパスと、認識可能な秘密鍵・一部の認証情報形式を検出します。検出した値はログへ出しません。すべての秘密情報を判定するものではないため、差分内の接続先・サンプルデータ・公開する権利もレビューしてください。`.data/`、`.build/`、`.wrangler/`、`.env`やデザイン原本を強制追加しないでください。
 
 ## コンテナーを公開する
 
