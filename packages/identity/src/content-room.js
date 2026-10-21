@@ -70,7 +70,7 @@ async function verifyTicket(token,{secret,accountId,actor,workspaceId,pageId,roo
   return value;
 }
 function currentRoom(payload,item) {return payload.rooms?.find(room=>room.pageId===item.page.id&&room.documentVersion===item.document.version);}
-const requireFeatures=(request,room)=>{if(room?.features?.includes('check-state')&&request.headers.get('x-yumunio-room-features')!=='check-state'||room?.features?.includes('block-transforms')&&request.headers.get('x-yumunio-room-extensions')!=='block-transforms'||room?.features?.includes('content-blocks')&&request.headers.get('x-yumunio-room-content')!=='content-blocks')fail('ROOM_PROTOCOL_UNSUPPORTED',409);};
+const requireFeatures=(request,room)=>{if(room?.features?.includes('check-state')&&request.headers.get('x-yumunio-room-features')!=='check-state'||room?.features?.includes('block-transforms')&&request.headers.get('x-yumunio-room-extensions')!=='block-transforms'||room?.features?.includes('content-blocks')&&request.headers.get('x-yumunio-room-content')!=='content-blocks'||room?.features?.includes('block-layout')&&request.headers.get('x-yumunio-room-layout')!=='block-layout')fail('ROOM_PROTOCOL_UNSUPPORTED',409);};
 const diff=(room,item,vector=null)=>{const result=room.protocol===2?structuredRoomDiff(fromBase64(room.state),room.seed,vector,{expectedDraft:baseline(item)}):roomDiff(fromBase64(room.state),baseline(item),vector);if(result.features?.some(feature=>!room.features?.includes(feature)))fail('ROOM_UNAVAILABLE',503);return result;};
 
 /** Called only after central exact-Origin, expected-account, verified-session and fresh membership guards. */
@@ -94,7 +94,7 @@ export async function handleRoom(ctx) {
     if(!room) {
       if(!editable)missing();if(data.expectedRevision!==saved.revision)fail('CONTENT_CONFLICT',409);
       if(item.document.version>=Number.MAX_SAFE_INTEGER)fail('CONTENT_CONFLICT',409);
-      const doc=protocol===2?createStructuredRoom(baseline(item)):createRoomDocument(baseline(item));let state,features=[];try{if(protocol===2)features=structuredRoomFeatures(doc);requireFeatures(request,{features});state=protocol===2?Y.encodeStateAsUpdate(doc):encodeRoomState(doc);}finally{doc.destroy();}
+      const doc=protocol===2?createStructuredRoom(baseline(item)):createRoomDocument(baseline(item));let state,features=[];try{if(protocol===2)features=structuredRoomFeatures(doc,baseline(item));requireFeatures(request,{features});state=protocol===2?Y.encodeStateAsUpdate(doc):encodeRoomState(doc);}finally{doc.destroy();}
       room={pageId,epoch:assertId(createId()),sequence:1,documentVersion:item.document.version,state:toBase64(state),checkpointed:false,...(protocol===2?{protocol:2,seed:baseline(item),...(features.length?{features}:{})}:{})};
       invalidateRooms(payload,[pageId]);payload.rooms??=[];
       if(payload.rooms.length>=8)fail('ROOM_CAPACITY',409);payload.rooms.push(room);
@@ -176,7 +176,7 @@ export async function handleRoom(ctx) {
   }
   fail('CONTENT_CONFLICT',409);
   function response(revision,room,applied) {return json({revision,pageId,epoch:room.epoch,sequence:room.sequence,documentVersion:room.documentVersion,editable:true,update:toBase64(applied.state),stateVector:toBase64(applied.stateVector),acknowledged:true,...(room.protocol===2?{protocol:2}:{})});}
-  function openingMetadata(){if(room.protocol!==2)return{};if(typeof ctx.projectDocument!=='function')fail('ROOM_UNAVAILABLE',503);const visible=new Set(payload.pages.filter(row=>access(row.page.id).includes('read')).map(row=>row.page.id));return{protocol:2,supportedFeatures:STRUCTURED_ROOM_FEATURES.filter(feature=>(feature!=='block-transforms'||request.headers.get('x-yumunio-room-extensions')==='block-transforms')&&(feature!=='content-blocks'||request.headers.get('x-yumunio-room-content')==='content-blocks')),seed:{title:room.seed.title,blocks:ctx.projectDocument({...item.document,blocks:room.seed.blocks},visible).blocks}};}
+  function openingMetadata(){if(room.protocol!==2)return{};if(typeof ctx.projectDocument!=='function')fail('ROOM_UNAVAILABLE',503);const visible=new Set(payload.pages.filter(row=>access(row.page.id).includes('read')).map(row=>row.page.id));return{protocol:2,supportedFeatures:STRUCTURED_ROOM_FEATURES.filter(feature=>(feature!=='block-transforms'||request.headers.get('x-yumunio-room-extensions')==='block-transforms')&&(feature!=='content-blocks'||request.headers.get('x-yumunio-room-content')==='content-blocks')&&(feature!=='block-layout'||request.headers.get('x-yumunio-room-layout')==='block-layout')),seed:{title:room.seed.title,blocks:ctx.projectDocument({...item.document,blocks:room.seed.blocks},visible).blocks}};}
 }
 const currentRoomFor=currentRoom;
 async function freshAccess(ctx,capability,membershipId=ctx.actor.id) {

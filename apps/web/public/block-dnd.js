@@ -1,12 +1,14 @@
 import {createEditorMovePlanner,createEditorMultiMovePlanner,normalizeEditorBlockSelection,indexEditorBlocks,editorDropPlacement} from './editor-tree.js';
+import {createBlockColumnPlanner} from './block-forest.js';
 
 const pointInRect=(point,rect)=>!!point&&!!rect&&['x','y'].every(key=>Number.isFinite(point[key]))&&
   ['left','top','width','height'].every(key=>Number.isFinite(rect[key]))&&rect.width>0&&rect.height>0&&
   point.x>=rect.left&&point.x<=rect.left+rect.width&&point.y>=rect.top&&point.y<=rect.top+rect.height;
 
-function projector(blocks,blockId,{allowInside=true,blockIds}={}){
+function projector(blocks,blockId,{allowInside=true,blockIds,allowColumns=false}={}){
   const locations=indexEditorBlocks(blocks),source=locations.get(blockId),selected=blockIds===undefined?undefined:normalizeEditorBlockSelection(blocks,blockIds);
   const plan=selected?createEditorMultiMovePlanner(blocks,selected):createEditorMovePlanner(blocks);
+  const columnPlan=allowColumns?createBlockColumnPlanner(blocks):null;
   if(selected&&source&&!selected.some(id=>id===blockId||source.ancestors.some(parent=>parent.id===id)))return()=>null;
   if(!source)return()=>null;
   return({targetId=null,placement,rect,point})=>{
@@ -15,11 +17,14 @@ function projector(blocks,blockId,{allowInside=true,blockIds}={}){
         if(targetId===null)placement='end';
         else{
           if(!pointInRect(point,rect))return null;
+          const edge=Math.min(32,rect.width*.12),side=point.x<rect.left+edge?'left':point.x>rect.left+rect.width-edge?'right':null;
+          if(columnPlan&&side){try{columnPlan({blockIds:selected??[blockId],targetId,side});placement=side;}catch{}}
           let canNest=false;try{if(allowInside){plan({blockId,targetId,placement:'inside'});canNest=true;}}catch{}
-          placement=editorDropPlacement({offset:point.y-rect.top,height:rect.height,canNest});
+          placement??=editorDropPlacement({offset:point.y-rect.top,height:rect.height,canNest});
         }
       }
       if(placement==='inside'&&!allowInside)return null;
+      if(['left','right'].includes(placement)){if(!columnPlan)return null;columnPlan({blockIds:selected??[blockId],targetId,side:placement});return{blockId,...(selected?{blockIds:[...selected]}:{}),targetId,placement};}
       const operation={blockId,...(selected?{blockIds:[...selected]}:{}),targetId,placement},destination=plan(operation);
       if(selected){if(!destination.changed)return null;}else{const index=destination.index-(destination.parentId===source.parentId&&destination.index>source.index?1:0);
       if(destination.parentId===source.parentId&&index===source.index)return null;}
@@ -28,17 +33,17 @@ function projector(blocks,blockId,{allowInside=true,blockIds}={}){
   };
 }
 /** Pure projection; the tree and its metadata are never mutated during a drag. */
-export function projectBlockDrop({blocks,blockId,blockIds,allowInside=true,...target}){
-  try{return projector(blocks,blockId,{allowInside,blockIds})(target);}catch{return null;}
+export function projectBlockDrop({blocks,blockId,blockIds,allowInside=true,allowColumns=false,...target}){
+  try{return projector(blocks,blockId,{allowInside,blockIds,allowColumns})(target);}catch{return null;}
 }
 /** Recheck the latest document before committing, including positional no-ops. */
-export function validateBlockDrop({blocks,blockId,blockIds,targetId=null,placement,allowInside=true}){
+export function validateBlockDrop({blocks,blockId,blockIds,targetId=null,placement,allowInside=true,allowColumns=false}){
   if(!placement)return null;
-  return projectBlockDrop({blocks,blockId,blockIds,targetId,placement,allowInside});
+  return projectBlockDrop({blocks,blockId,blockIds,targetId,placement,allowInside,allowColumns});
 }
 
 /** A handle-only dnd-kit controller. Text editors stay in place until a validated drop. */
-export function createBlockDnd({root,canStart,getScope,getBlocks,getBlockIds,onCommit,onCrossPage,canDropOnPage=()=>true,onActiveChange=()=>{},labels,allowInside=true,allowMultiPageTransfer=false,
+export function createBlockDnd({root,canStart,getScope,getBlocks,getBlockIds,onCommit,onCrossPage,canDropOnPage=()=>true,onActiveChange=()=>{},labels,allowInside=true,allowColumns=false,allowMultiPageTransfer=false,
   loadToolkit=()=>import('./shared/dnd-kit.js')}){
   const doc=root.ownerDocument,win=doc.defaultView;
   let destroyed=false,manager,context=null,pending=null,overlay=null,dropTimer=null,previewFrame=null,suppressUntil=0;
@@ -100,7 +105,7 @@ export function createBlockDnd({root,canStart,getScope,getBlocks,getBlockIds,onC
     if(data?.kind==='page')return pageAllowed(context,data.pageId)?{kind:'page',blockId:context.blockIds?.[0]||context.blockId,...(allowMultiPageTransfer?{blockIds:[...(context.blockIds||[context.blockId])]}:{}),pageId:data.pageId,element:target.element}:null;
     if(!['block','end'].includes(data?.kind))return null;
     const input={targetId:data.kind==='end'?null:data.blockId,point,rect:target.element.getBoundingClientRect(),...(data.kind==='end'?{placement:'end'}:{})};
-    const result=latest?projectBlockDrop({blocks:getBlocks(),blockId:context.blockId,blockIds:context.blockIds,allowInside,...input}):context.project(input);
+    const result=latest?projectBlockDrop({blocks:getBlocks(),blockId:context.blockId,blockIds:context.blockIds,allowInside,allowColumns,...input}):context.project(input);
     return result?{kind:'block',operation:result,element:target.element}:null;
   }
   function releaseOperation(event){
@@ -170,7 +175,7 @@ export function createBlockDnd({root,canStart,getScope,getBlocks,getBlockIds,onC
         const blocks=getBlocks(),locations=indexEditorBlocks(blocks);
         const requested=getBlockIds?.(blockId),blockIds=requested===undefined?undefined:normalizeEditorBlockSelection(blocks,requested);
         if(blockIds&&!blockIds.some(id=>id===blockId||locations.get(blockId)?.ancestors.some(parent=>parent.id===id))){event.preventDefault();return;}
-        const project=projector(blocks,blockId,{allowInside,blockIds}),texts=new Map([...locations].map(([id,{block}])=>[id,Array.from(block.data?.text||label('handle')).slice(0,90).join('')]));
+        const project=projector(blocks,blockId,{allowInside,blockIds,allowColumns}),texts=new Map([...locations].map(([id,{block}])=>[id,Array.from(block.data?.text||label('handle')).slice(0,90).join('')]));
         const forest=blockIds||[blockId];
         pending={blockId,blockIds,scope:getScope(),project,texts,text:forest.length>1?label('selection',{count:forest.length}):texts.get(forest[0])||label('handle'),count:[...locations.values()].filter(item=>item.ancestors.some(parent=>forest.includes(parent.id))).length};
       }catch{pending=null;event.preventDefault();}
@@ -218,7 +223,7 @@ export function createBlockDnd({root,canStart,getScope,getBlocks,getBlockIds,onC
           if(!pageAllowed(previous,projected.pageId)||onCrossPage?.({blockId:projected.blockId,...(allowMultiPageTransfer?{blockIds:[...projected.blockIds]}:{}),pageId:projected.pageId})===false){status(label('canceled'));restoreFocus(previous.blockId,previous.scope);}
           else status(label('page',{text:previous.text,target:projected.element.textContent.trim()}));
         }else{
-          const operation=validateBlockDrop({blocks:getBlocks(),allowInside,...projected.operation});
+          const operation=validateBlockDrop({blocks:getBlocks(),allowInside,allowColumns,...projected.operation});
           if(!operation||onCommit(operation)===false){status(label('canceled'));restoreFocus(previous.blockId,previous.scope);}
           else status(label('moved',{text:previous.text}));
         }
@@ -233,7 +238,7 @@ export function createBlockDnd({root,canStart,getScope,getBlocks,getBlockIds,onC
       const target=new Droppable({id:'target:'+blockId,element:row,data:{kind:'block',blockId},accept:source=>{
         const drag=context||pending;
         if(!drag||source.data.blockId!==drag.blockId||!allowed(drag.blockId))return false;
-        return ['before','after','inside'].some(placement=>drag.project({targetId:blockId,placement}));
+        return ['before','after','inside',...(allowColumns?['left','right']:[])].some(placement=>drag.project({targetId:blockId,placement}));
       }},manager);bindings.push(target);dropBindings.push(target);
     }
     for(const element of root.querySelectorAll('.block-end-drop,[data-dnd-page-id]')){

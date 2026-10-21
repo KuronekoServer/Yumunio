@@ -68,7 +68,7 @@ export function createRecordPanel({
     if (focused && focused !== document.body && focused !== previous.frame && !previous.host.contains(focused)) return;
     const row = [...(previous.focusRoot?.querySelectorAll('[data-record-id]') ?? [])]
       .find(row => row.dataset.recordId === previous.record.id);
-    const target = previous.focus?.isConnected ? previous.focus : row?.querySelector('button,a');
+    const target = previous.focus?.isConnected ? previous.focus : ['BUTTON','A'].includes(row?.nodeName) ? row : row?.querySelector('button,a');
     target?.focus({preventScroll: true});
   }
 
@@ -146,6 +146,7 @@ export function createRecordPanel({
   }
 
   async function open(record, collectionId) {
+    const started=performance.now();
     if (closing) await closing;
     if (active?.record.pageId === record.pageId) {
       active.frame.focus();
@@ -190,7 +191,7 @@ export function createRecordPanel({
     const {host, frame, full} = surface;
     active = {
       surface, host, frame, full, record, collectionId, focus, focusRoot, accountId,
-      dirty: false, busy: true, revision: null
+      dirty: false, busy: true, revision: null,started
     };
     document.body.classList.add('record-panel-open');
     watchInitialNavigation(active);
@@ -209,6 +210,7 @@ export function createRecordPanel({
     if (data.type === 'yumunio:detail-ready' && typeof data.dirty === 'boolean' && typeof data.busy === 'boolean') {
       stopNavigationTimers(current);
       current.ready = true;
+      if(!current.host.dataset.readyMs)current.host.dataset.readyMs=String(Math.round(performance.now()-current.started));
       current.dirty = data.dirty;
       current.busy = data.busy;
       current.surface.setStatus('');

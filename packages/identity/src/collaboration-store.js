@@ -1,6 +1,7 @@
 import {principalSnapshotGuardSql} from './content-principal-guard.js';
 import {encodeContentPayload,readContentPayload,contentChunkCommands} from './content-codec.js';
 import { assertId, assertJsonSerializable, assertPlainObject } from '@yumunio/domain';
+import {publishContentCommit} from './content-changes.js';
 export class CollaborationStoreError extends Error {
   constructor(code='COLLABORATION_STORAGE_ERROR'){super('The collaboration operation could not be completed.');this.name='CollaborationStoreError';this.code=code;}
 }
@@ -29,7 +30,8 @@ function invitationRow(row){return row?{invitation:parse(row.invitation_json),ge
 export class SqlCollaborationStore {
   #client;
   #chunkReady;
-  constructor(client){if(!client||!['sqlite','mysql','postgres'].includes(client.dialect)||typeof client.query!=='function'||typeof client.batch!=='function')bad();this.#client=client;}
+  #onCommit;
+  constructor(client,{onCommit=publishContentCommit}={}){if(!client||!['sqlite','mysql','postgres'].includes(client.dialect)||typeof client.query!=='function'||typeof client.batch!=='function')bad();this.#client=client;this.#onCommit=onCommit;}
   async #query(sql,params=[]){try{return normalized(await this.#client.query(sql,params));}catch{bad();}}
   async #batch(commands){try{return await this.#client.batch(commands);}catch(error){if(error?.code==='COLLABORATION_CONFLICT')throw error;bad();}}
   async checkSchema(){for(const table of ['yumunio_collaboration_invitations','yumunio_mail_jobs','yumunio_transaction_guards'])await this.#query('SELECT * FROM '+table+' WHERE 1 = 0');this.#chunkReady=undefined;await this.#chunkSchema();}
@@ -100,7 +102,7 @@ export class SqlCollaborationStore {
     }
     if(cancelInvitationId){const t=sqlContext(this.#client.dialect);commands.push(stmt(t,"UPDATE yumunio_mail_jobs SET status='cancelled',lease_id=NULL,lease_until=NULL WHERE invitation_id="+t.bind(cancelInvitationId)+" AND status IN ('queued','leased')"));}
     for(const job of jobs)commands.push(this.#jobInsert(job));
-    await this.#batch(commands);return {revision:expectedRevision+1};
+    await this.#batch(commands);try{void Promise.resolve(this.#onCommit(workspaceId,expectedRevision+1)).catch(()=>{});}catch{}return {revision:expectedRevision+1};
   }
   #jobInsert(job){
     const s=sqlContext(this.#client.dialect),keys=['id','dedupe_key','payload_ciphertext','payload_digest','status','attempts','available_at','lease_id','lease_until','created_at','updated_at','expires_at','invitation_id','invitation_generation'];
@@ -139,14 +141,14 @@ export function createSqliteCollaborationStore(database){
     catch(error){try{database.exec('ROLLBACK');}catch{}if(databaseConflict(error))conflict();throw error;}
   }});
 }
-export function createD1CollaborationStore(database){
+export function createD1CollaborationStore(database,options){
   if(!database||typeof database.prepare!=='function'||typeof database.batch!=='function')bad();
   const prepared=c=>database.prepare(c.sql).bind(...(c.params??[]));
   return new SqlCollaborationStore({dialect:'sqlite',async query(sql,params=[]){const r=await prepared({sql,params}).all();if(r?.success===false)bad();return normalized({rows:r.results,affectedRows:r.meta?.changes});},async batch(commands){
     const statements=[];
     for(const command of commands){statements.push(prepared(command));if(command.changes!==undefined){const id=crypto.randomUUID();statements.push(database.prepare('INSERT INTO yumunio_transaction_guards (id,ok) VALUES (?,CASE WHEN changes() = ? THEN 1 ELSE 0 END)').bind(id,command.changes));statements.push(database.prepare('DELETE FROM yumunio_transaction_guards WHERE id = ?').bind(id));}}
     try{const r=await database.batch(statements);if(r.some(row=>row.success===false))bad();return r;}catch(error){if(databaseConflict(error))conflict();throw error;}
-  }});
+  }},options);
 }
 /** Caller-owned mysql2/pg pools; one connection is held through each complete transaction. */
 export function createPoolCollaborationStore(client){

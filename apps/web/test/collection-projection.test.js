@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
-import {renderCollectionProjection} from '../public/collection-projection.js';
+import {renderCollectionProjection,captureCalendarFocus,restoreCalendarFocus} from '../public/collection-projection.js';
 import {collectionBoardModel,prepareBoardOrderMove} from '../public/board-move-model.js';
 import {settingsDomFixture} from './fixtures/settings-dom.js';
 const catalog=JSON.parse(await readFile(new URL('../public/collections-locales/en.json',import.meta.url),'utf8'));
@@ -11,6 +11,25 @@ function envelope(type='table',count=2){
  const value={revision:4,pageId:'collection-page',capabilities:['read','manage'],collection:{id:'tasks',workspaceId:'studio',title:'Tasks',properties:[{id:'status',name:'Status',type:'select',options:['Todo','Done']},{id:'date',name:'Date',type:'date'},{id:'end',name:'End',type:'date'}],views,records:Array.from({length:count},(_,index)=>({id:'record-'+index,pageId:'page-'+index,title:'<img src=x onerror=bad> '+index,values:{status:'Todo',date:'2026-10-16',end:'2026-10-17'},sourceKind:'manual',sourceValues:{},capabilities:['read','editBody','editRecordValues','manage']}))},view:views.find(view=>view.type===type)};
  if(type==='chart')value.chart={status:'available',groups:[{value:'Todo',count,numericCount:0,result:count}]};return value;
 }
+
+test('calendar keeps an empty month, undated rows, explicit month navigation and the same record identity',tcase=>{
+ const f=settingsDomFixture(tcase),data=envelope('calendar',3),opened=[],months=[];data.collection.records[1].values.date=null;data.collection.records[2].values.date='2026-11-01';
+ const result=renderCollectionProjection({document:f.doc,envelope:data,t,locale:'en',month:'2026-10',onOpenRecord:row=>opened.push(row.id),onSelectMonth:value=>months.push(value),onMonth:offset=>months.push(offset)});f.background.append(result.element);
+ assert.equal(result.element.querySelectorAll('[data-date]').length,31);assert.equal(result.element.querySelector('[data-date="2026-10-16"]').querySelector('[data-record-id]').dataset.recordId,'record-0');result.element.querySelector('[data-record-id="record-0"]').dispatch('click');assert.deepEqual(opened,['record-0']);assert.equal(result.element.querySelector('.calendar-undated').querySelector('[data-record-id]').dataset.recordId,'record-1');assert.equal(result.element.querySelector('[data-record-id="record-2"]'),null);
+ const choose=result.element.querySelector('input[type="month"]');choose.value='2027-02';choose.dispatch('change');assert.deepEqual(months,['2027-02']);choose.value='invalid';choose.dispatch('change');assert.equal(choose.value,'2026-10');assert.equal(months.length,1);
+ const empty=renderCollectionProjection({document:f.doc,envelope:envelope('calendar',0),t,month:'2024-02'});assert.equal(empty.element.querySelectorAll('[data-date]').length,29);
+});
+
+test('timeline clips cross-month ranges, opens its bars and treats a missing end date as one day without duplicating undated rows',tcase=>{
+ const f=settingsDomFixture(tcase),data=envelope('timeline',3),opened=[];Object.assign(data.collection.records[0].values,{date:'2026-09-28',end:'2026-10-03'});Object.assign(data.collection.records[1].values,{date:'2026-10-21',end:null});Object.assign(data.collection.records[2].values,{date:null,end:null});
+ const result=renderCollectionProjection({document:f.doc,envelope:data,t,month:'2026-10',onOpenRecord:row=>opened.push(row.id)});f.background.append(result.element);const bars=result.element.querySelectorAll('.timeline-bar');assert.equal(bars.length,2);assert.equal(bars[0].style.gridColumn,'1 / 4');assert.equal(bars[1].style.gridColumn,'21 / 22');bars[1].dispatch('click');assert.deepEqual(opened,['record-1']);assert.equal(result.element.querySelectorAll('.timeline-row').length,2);assert.equal(result.element.querySelector('.calendar-undated').querySelectorAll('[data-record-id]').length,1);
+});
+
+test('month controls retain keyboard focus after repaint and do not leave the supported date range',tcase=>{
+ const f=settingsDomFixture(tcase),root=f.doc.createElement('section');f.background.append(root);let month='2026-10';
+ const paint=()=>{const focus=captureCalendarFocus(f.doc,root);root.replaceChildren(renderCollectionProjection({document:f.doc,envelope:envelope('calendar',0),t,month,onMonth:offset=>{month=offset===1?'2026-11':'2026-10';paint();},onSelectMonth:value=>{month=value;paint();}}).element);restoreCalendarFocus(f.doc,root,focus);};paint();root.querySelector('[data-calendar-control="next"]').focus();root.querySelector('[data-calendar-control="next"]').dispatch('click');assert.equal(month,'2026-11');assert.equal(f.doc.activeElement,root.querySelector('[data-calendar-control="next"]'));
+ for(const[value,control]of [['0001-01','previous'],['9999-12','next']]){const view=renderCollectionProjection({document:f.doc,envelope:envelope('calendar',0),t,month:value,onMonth:()=>assert.fail('out of range')});const button=view.element.querySelector('[data-calendar-control="'+control+'"]');assert.equal(button.disabled,true);button.dispatch('click');}
+});
 
 test('all eight saved projections render from the same DTO without interpreting user HTML or replacing background body nodes',tcase=>{
  const f=settingsDomFixture(tcase),bodyNodes=[...f.editor.childNodes],opened=[];

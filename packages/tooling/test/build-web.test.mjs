@@ -35,7 +35,7 @@ test('the shared web build copies only public assets and canonical portable modu
   await writeFile(join(root,'apps/web/public/block-forest.js'),'DO_NOT_SHIP_NODE_SHIM');
   await writeFile(join(root,'apps/web/public/simple-table.js'),'DO_NOT_SHIP_NODE_SHIM');
   await writeFile(join(root,'apps/web/public/attachment-block-model.js'),'DO_NOT_SHIP_NODE_SHIM');
-  for(const name of ['block-types.js','page-appearance.js','math-renderer.js'])await writeFile(join(root,'apps/web/public',name),'DO_NOT_SHIP_NODE_SHIM');
+  for(const name of ['block-types.js','block-layout.js','page-appearance.js','page-starter.js','math-renderer.js'])await writeFile(join(root,'apps/web/public',name),'DO_NOT_SHIP_NODE_SHIM');
   await writeFile(join(root, 'apps/web/public/chart-model.js'), 'DO_NOT_SHIP_NODE_SHIM');
   await writeFile(join(root, 'apps/web/public/board-order.js'), 'DO_NOT_SHIP_NODE_SHIM');
   await writeFile(join(root, 'apps/web/public/property-conversion.js'), 'DO_NOT_SHIP_NODE_SHIM');
@@ -57,7 +57,7 @@ test('the shared web build copies only public assets and canonical portable modu
   await writeFile(join(root,'packages/domain/src/block-forest.js'),'export const planBlockForestMove=()=>[];');
   await writeFile(join(root,'packages/domain/src/simple-table.js'),'export const validateSimpleTableData=value=>value;');
   await writeFile(join(root,'packages/domain/src/attachment-block-model.js'),'export const isAttachmentBlock=()=>true;');
-  for(const name of ['block-types.js','page-appearance.js'])await writeFile(join(root,'packages/domain/src',name),'export const portable=true;');
+  for(const name of ['block-types.js','block-layout.js','page-appearance.js','page-starter.js'])await writeFile(join(root,'packages/domain/src',name),'export const portable=true;');
   await writeFile(join(root, 'packages/domain/src/charts.js'), 'export const aggregateChart=()=>[];');
   await writeFile(join(root, 'packages/domain/src/board-order.js'), 'export const orderedBoardIds=()=>[];');
   await writeFile(join(root, 'packages/domain/src/property-conversion.js'), 'export const convertTextPropertyValue=()=>null;');
@@ -66,7 +66,7 @@ test('the shared web build copies only public assets and canonical portable modu
   const destination=join(root,'.build/web'),beforeDirectory=await lstat(destination),heldDirectory=await opendir(destination);
   let built;try{built=await buildWeb(root);}finally{await heldDirectory.close();}
   assert.equal((await lstat(destination)).ino,beforeDirectory.ino,'a live asset directory must remain valid while rebuilding');
-  assert.deepEqual(built.files, ['_headers','attachment-block-model.js','block-forest.js','block-types.js','board-order.js','chart-model.js','fixture-locales/qaa.json','index.html','inline-text.js','locale-code.js','locale-manifest.json','math-renderer.js','mentions.js','page-appearance.js','page-links.js','property-conversion.js','shared/THIRD_PARTY_LICENSES.txt','shared/attachment-block-model.js','shared/block-forest.js','shared/block-types.js','shared/board-order.js','shared/chart-model.js','shared/collaboration-client.js','shared/dnd-kit.js','shared/export.js','shared/import-source.js','shared/importer/appflowy-native.js','shared/importer/apply-plan.js','shared/importer/index.js','shared/importer/markdown.js','shared/inline-text.js','shared/locale-code.js','shared/math-renderer.js','shared/mentions.js','shared/page-appearance.js','shared/page-links.js','shared/property-conversion.js','shared/simple-table.js','shared/snapshot.js','shared/web-routes.js','simple-table.js']);
+  assert.deepEqual(built.files, ['_headers','attachment-block-model.js','block-forest.js','block-layout.js','block-types.js','board-order.js','chart-model.js','fixture-locales/qaa.json','index.html','inline-text.js','locale-code.js','locale-manifest.json','math-renderer.js','mentions.js','page-appearance.js','page-links.js','page-starter.js','property-conversion.js','shared/THIRD_PARTY_LICENSES.txt','shared/attachment-block-model.js','shared/block-forest.js','shared/block-layout.js','shared/block-types.js','shared/board-order.js','shared/chart-model.js','shared/collaboration-client.js','shared/dnd-kit.js','shared/export.js','shared/import-source.js','shared/importer/appflowy-native.js','shared/importer/apply-plan.js','shared/importer/index.js','shared/importer/markdown.js','shared/inline-text.js','shared/locale-code.js','shared/math-renderer.js','shared/mentions.js','shared/page-appearance.js','shared/page-links.js','shared/page-starter.js','shared/property-conversion.js','shared/simple-table.js','shared/snapshot.js','shared/web-routes.js','simple-table.js']);
   assert.equal(await readFile(join(built.output,'shared/inline-text.js'),'utf8'),'export const validateInlineMarks=()=>[];');
   assert.equal(await readFile(join(built.output,'inline-text.js'),'utf8'),'export const validateInlineMarks=()=>[];');
   assert.equal(await readFile(join(built.output,'page-links.js'),'utf8'),'export const validatePageLinks=()=>[];');
@@ -97,7 +97,7 @@ test('the shared web build copies only public assets and canonical portable modu
   assert.equal(await readFile(join(built.output,'shared/import-source.js'),'utf8'),'export const importSourceText=()=>null;');
   assert.equal(await readFile(join(built.output,'shared/importer/markdown.js'),'utf8'),'export const markdown = true;');
   assert.deepEqual((await readdir(join(built.output, 'shared/importer'))).sort(), ['appflowy-native.js', 'apply-plan.js', 'index.js', 'markdown.js']);
-  assert.deepEqual((await readdir(built.output)).sort(), ['_headers','attachment-block-model.js','block-forest.js','block-types.js','board-order.js','chart-model.js','fixture-locales','index.html','inline-text.js','locale-code.js','locale-manifest.json','math-renderer.js','mentions.js','page-appearance.js','page-links.js','property-conversion.js','shared','simple-table.js']);
+  assert.deepEqual((await readdir(built.output)).sort(), ['_headers','attachment-block-model.js','block-forest.js','block-layout.js','block-types.js','board-order.js','chart-model.js','fixture-locales','index.html','inline-text.js','locale-code.js','locale-manifest.json','math-renderer.js','mentions.js','page-appearance.js','page-links.js','page-starter.js','property-conversion.js','shared','simple-table.js']);
   await mkdir(join(root,'private-notes'));
   const specification='openapi: 3.1.0\ninfo:\n  title: Synthetic public API\n  version: 1.0.0\npaths: {}\n';
   await writeFile(join(root,'openapi.yaml'),specification);

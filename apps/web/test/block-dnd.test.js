@@ -1,5 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+
+test('horizontal edge projections create explicit column destinations only when supported',()=>{
+ const blocks=[{id:'moving',type:'paragraph',data:{text:'moving'}},{id:'target',type:'paragraph',data:{text:'target'}}],rect={left:100,top:200,width:400,height:100},input={blocks,blockId:'moving',targetId:'target',rect,point:{x:495,y:250}};
+ assert.equal(projectBlockDrop({...input,allowColumns:true}).placement,'right');assert.equal(projectBlockDrop({...input,allowColumns:true,point:{x:105,y:250}}).placement,'left');assert.notEqual(projectBlockDrop(input)?.placement,'right');assert.equal(validateBlockDrop({...input,placement:'left'}),null);assert.equal(validateBlockDrop({...input,allowColumns:true,placement:'left'}).placement,'left');assert.deepEqual(blocks.map(block=>block.id),['moving','target']);
+});
 import { projectBlockDrop, validateBlockDrop } from '../public/block-dnd.js';
 import { moveEditorBlockTo, indexEditorBlocks, MAX_EDITOR_NESTING } from '../public/editor-tree.js';
 

@@ -10,10 +10,11 @@ const deferred=()=>{let resolve;const promise=new Promise(yes=>{resolve=yes;});r
 const flush=async()=>{for(let i=0;i<20;i++)await Promise.resolve();};
 function value(viewId=null,revision=4){const views=['table','board','list','gallery','feed'].map(type=>({id:type,name:'Saved '+type,type,filters:[],sorts:[],groupBy:type==='board'?'status':null,datePropertyId:null,endDatePropertyId:null}));return{revision,pageId:'container',capabilities:['read','manage'],collection:{id:'tasks',workspaceId:'studio',title:'Tasks',properties:[{id:'status',name:'Status',type:'select',options:['Todo','Done']},{id:'notes',name:'Notes',type:'text'}],views,sourceProperties:[],sourceHeaders:[],records:[{id:'row',pageId:'row-page',title:'Private row',values:{status:'Todo',notes:'Original'},sourceKind:'manual',sourceValues:{},capabilities:['read','editBody','editRecordValues','manage']}]},...(viewId?{view:views.find(view=>view.id===viewId)}:{})};}
 const model=(id=null,revision=4)=>new CollectionEdits(value(id,revision),{workspaceId:'studio',collectionId:'tasks'});
-function fixture(t,{initial=null,read,write,prepare,confirm=true,writeAllowed=true,tableRow}={}){
- const f=settingsDomFixture(t),root=f.doc.createElement('section');f.background.append(root);let current=true,currentModel=model(initial);const calls=[],errors=[],busy=[],selected=[],controllers=[];
+function fixture(t,{initial=null,initialEnvelope,read,write,createView,prepare,confirm=true,writeAllowed=true,tableRow}={}){
+ const f=settingsDomFixture(t),root=f.doc.createElement('section');f.background.append(root);let current=true,currentModel=initialEnvelope?new CollectionEdits(initialEnvelope,{workspaceId:'studio',collectionId:'tasks'}):model(initial);const calls=[],errors=[],busy=[],selected=[],controllers=[];
  const controller=mountWorkspaceCollectionView({root,getModel:()=>currentModel,isCurrent:()=>current,canRead:()=>true,canWrite:()=>writeAllowed,
   readView:async(id,options)=>{calls.push({kind:'read',id,options});return read?read(id,options):model(id,currentModel.revision);},
+  createView:createView?async(body,options)=>{calls.push({kind:'create',body,options});return createView(body,options);}:undefined,
   writeBoard:async(intent,options)=>{calls.push({kind:'write',intent,options});return write?write(intent,options):{revision:intent.body.expectedRevision+1,collectionId:'tasks',viewId:'board',record:{...currentModel.record('row'),values:{...currentModel.record('row').values,status:intent.targetValue}},boardOrder:{recordIds:['row']}};},
   prepare:prepare??(()=>true),confirmDiscard:async()=>confirm,onModel:next=>{currentModel=next;},onAccepted:result=>{currentModel.envelope.revision=result.revision;},onSelected:id=>selected.push(id),onError:(error,context)=>errors.push({error,context}),onBusyChange:(...args)=>busy.push(args),labels,projectionOptions:()=>({onEdit:()=>{},onOpenPage:()=>{},...(tableRow?{tableRow}:{})}),boardFactory:options=>{const entry={options,destroyed:false};controllers.push(entry);return{active:false,destroy(){entry.destroyed=true;},cancel(){}};},selectedViewId:initial});
  return{...f,root,controller,calls,errors,busy,selected,controllers,get model(){return currentModel;},setCurrent:value=>{current=value;}};
@@ -23,6 +24,19 @@ test('saved views switch inside their section while body nodes, live selection a
  const f=fixture(t),nodes=[...f.editor.childNodes];f.select(f.editor,2,8);const selection=f.selection.getRangeAt(0);await f.controller.ready;
  for(const view of ['board','gallery','feed',null]){assert.equal(await f.controller.switchView(view),true);assert.equal(f.model.envelope.view?.id??null,view);assert.deepEqual(f.editor.childNodes,nodes);assert.equal(f.selection.getRangeAt(0),selection);assert.equal(f.editor.textContent,'Unchanged body draft');}
  assert.deepEqual(f.selected,['board','gallery','feed',null]);assert.equal(f.calls.filter(call=>call.kind==='write').length,0);f.controller.destroy();
+});
+
+const withDates=()=>{const data=value();data.collection.properties.push({id:'due',name:'Due',type:'date'});data.collection.records[0].values.due='2026-10-21';return data;};
+
+test('an existing database can add a missing saved calendar and switch back to its table without rewriting rows or body',async t=>{
+ const saved=withDates(),f=fixture(t,{initialEnvelope:saved,createView:async body=>{assert.equal(body.expectedRevision,4);saved.revision=5;saved.collection.views.push({id:'saved-calendar',...structuredClone(body.view)});return{revision:5,collectionId:'tasks',viewId:'saved-calendar'};},read:async id=>new CollectionEdits({...structuredClone(saved),...(id?{view:saved.collection.views.find(view=>view.id===id)}:{})},{workspaceId:'studio',collectionId:'tasks'})});const nodes=[...f.editor.childNodes],rows=structuredClone(saved.collection.records);await f.controller.ready;
+ assert.equal(await f.controller.addView('calendar'),true);assert.equal(f.model.envelope.view.type,'calendar');assert.equal(f.model.envelope.view.datePropertyId,'due');assert.equal(f.model.revision,5);assert.deepEqual(f.model.collection.records,rows);assert.deepEqual(f.editor.childNodes,nodes);assert.equal(f.calls.filter(call=>call.kind==='create').length,1);
+ assert.equal(await f.controller.switchView('table'),true);assert.equal(await f.controller.switchView('saved-calendar'),true);assert.deepEqual(f.selected,['saved-calendar','table','saved-calendar']);assert.equal(f.calls.filter(call=>call.kind==='create').length,1);f.controller.destroy();
+});
+
+test('saved-view creation requires current manage rights and never repeats an acknowledged write after refresh failure',async t=>{
+ const seed=withDates();seed.capabilities=['read'];const viewer=fixture(t,{initialEnvelope:seed,createView:()=>assert.fail('read-only creation')});assert.equal(await viewer.controller.addView('calendar'),false);viewer.controller.destroy();
+ const failed=fixture(t,{initialEnvelope:withDates(),createView:async()=>({revision:5,collectionId:'tasks',viewId:'calendar-created'}),read:async()=>{throw Object.assign(Error('Unavailable'),{status:503});}});assert.equal(await failed.controller.addView('calendar'),false);assert.equal(failed.errors[0].context.acknowledged,true);assert.equal(await failed.controller.addView('calendar'),false);assert.equal(failed.calls.filter(call=>call.kind==='create').length,1);assert.equal(failed.editor.textContent,'Unchanged body draft');failed.controller.destroy();
 });
 
 test('refresh keeps table scroll and the selected record while replacing only the current projection',async t=>{

@@ -1,4 +1,5 @@
 import {safeInlineHref} from './inline.js';
+import {validDatabasePresentation} from './block-layout.js';
 
 export const TEXT_BLOCK_TYPES=Object.freeze(['paragraph','heading','heading1','heading2','checklist','bulleted-list','numbered-list','quote','callout','toggle','code','equation']);
 export const RICH_BLOCK_TYPES=Object.freeze(TEXT_BLOCK_TYPES.filter(type=>!['code','equation'].includes(type)));
@@ -16,7 +17,7 @@ export function isSyncedBlock(block){const data=block?.data;return block?.type==
 export function isDatabaseBlock(block){
  const data=block?.data,view=data?.view;
  return block?.type==='database'&&!Object.hasOwn(block,'children')&&data?.format==='collection-view-v1'&&referenceId(data.collectionId)&&
-  Object.keys(data).every(key=>['format','collectionId','view','visiblePropertyIds'].includes(key))&&view&&typeof view==='object'&&!Array.isArray(view)&&
+  Object.keys(data).every(key=>['format','collectionId','view','visiblePropertyIds','presentation'].includes(key))&&(!Object.hasOwn(data,'presentation')||validDatabasePresentation(data.presentation))&&view&&typeof view==='object'&&!Array.isArray(view)&&
   typeof view.name==='string'&&view.name.trim().length>0&&view.name.length<=128&&['table','board','list','gallery','calendar','timeline','chart','feed'].includes(view.type)&&
   Array.isArray(view.filters)&&view.filters.length<=20&&Array.isArray(view.sorts)&&view.sorts.length<=5&&
   Object.keys(view).every(key=>['name','type','filters','sorts','groupBy','datePropertyId','endDatePropertyId','chart'].includes(key))&&

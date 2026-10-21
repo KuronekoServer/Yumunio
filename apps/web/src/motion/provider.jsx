@@ -1,18 +1,15 @@
 'use client';
 
-import {useCallback, useEffect, useLayoutEffect, useRef, useState} from 'react';
-import {createPortal, flushSync} from 'react-dom';
-import {AnimatePresence, MotionConfig} from 'motion/react';
+import {useCallback, useEffect, useLayoutEffect, useRef} from 'react';
+import {MotionConfig} from 'motion/react';
 import {MOTION_SURFACE_EVENT} from '../../public/motion-bridge.js';
 import {blockPlacementChanges, surfaceTransition} from '../../public/ui-motion-policy.js';
 import {useReducedMotionPreference, useSurfaceAnimate} from './hooks.js';
-import {RecordSurface} from './record-surface.jsx';
+import {createRecordPanelDom} from '../../public/record-panel-dom.js';
+import {createAnimatedRecordSurface} from '../../public/animated-record-surface.js';
 
 /** Owns animated chrome. Document data, permissions and saving belong to the controllers. */
 export function MotionUI({children}) {
-  const [panel, setPanel] = useState(null);
-  const [reset, setReset] = useState(0);
-  const surface = useRef(null);
   const entry = useRef(null);
   const placements = useRef(new Map());
   const reduced = useReducedMotionPreference();
@@ -29,7 +26,7 @@ export function MotionUI({children}) {
   }, []);
 
   useEffect(() => {
-    if (reduced) clearPlacements();
+    if (reduced) {clearPlacements();entry.current?.reduce();}
   }, [reduced, clearPlacements]);
 
   useLayoutEffect(() => {
@@ -49,33 +46,11 @@ export function MotionUI({children}) {
 
     function openRecord(model) {
       if (entry.current) return null;
-      const value = {id: crypto.randomUUID(), resolve: null};
-      entry.current = value;
-      flushSync(() => setPanel({...model, id: value.id}));
-      const refs = surface.current;
-      return {
-        get host() { return refs.host; },
-        get frame() { return refs.frame; },
-        get exit() { return refs.exit; },
-        get full() { return refs.full; },
-        get status() { return refs.status; },
-        setStatus: refs.setStatus,
-        retryFrame: refs.retryFrame,
-        close: () => new Promise(resolve => {
-          value.resolve = resolve;
-          setPanel(null);
-        }),
-        destroy() {
-          if (entry.current !== value) return;
-          entry.current = null;
-          value.resolve?.();
-          // Permission loss and teardown must not wait for an exit animation.
-          flushSync(() => {
-            setPanel(null);
-            setReset(key => key + 1);
-          });
-        }
-      };
+      const surface=createRecordPanelDom(document,model);
+      let value;
+      try{value=createAnimatedRecordSurface({surface,animate,getReducedMotion:()=>reducedRef.current,onDestroy:()=>{if(entry.current===value)entry.current=null;}});}
+      catch{surface.destroy();return null;}
+      entry.current=value;return value;
     }
 
     function handle(event) {
@@ -96,22 +71,12 @@ export function MotionUI({children}) {
     return () => {
       window.removeEventListener(MOTION_SURFACE_EVENT, handle);
       clearPlacements();
-      entry.current?.resolve?.();
+      entry.current?.destroy();
       entry.current = null;
     };
   }, [animate, clearPlacements]);
 
-  function completeExit() {
-    entry.current?.resolve?.();
-    if (entry.current) entry.current.resolve = null;
-  }
-
   return <MotionConfig reducedMotion="user" transition={surfaceTransition('menu', reduced)}>
     {children}
-    {typeof document !== 'undefined' && createPortal(
-      <AnimatePresence key={reset} onExitComplete={completeExit}>
-        {panel && <RecordSurface key={panel.id} ref={surface} model={panel}/>}
-      </AnimatePresence>, document.body
-    )}
   </MotionConfig>;
 }

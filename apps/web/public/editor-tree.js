@@ -5,6 +5,7 @@ import { splitMentions, joinMentions, rebaseMentions,replaceMentions } from './m
 import {isSimpleTableData} from './simple-table.js';
 import {isAttachmentBlock} from './attachment-block-model.js';
 import {BLOCK_PARENT_TYPES,GENERATED_BLOCK_TYPES,isBookmarkBlock,isDatabaseBlock,isSyncedBlock} from './block-types.js';
+import {isColumnWrapper,columnWidths,changeColumnCountWidths} from './block-layout.js';
 
 export const MAX_EDITOR_NESTING = 8;
 export const EDITOR_PARENT_TYPES = BLOCK_PARENT_TYPES;
@@ -25,7 +26,7 @@ export function indexEditorBlocks(blocks) {
   };
   visit(blocks, []); return locations;
 }
-const layoutRecord = block => !!block && Object.keys(block).every(key=>['id','type','data','children'].includes(key)) && (block.data===undefined||!!block.data&&typeof block.data==='object'&&!Array.isArray(block.data)&&Object.keys(block.data).length===0) && Array.isArray(block.children);
+const layoutRecord = isColumnWrapper;
 function columnsShape(block) { return block?.type==='columns' && layoutRecord(block) && [2,3].includes(block.children.length) && block.children.every(column=>column.type==='column'&&layoutRecord(column)); }
 function editablePath(location) {
   const path=[...location.ancestors,location.block];let groups=0;
@@ -337,6 +338,7 @@ export function resizeEditorColumns(blocks,{groupId,count,createId=()=>crypto.ra
   }else{
     const removed=group.children.pop();group.children.at(-1).children.push(...removed.children);
   }
+  if(group.data?.widths)group.data={...group.data,widths:changeColumnCountWidths(columnWidths(indexEditorBlocks(blocks).get(groupId).block),count)};
   indexEditorBlocks(next);return{blocks:next,groupId,changed:true,focusId};
 }
 function textData(data, text, marks, links, mentions) {

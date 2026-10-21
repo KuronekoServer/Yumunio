@@ -63,37 +63,54 @@ function checkRollupTargets(properties,context){const error=validateRollupTarget
 function freezeSource(entry){if(!own(entry,'sourceProperties'))entry.sourceProperties=structuredClone(entry.collection.properties);}
 function requireManage(context,pageId){if(!context.access(pageId).includes('manage'))missing();}
 function visibleAncestors(context,pageId){const byId=new Map(context.payload.pages.map(item=>[item.page.id,item]));let next=pageId;while(next!==null){const item=byId.get(next);if(!item||item.page.trashedAt!==null||!context.access(next).includes('read'))missing();next=item.page.parentId;}}
-function knownRecords(payload){return new Set((payload.collections??[]).flatMap(entry=>entry.recordPages.map(row=>row.pageId)));}
-function livePeople(context){return new Map(context.saved.principals.filter(principal=>principal.emailVerified).map(principal=>[principal.accountId,principal]));}
-function checkReferences(properties,values,context){const people=livePeople(context),records=knownRecords(context.payload),guards=[];
+const readIndexes=new WeakMap();
+function knownRecords(payload,context){return readIndexes.get(context)?.records??new Set((payload.collections??[]).flatMap(entry=>entry.recordPages.map(row=>row.pageId)));}
+function livePeople(context){return readIndexes.get(context)?.people??new Map(context.saved.principals.filter(principal=>principal.emailVerified).map(principal=>[principal.accountId,principal]));}
+function recordBinding(entry,id,context){const index=readIndexes.get(context);if(!index)return entry.recordPages.find(item=>item.recordId===id);let bindings=index.bindings.get(entry);if(!bindings){bindings=new Map(entry.recordPages.map(item=>[item.recordId,item]));index.bindings.set(entry,bindings);}return bindings.get(id);}
+function pageFor(context,id){return readIndexes.get(context)?.pages.get(id)??context.payload.pages.find(item=>item.page.id===id);}
+function checkReferences(properties,values,context){const people=livePeople(context),records=knownRecords(context.payload,context),guards=[];
   for(const property of properties){if(!own(values,property.id)||values[property.id]===null)continue;const value=values[property.id];
     if(property.type==='person'){const principal=people.get(value);if(!principal)missing();guards.push({id:principal.id,accountId:principal.accountId,role:principal.role});}
     if(property.type==='relation')for(const pageId of value)if(!records.has(pageId)||!context.access(pageId).includes('read'))missing();}
   return [...new Map(guards.map(guard=>[guard.id,guard])).values()];
 }
-function projectRecord(entry,row,context){const binding=entry.recordPages.find(item=>item.recordId===row.id),people=livePeople(context),records=knownRecords(context.payload),values=structuredClone(row.values),redacted=[];
-  const page=context.payload.pages.find(item=>item.page.id===binding.pageId).page;for(const property of entry.collection.properties)if(property.type==='created_time')values[property.id]=page.createdAt;else if(property.type==='last_edited_time')values[property.id]=page.updatedAt;
+function projectRecord(entry,row,context){const binding=recordBinding(entry,row.id,context),people=livePeople(context),records=knownRecords(context.payload,context),values=structuredClone(row.values),redacted=[];
+  const page=pageFor(context,binding.pageId).page;for(const property of entry.collection.properties)if(property.type==='created_time')values[property.id]=page.createdAt;else if(property.type==='last_edited_time')values[property.id]=page.updatedAt;
   for(const property of entry.collection.properties){if(property.type==='person'&&values[property.id]!==null&&values[property.id]!==undefined&&!people.has(values[property.id])){values[property.id]=null;redacted.push(property.id);}
     if(property.type==='relation'&&Array.isArray(values[property.id])){const before=values[property.id];values[property.id]=before.filter(id=>records.has(id)&&context.access(id).includes('read'));if(values[property.id].length!==before.length)redacted.push(property.id);}}
   const rolled=projectRollupValues(entry,row,context,redacted);Object.assign(values,rolled.values);redacted.push(...rolled.redacted);const computed=evaluateFormulaRow(entry.collection.properties,values,{redactedProperties:redacted,program:programFor(entry,context)});for(const[id,error]of Object.entries(computed.errors))if(error.code==='FORMULA_REDACTED_INPUT'&&!redacted.includes(id))redacted.push(id);
-  return{id:row.id,pageId:binding.pageId,title:context.payload.pages.find(item=>item.page.id===binding.pageId).page.title,values:computed.values,...(Object.keys(rolled.errors).length?{rollupErrors:rolled.errors}:{}),...(Object.keys(computed.errors).length?{formulaErrors:computed.errors}:{}),sourceValues:structuredClone(binding.sourceValues),...(binding.sourceKind?{sourceKind:binding.sourceKind}:{}),...(redacted.length?{redactedProperties:redacted}:{}),capabilities:context.access(binding.pageId)};
+  return{id:row.id,pageId:binding.pageId,title:page.title,values:computed.values,...(Object.keys(rolled.errors).length?{rollupErrors:rolled.errors}:{}),...(Object.keys(computed.errors).length?{formulaErrors:computed.errors}:{}),sourceValues:structuredClone(binding.sourceValues),...(binding.sourceKind?{sourceKind:binding.sourceKind}:{}),...(redacted.length?{redactedProperties:redacted}:{}),capabilities:context.access(binding.pageId)};
 }
-function projectView(view,entry,context){const result=structuredClone(view),people=livePeople(context),records=knownRecords(context.payload);for(const filter of result.filters){const property=entry.collection.properties.find(item=>item.id===filter.propertyId);
+function projectView(view,entry,context){const result=structuredClone(view),people=livePeople(context),records=knownRecords(context.payload,context);for(const filter of result.filters){const property=entry.collection.properties.find(item=>item.id===filter.propertyId);
   if(own(filter,'value')&&(property.type==='person'&&!people.has(filter.value)||property.type==='relation'&&(!records.has(filter.value)||!context.access(filter.value).includes('read')))){filter.value=null;filter.redacted=true;}}
-  if(result.boardOrder){const visible=new Set(entry.collection.records.filter(row=>{const binding=entry.recordPages.find(item=>item.recordId===row.id);return context.access(binding.pageId).includes('read');}).map(row=>projectRecord(entry,row,context)).filter(row=>view.filters.every(filter=>matches(row,filter))).map(row=>row.id));result.boardOrder.recordIds=result.boardOrder.recordIds.filter(id=>visible.has(id));}
+  if(result.boardOrder){const visible=new Set(entry.collection.records.filter(row=>{const binding=recordBinding(entry,row.id,context);return context.access(binding.pageId).includes('read');}).map(row=>projectRecord(entry,row,context)).filter(row=>view.filters.every(filter=>matches(row,filter))).map(row=>row.id));result.boardOrder.recordIds=result.boardOrder.recordIds.filter(id=>visible.has(id));}
   return result;
 }
 function projectTemplates(entry,context){return(entry.templates??[]).filter(template=>context.access(template.pageId).includes('read')).map(template=>{const row=projectRecord({...entry,recordPages:[{recordId:template.id,pageId:template.pageId,sourceValues:{}}]},{id:template.id,values:template.values},context);return{id:template.id,name:template.name,pageId:template.pageId,values:Object.fromEntries(entry.collection.properties.filter(property=>!['formula','rollup','created_time','last_edited_time'].includes(property.type)).map(property=>[property.id,row.values[property.id]??null])),capabilities:context.access(template.pageId),...(row.redactedProperties?.length?{redactedProperties:row.redactedProperties.filter(id=>entry.collection.properties.some(property=>property.id===id&&['person','relation'].includes(property.type)))}:{})};});}
 function compareValue(a,b){if(Array.isArray(a))a=JSON.stringify(a);if(Array.isArray(b))b=JSON.stringify(b);return a===b?0:a<b?-1:1;}
 const empty=value=>value===null||value===undefined||value===''||Array.isArray(value)&&value.length===0;
 function matches(row,filter){const value=row.values[filter.propertyId]??null;switch(filter.operator){case'empty':return empty(value);case'not_empty':return!empty(value);case'eq':return value===filter.value;case'neq':return value!==filter.value;case'contains':return typeof value==='string'?value.toLocaleLowerCase('en').includes(String(filter.value).toLocaleLowerCase('en')):Array.isArray(value)&&value.includes(filter.value);case'lt':return!empty(value)&&compareValue(value,filter.value)<0;case'lte':return!empty(value)&&compareValue(value,filter.value)<=0;case'gt':return!empty(value)&&compareValue(value,filter.value)>0;case'gte':return!empty(value)&&compareValue(value,filter.value)>=0;default:return false;}}
-function projection(entry,context,view=null){let rows=entry.collection.records.filter(row=>{const binding=entry.recordPages.find(item=>item.recordId===row.id);return context.access(binding.pageId).includes('read');}).map(row=>projectRecord(entry,row,context));
+export function projectCollectionRead(entry,context,view=null){
+ if(!context.access(entry.pageId).includes('read'))missing();
+ return projection(entry,context,view);
+}
+export function projectPlacementRead(entry,context,view){
+ if(!context.access(entry.pageId).includes('read'))missing();
+ return projection(entry,context,{...viewDefinition(structuredClone(view),entry.collection.properties,{hasId:false}),id:'placement'});
+}
+function projection(entry,context,view=null){
+ const owns=!readIndexes.has(context);
+ if(owns)readIndexes.set(context,{pages:new Map(context.payload.pages.map(item=>[item.page.id,item])),records:knownRecords(context.payload),people:livePeople(context),bindings:new WeakMap()});
+ try{return projectIndexed(entry,context,view);}finally{if(owns)readIndexes.delete(context);}
+}
+function projectIndexed(entry,context,view=null){let rows=entry.collection.records.filter(row=>{const binding=recordBinding(entry,row.id,context);return context.access(binding.pageId).includes('read');}).map(row=>projectRecord(entry,row,context));
   if(view?.type==='board'&&!view.sorts.length){const order=new Map(orderedBoardIds(entry.collection.records.map(row=>row.id),view.boardOrder).map((id,index)=>[id,index]));rows.sort((a,b)=>order.get(a.id)-order.get(b.id));}
   const chartReady=view?.type==='chart'?chartInputsAvailable(rows,projectView(view,entry,context)):true;
   if(view){rows=rows.filter(row=>view.filters.every(filter=>matches(row,filter)));rows.sort((a,b)=>{for(const sort of view.sorts){const x=a.values[sort.propertyId]??null,y=b.values[sort.propertyId]??null;if(x===null&&y!==null)return 1;if(y===null&&x!==null)return-1;const result=compareValue(x,y);if(result)return sort.direction==='asc'?result:-result;}return 0;});}
   const result={revision:context.saved.revision,pageId:entry.pageId,capabilities:context.access(entry.pageId),collection:{...structuredClone(entry.collection),properties:projectRollupProperties(entry.collection.properties,context),title:context.payload.pages.find(item=>item.page.id===entry.pageId).page.title,sourceHeaders:[...entry.sourceHeaders],sourceProperties:structuredClone(sourceDefinitions(entry)),views:(entry.views??[]).map(item=>projectView(item,entry,context)),...(entry.templates?.length?{templates:projectTemplates(entry,context)}:{}),records:rows}};
   if(view?.type==='chart')result.chart=aggregateChart(rows,view,entry.collection.properties,{inputsAvailable:chartReady});
   if(view){result.view=projectView(view,entry,context);if(view.type!=='chart'&&view.groupBy!==null){const groups=new Map();for(const row of rows){const value=row.values[view.groupBy]??null,key=JSON.stringify(value);if(!groups.has(key))groups.set(key,{value,recordIds:[]});groups.get(key).recordIds.push(row.id);}result.groups=[...groups.values()];}}
+  if(context.peopleForPage)result.people=context.peopleForPage(entry.pageId);
   return result;
 }
 function mintFactory(payload,createId){const used=new Set([...payload.pages.map(item=>item.page.id),...payload.grants.map(item=>item.id),...(payload.attachments??[]).map(item=>item.id),...(payload.collections??[]).flatMap(entry=>[entry.collection.id,...entry.collection.properties.map(property=>property.id),...entry.collection.records.map(row=>row.id),...(entry.views??[]).map(view=>view.id),...(entry.templates??[]).map(template=>template.id)])]);return()=>{const id=assertId(createId());if(used.has(id))fail('CONTENT_UNAVAILABLE',503);used.add(id);return id;};}

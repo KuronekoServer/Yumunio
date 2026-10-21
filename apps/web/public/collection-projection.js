@@ -1,4 +1,4 @@
-import {validateCollectionEnvelope,monthCells,timelineRange,effectivePropertyType,isComputedProperty} from './collections-model.js';
+import {validateCollectionEnvelope,monthCells,timelineRange,currentCalendarMonth,shiftCalendarMonth,effectivePropertyType,isComputedProperty} from './collections-model.js';
 import {collectionBoardModel,prepareBoardOrderMove} from './board-move-model.js';
 import {renderRecordCollectionValue,renderCollectionValue} from './collection-fields.js';
 import {renderCollectionChart} from './collections-chart.js';
@@ -6,9 +6,12 @@ import {feedWindow,FEED_WINDOW_SIZE} from './collections-feed-model.js';
 
 export function boardProjectionError(code){return({BOARD_COMPUTED_GROUP:'boardComputed',BOARD_REFERENCE_GROUP:'boardReference',BOARD_UNSUPPORTED_GROUP:'boardUnsupported',BOARD_REDACTED_GROUP:'boardRedacted',BOARD_READ_ONLY:'boardReadOnly',BOARD_ORDER_READ_ONLY:'boardOrderReadOnly',BOARD_SORTED:'boardSorted',BOARD_ROW_UNAVAILABLE:'boardTargetUnavailable',BOARD_TARGET_UNAVAILABLE:'boardTargetUnavailable',BOARD_INVALID_RESPONSE:'invalidResponse'})[code]??'boardTargetUnavailable';}
 
+export function captureCalendarFocus(document,root){const active=document.activeElement;return root.contains(active)?active?.getAttribute?.('data-calendar-control')??null:null;}
+export function restoreCalendarFocus(document,root,key){if(!key)return;const active=document.activeElement;if(active&&active!==document.body&&active.isConnected)return;root.querySelector('[data-calendar-control="'+key+'"]')?.focus({preventScroll:true});}
+
 /** Shared view DOM. Authentication, mutations and dialog ownership remain with its host. */
 export function renderCollectionProjection(options){
- const {document,envelope,t,locale='ja',month=new Date().toISOString().slice(0,7),people=[],pages=[],onEdit,onOpenRecord,onOpenPage,pageHref,onSource,onTrash,onBoardMove,onMonth,tableRow,tableHeader,canTrash=()=>false,blocked=()=>false,mutationBlocked=blocked,available=()=>true,getScope=()=>envelope,onBoardDrop}=options;
+ const {document,envelope,t,locale='ja',month=currentCalendarMonth(),people=[],pages=[],onEdit,onOpenRecord,onOpenPage,pageHref,onSource,onTrash,onBoardMove,onMonth,onSelectMonth,tableRow,tableHeader,canTrash=()=>false,blocked=()=>false,mutationBlocked=blocked,available=()=>true,getScope=()=>envelope,onBoardDrop}=options;
  const data=validateCollectionEnvelope(envelope,{workspaceId:envelope?.collection?.workspaceId,collectionId:envelope?.collection?.id}),collection=data.collection,type=data.view?.type??'table';
  const properties=options.visiblePropertyIds==null?collection.properties:collection.properties.filter(property=>options.visiblePropertyIds.includes(property.id));
  const openRecord=record=>onOpenRecord?onOpenRecord(record):onEdit?onEdit(record):onOpenPage?.(record);
@@ -55,12 +58,19 @@ export function renderCollectionProjection(options){
  }
  function datedView(){
   const view=data.view,property=collection.properties.find(item=>item.id===view.datePropertyId),end=collection.properties.find(item=>item.id===view.endDatePropertyId),cells=monthCells(month),outer=node('section');
-  outer.append(node('div',{class:'calendar-toolbar'},[button('previousMonth',()=>onMonth?.(-1)),node('strong',{},month),button('nextMonth',()=>onMonth?.(1))]));
+  const monthLabel=new Intl.DateTimeFormat(locale,{year:'numeric',month:'long',timeZone:'UTC'}).format(new Date(month+'-01T00:00:00Z'));
+  const choose=node('input',{type:'month',min:'0001-01',max:'9999-12',value:month,'aria-label':t('displayMonth'),'data-calendar-control':'month',disabled:!onSelectMonth||blocked()});
+  choose.addEventListener('change',()=>{if(!available()||blocked()||!onSelectMonth)return;try{monthCells(choose.value);onSelectMonth(choose.value);}catch{choose.value=month;}});
+  const navigation=[button('currentMonth',()=>onSelectMonth?.(currentCalendarMonth()),{disabled:!onSelectMonth}),button('previousMonth',()=>onMonth?.(-1),{disabled:!onMonth||!shiftCalendarMonth(month,-1)}),button('nextMonth',()=>onMonth?.(1),{disabled:!onMonth||!shiftCalendarMonth(month,1)})];for(const[index,control]of navigation.entries())control.setAttribute('data-calendar-control',['current','previous','next'][index]);
+  outer.append(node('div',{class:'calendar-toolbar'},[node('strong',{},monthLabel),choose,...navigation]));
+  outer.append(node('p',{class:'hint calendar-date-source'},type==='timeline'?t('timelineDateSource',{start:property.name,end:end.name}):t('calendarDateSource',{name:property.name})));
+  const recordButton=(record,className='record-title')=>{const control=button(record.title||t('untitled'),()=>openRecord(record),{literal:true,className});control.setAttribute('data-record-id',record.id);return control;};
   if(type==='calendar'){
-   const grid=node('div',{class:'collection-calendar'},[...Array.from({length:7},(_,index)=>node('div',{class:'calendar-weekday'},new Intl.DateTimeFormat(locale,{weekday:'short',timeZone:'UTC'}).format(new Date(Date.UTC(2026,0,4+index))))),...Array.from({length:cells.offset},()=>node('div',{class:'calendar-day','aria-hidden':'true'})),...cells.dates.map(date=>node('div',{class:'calendar-day'},[node('time',{datetime:date},String(Number(date.slice(8)))),...collection.records.filter(record=>record.values[property.id]===date).map(record=>button(record.title||t('untitled'),()=>openRecord(record),{literal:true,className:'record-title'}))]))]);outer.append(node('div',{class:'collection-scroll',tabindex:'0','aria-label':t('calendar')},grid));
+   const today=currentCalendarMonth()+'-'+String(new Date().getDate()).padStart(2,'0');
+   const grid=node('div',{class:'collection-calendar'},[...Array.from({length:7},(_,index)=>node('div',{class:'calendar-weekday'},new Intl.DateTimeFormat(locale,{weekday:'short',timeZone:'UTC'}).format(new Date(Date.UTC(2026,0,4+index))))),...Array.from({length:cells.offset},()=>node('div',{class:'calendar-day','aria-hidden':'true'})),...cells.dates.map(date=>node('div',{class:'calendar-day','data-date':date},[node('time',{datetime:date,'aria-current':date===today?'date':null},String(Number(date.slice(8)))),...collection.records.filter(record=>record.values[property.id]===date).map(record=>recordButton(record))]))]);outer.append(node('div',{class:'collection-scroll',tabindex:'0','aria-label':t('calendar')},grid));
   }else{
    const timeline=node('div',{class:'timeline'});timeline.style.setProperty('--timeline-days',String(cells.days));timeline.append(node('div',{class:'timeline-head'},[node('span',{},t('recordTitle')),...cells.dates.map(date=>node('span',{},date.slice(8)))]));
-   for(const record of collection.records){const range=timelineRange(record.values[property.id],record.values[end.id],month),track=node('div',{class:'timeline-track'});if(range){const bar=node('div',{class:'timeline-bar',title:record.values[property.id]+' → '+record.values[end.id]},record.title);bar.style.gridColumn=range.start+' / '+(range.end+1);track.append(bar);}else track.append(node('span',{class:'timeline-outside'},t('outsideRange')));timeline.append(node('div',{class:'timeline-row'},[button(record.title||t('untitled'),()=>openRecord(record),{literal:true,className:'record-title timeline-label'}),track]));}outer.append(node('div',{class:'collection-scroll',tabindex:'0','aria-label':t('timeline')},timeline));
+   for(const record of collection.records.filter(record=>record.values[property.id])){const start=record.values[property.id],finish=record.values[end.id]??start,range=timelineRange(start,finish,month),track=node('div',{class:'timeline-track'});if(range){const bar=recordButton(record,'timeline-bar');bar.title=start+' → '+finish;bar.style.gridColumn=range.start+' / '+(range.end+1);track.append(bar);}else track.append(node('span',{class:'timeline-outside'},t('outsideRange')));timeline.append(node('div',{class:'timeline-row','data-record-id':record.id},[button(record.title||t('untitled'),()=>openRecord(record),{literal:true,className:'record-title timeline-label'}),track]));}outer.append(node('div',{class:'collection-scroll',tabindex:'0','aria-label':t('timeline')},timeline));
   }
   const undated=collection.records.filter(record=>!record.values[property.id]);if(undated.length)outer.append(node('section',{class:'calendar-undated'},[node('h3',{},t('undated')),...undated.map(record=>card(record,{compact:true}))]));return outer;
  }
@@ -74,7 +84,7 @@ export function renderCollectionProjection(options){
  function projection(){
   if(type==='feed')return feed();
   if(type==='chart')return renderCollectionChart({chart:data.chart,view:data.view,properties:collection.properties,document,labels:{boundary:t('chartBoundary'),title:data.view.name,description:t('chartDescription'),empty:t('noRecords'),emptyGroup:t('empty'),yes:t('yes'),no:t('no'),noNumbers:t('chartNoNumbers'),donut:t('chartDonut'),zeroTotal:t('chartZeroTotal'),tableTitle:t('chartTable'),group:t('chartGroup'),value:t(data.view.chart.aggregation==='average'?'chartAverage':data.view.chart.aggregation==='sum'?'chartSum':'chartCount'),count:t('chartRowCount'),numericCount:t('chartNumericCount'),reasons:Object.fromEntries(['CHART_INPUT_UNAVAILABLE','CHART_GROUP_LIMIT','CHART_NUMBER_RANGE','CHART_NEGATIVE_DONUT'].map(code=>[code,t(code)]))}});
-  if(!collection.records.length&&type!=='board'&&type!=='table')return node('p',{class:'collection-empty'},t('noRecords'));
+  if(!collection.records.length&&!['board','table','calendar','timeline'].includes(type))return node('p',{class:'collection-empty'},t('noRecords'));
   if(type==='table')return table();if(type==='board')return boardView();if(type==='calendar'||type==='timeline')return datedView();return node('div',{class:type==='gallery'?'collection-gallery':'collection-list'},collection.records.map(record=>card(record,{compact:type==='list'})));
  }
  const element=node('div',{class:'collection-projection','data-collection-view-type':type},projection());return{element,board};

@@ -12,6 +12,14 @@ function fixture(t,extra={}){
  return{...f,window,panel,messages,closed,changes,navigated,message};
 }
 const record={id:'row-a',pageId:'page-a',title:'Issue A'};
+
+test('the editor is inserted with its destination and feedback preserves that browsing context',async t=>{
+ const f=fixture(t),create=f.doc.createElement,navigations=[];
+ f.doc.createElement=tag=>{const element=create(tag);if(tag==='iframe'){let src;Object.defineProperty(element,'src',{get:()=>src,set:value=>{src=value;navigations.push(value);}});}if(tag==='aside'){const append=element.append.bind(element);element.append=(...nodes)=>{for(const child of nodes)if(child.nodeName==='IFRAME')assert.match(child.src,/\/workspace-detail\?/);append(...nodes);};}return element;};
+ await f.panel.open(record,'tasks');const frame=f.doc.querySelector('iframe');assert.equal(navigations.length,1);
+ f.message({type:'yumunio:detail-ready',dirty:true,busy:false,revision:2});f.message({type:'yumunio:detail-ready',dirty:false,busy:false,revision:3});
+ assert.equal(f.doc.querySelector('iframe'),frame);assert.equal(navigations.length,1);assert.equal(f.panel.state().dirty,false);
+});
 test('a stalled blank navigation retries once, but an initialized editor is never reloaded',async t=>{
  t.mock.timers.enable({apis:['setTimeout']});const f=fixture(t);await f.panel.open(record,'tasks');const frame=f.doc.querySelector('iframe'),url=frame.src,navigations=[];frame.contentDocument={URL:'about:blank',body:{childNodes:[]}};Object.defineProperty(frame,'src',{get:()=>url,set:value=>navigations.push(value)});
  t.mock.timers.tick(5000);assert.deepEqual(navigations,[]);assert.notEqual(f.doc.querySelector('iframe'),frame);assert.equal(frame.isConnected,false);assert.equal(f.doc.querySelector('iframe').src,url);t.mock.timers.tick(15000);assert.equal(f.doc.querySelector('[role="status"]').textContent,'detailPanel.loadFailed');assert.deepEqual(navigations,[]);
@@ -54,6 +62,11 @@ test('save acknowledgement precedes the animated exit and focus returns only whe
 });
 test('closing does not take focus away from a different control used during the transition',async t=>{
  let surface,document;const f=fixture(t,{renderSurface:model=>(surface=animatedSurface(document,model))});document=f.doc;await f.panel.open(record,'tasks');const closing=f.panel.close();await flush();f.editor.focus();surface.finish();assert.equal(await closing,true);assert.equal(document.activeElement,f.editor);
+});
+
+test('closing a calendar detail restores the replacement record button after a projection refresh',async t=>{
+ const f=fixture(t),root=f.doc.createElement('section'),initial=f.doc.createElement('button');root.className='database-placement';initial.setAttribute('data-record-id',record.id);initial.textContent='Calendar task';root.append(initial);f.background.append(root);initial.focus();await f.panel.open(record,'tasks');
+ const replacement=f.doc.createElement('button');replacement.setAttribute('data-record-id',record.id);root.replaceChildren(replacement);assert.equal(await f.panel.close(),true);assert.equal(f.doc.activeElement,replacement);
 });
 test('access revocation removes an exiting panel immediately and late animation completion cannot navigate',async t=>{
  let surface,document;const f=fixture(t,{renderSurface:model=>(surface=animatedSurface(document,model))});document=f.doc;await f.panel.open(record,'tasks');const closing=f.panel.close({fullPage:true});await flush();assert.equal(surface.exits,1);f.message({type:'yumunio:detail-access-lost'});assert.equal(surface.host.isConnected,false);assert.equal(f.panel.state(),null);surface.finish();assert.equal(await closing,false);assert.deepEqual(f.navigated,[]);

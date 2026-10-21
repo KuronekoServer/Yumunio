@@ -18,6 +18,7 @@ import { createD1RecoveryStore, assertRecoveryReady } from '@yumunio/backup';
 import { createInstanceSetup } from '../../packages/identity/src/setup.js';
 import { createD1SetupStore } from '../../packages/identity/src/setup-store.js';
 import {roomSocketRoute} from '../../packages/identity/src/room-socket.js';
+import {contentChangesPath} from '../../packages/identity/src/content-changes.js';
 export {PageRoom} from './room.js';
 
 const basePolicy = {
@@ -45,6 +46,16 @@ export default {
     const policy={...basePolicy,'Content-Security-Policy':basePolicy['Content-Security-Policy'].replace("connect-src 'self'","connect-src 'self' "+url.origin.replace(/^http/,'ws')).replace("frame-ancestors 'none'",frameAncestors)};
     const pageRoute=webPageRoute(url.pathname);
     if(pageRoute?.redirectPath)return new Response(null,{status:['GET','HEAD'].includes(request.method)?308:405,headers:{...policy,'Cache-Control':'no-store',...(['GET','HEAD'].includes(request.method)?{Location:pageRoute.redirectPath+url.search}:{Allow:'GET, HEAD'})}});
+    // Exported Next pages and public, hashed assets contain no account data.
+    // Serve them without D1 setup/configuration reads on every CSS/JS request.
+    if(!url.pathname.startsWith('/api/')&&!['/api','/','/setup','/health','/manifest.webmanifest'].includes(url.pathname)){
+      let assetRequest=request;
+      if(pageRoute?.assetPath){const assetUrl=new URL(url);assetUrl.pathname=pageRoute.assetPath;assetRequest=new Request(assetUrl,request);}
+      const response=await env.ASSETS.fetch(assetRequest),result=new Response(response.body,response);
+      for(const[name,value]of Object.entries(policy))result.headers.set(name,value);
+      if(isDetail){result.headers.set('Cache-Control','no-store');result.headers.delete('ETag');}
+      return result;
+    }
     if ((env.YUMUNIO_SETUP_TOKEN || env.YUMUNIO_INSTANCE_SECRET) && env.YUMUNIO_PUBLIC_ORIGIN && ['/', '/setup'].includes(url.pathname) && ['GET', 'HEAD'].includes(request.method)) {
       try {
         const canonical = validatePublicOrigin(env.YUMUNIO_PUBLIC_ORIGIN);
@@ -112,6 +123,8 @@ export default {
         if (!valid) throw new Error('Invalid deployment configuration');
         try { if (env.DB) await assertRecoveryReady(createD1RecoveryStore(env.DB)); }
         catch (error) { return Response.json({ error: { code: error?.code === 'RECOVERY_IN_PROGRESS' ? 'RECOVERY_IN_PROGRESS' : 'RECOVERY_UNAVAILABLE' } }, { status: 503, headers: { 'Cache-Control': 'no-store', ...policy } }); }
+        const changesSocket=contentChangesPath(url.pathname);
+        if(changesSocket&&url.pathname.endsWith('/ws')&&env.ROOMS){return env.ROOMS.get(env.ROOMS.idFromName('events:'+changesSocket[1])).fetch(request);}
         if(roomSocketRoute(url.pathname)&&env.ROOMS){
           const match=/\/workspaces\/([^/]+)\/pages\/([^/]+)/.exec(url.pathname);
           const incoming=await env.ROOMS.get(env.ROOMS.idFromName(match[1]+':'+match[2])).fetch(request);

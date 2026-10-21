@@ -37,7 +37,8 @@ test('actual workerd installs D1/R2 from the deploy schema, atomically claims on
   assert.equal((await request('/api/setup', { method: 'POST', key: token, body: owner, headers: { Origin: 'https://other.invalid' } })).status, 403);
   assert.equal((await request('/api/setup', { method: 'POST', key: token, body: { ...owner, settings: { YUMUNIO_MAIL_DRIVER: 'smtp' } } })).status, 400);
   const claims = await Promise.all([1, 2].map(() => request('/api/setup', { method: 'POST', key: token, body: owner })));
-  assert.deepEqual(claims.map(response => response.status).sort(), [201, 409], await Promise.all(claims.map(response => response.clone().text())));
+  const claimStatuses=claims.map(response=>response.status).sort();
+  assert.deepEqual(claimStatuses,[201,409],JSON.stringify(claimStatuses));
   assert.equal((await request('/')).headers.get('location'), '/account');
   assert.equal((await db.prepare('SELECT COUNT(*) AS total FROM yumunio_users').first()).total, 1);
   assert.equal((await request('/api/setup', { method: 'POST', key: token, body: owner })).status, 409);

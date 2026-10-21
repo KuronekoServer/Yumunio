@@ -14,6 +14,9 @@ import { createInstanceApi } from '@yumunio/identity/instance';
 import { createPwaManifestApi } from '@yumunio/identity/pwa';
 import { createSqliteRecoveryStore, assertRecoveryReady } from '@yumunio/backup';
 import {attachRoomSockets} from './room-socket.mjs';
+import {attachContentSockets} from './content-socket.mjs';
+import {roomSocketScope} from '../../packages/identity/src/room-socket.js';
+import {contentChangesPath} from '../../packages/identity/src/content-changes.js';
 import {StaticAssetCache} from './static-assets.mjs';
 
 const defaultRoot = fileURLToPath(new URL('../../.build/web/', import.meta.url));
@@ -171,6 +174,8 @@ export function createAppServer({ root = defaultRoot, snapshotStore = null, acce
     catch(error){console.error('Static asset read failed:',error.code||error.name);return send(500,'Unable to read the requested asset');}
   });
   const roomSockets=attachRoomSockets(server,{acquire:()=>runtimeProvider?runtimeProvider():baseRuntime,assertReady:async()=>{if(recoveryStore)await assertRecoveryReady(recoveryStore);}});
+  attachContentSockets(server,{acquire:()=>runtimeProvider?runtimeProvider():baseRuntime,assertReady:async()=>{if(recoveryStore)await assertRecoveryReady(recoveryStore);}});
+  server.on('upgrade',(request,socket)=>{try{const path=new URL(request.url,'http://localhost').pathname;if(roomSocketScope(path)||contentChangesPath(path))return;}catch{}socket.end('HTTP/1.1 404 Not Found\r\nConnection: close\r\nContent-Length: 0\r\n\r\n');});
   server.requestTimeout = 15000;
   server.headersTimeout = 10000;
   return server;

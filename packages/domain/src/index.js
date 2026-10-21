@@ -5,13 +5,15 @@ import { validateInlineMarks } from './inline.js';
 import {validateMentions} from './mentions.js';
 import {validateSimpleTableData} from './simple-table.js';
 import {isAttachmentBlock} from './attachment-block-model.js';
+import {validColumnData} from './block-layout.js';
+export * from './block-layout.js';
 import {RICH_BLOCK_TYPES,GENERATED_BLOCK_TYPES,isBookmarkBlock,isDatabaseBlock,isSyncedBlock,validateBlockPresentation} from './block-types.js';
 export * from './block-types.js';
 import {validatePageAppearance} from './page-appearance.js';
 export * from './page-appearance.js';
 export {isAttachmentBlock} from './attachment-block-model.js';
 export * from './simple-table.js';
-export {BLOCK_MOVE_NESTING,BlockForestMoveError,planBlockForestMove,moveBlockForest} from './block-forest.js';
+export {BLOCK_MOVE_NESTING,BlockForestMoveError,planBlockForestMove,moveBlockForest,createBlockColumnPlanner,arrangeBlockColumns} from './block-forest.js';
 /**
  * Independent, JSON-only models for the first Yumunio storage contract.
  * These models do not implement authentication, editor rendering, or CRDTs.
@@ -182,7 +184,7 @@ export function validateBlocks(blocks) {
       if (Object.hasOwn(block, "data")) {
         assertPlainObject(block.data, field + ".data");
         if([...RICH_BLOCK_TYPES,'code','equation'].includes(block.type))try{validateBlockPresentation(block.data);}catch{invalid(field+'.data','Invalid block presentation.');}
-        if (['columns','column'].includes(block.type) && Object.keys(block.data).length) invalid(field + '.data', 'Column wrapper data must be empty.');
+        if (block.type==='columns'&&!validColumnData(block.data,block.children.length)||block.type==='column'&&Object.keys(block.data).length) invalid(field + '.data', 'Invalid column proportions.');
         if (Object.hasOwn(block.data, "links")) {
           try { validatePageLinks(block.data.text, block.data.links, {allowUnavailable:true,allowSourceReferences:true}); }
           catch { invalid(field + ".data.links", "Invalid structured link ranges."); }
@@ -413,3 +415,4 @@ export * from './teamspaces.js';
 export * from './groups.js';
 export * from './board-order.js';
 export * from './property-conversion.js';
+export {validatePageStarter,instantiateStructuredPageStarter,pageStarterFromReceipt} from './page-starter.js';

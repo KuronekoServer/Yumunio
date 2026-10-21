@@ -1,4 +1,5 @@
 import {pageStarters,matchingPageStarters} from './page-starters.js';
+import {instantiateStructuredPageStarter} from './page-starter.js';
 import {validateTemplatesList,validateTemplateItem} from './templates-model.js';
 
 export function pageCreationDestinations({pages,teamspaces,t,canManage}){
@@ -8,6 +9,8 @@ export function pageCreationDestinations({pages,teamspaces,t,canManage}){
 }
 
 const iconPaths={
+  board:'M3 4h18v16H3z M9 4v16 M15 4v16 M5 8h2 M11 8h2 M17 8h2 M5 12h2 M11 12h2',
+  table:'M3 4h18v16H3z M3 9h18 M3 14h18 M10 4v16 M16 4v16',
   page:'M6 3h9l4 4v14H6z M14 3v5h5 M9 12h7 M9 16h7',
   people:'M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2 M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8 M22 21v-2a4 4 0 0 0-3-3.87 M16 3.13a4 4 0 0 1 0 7.75',
   flag:'M4 21V3 M4 4h14l-3 5 3 5H4',
@@ -67,7 +70,7 @@ export function createPageCreator({document,t,destinations,initialDestination,on
     if(!title.value.trim()){title.setCustomValidity(t('titleRequired'));title.reportValidity();return;}
     const target=destinations.find(item=>item.id===destination.value);if(!target)return;
     busy=true;setDisabled(true);feedback.textContent='';
-    try{const result=await onCreate({title:title.value.trim(),snapshot:structuredClone(snapshot),observedRevision:revision,teamspaceId:target.teamspaceId??null,parentId:target.parentId??null});blocked=result?.blocked===true;}
+    try{const result=await onCreate({title:title.value.trim(),snapshot:structuredClone(snapshot),starter:selected.starter?structuredClone(selected.starter):null,observedRevision:revision,teamspaceId:target.teamspaceId??null,parentId:target.parentId??null});blocked=result?.blocked===true;}
     catch{blocked=true;feedback.textContent=t('teamspaces.createUnknown');feedback.setAttribute('role','alert');}
     finally{if(!disposed){busy=false;setDisabled(blocked);}}
   });
@@ -76,6 +79,7 @@ export function createPageCreator({document,t,destinations,initialDestination,on
     previewHeading.textContent=selected.name;previewDescription.textContent=selected.description;previewContent.replaceChildren();
     if(pending){previewContent.append(node('p',{class:'hint',role:'status'},text('loadingPreview')));return;}
     if(!snapshot)return;
+    if(selected.starter){renderStructuredPreview(selected.starter);return;}
     if(!snapshot.blocks.length||selected.id==='starter:blank'){previewContent.append(node('p',{class:'hint'},text('blankPreview')));return;}
     const visit=(blocks,parent)=>{for(const block of blocks){if(block.type==='divider')parent.append(node('hr'));else{const tag=block.type.startsWith('heading')?'h4':block.type==='quote'?'blockquote':block.type==='code'?'pre':'p';
       const line=node(tag,{class:'page-template-block'+(block.type==='checklist'?' page-template-check':'')});
@@ -84,6 +88,24 @@ export function createPageCreator({document,t,destinations,initialDestination,on
       if(!value)line.append(node('span',{class:'page-template-placeholder','aria-hidden':'true'},text('writeHere')));
       parent.append(line);}if(block.children?.length){const nested=node('div',{class:'page-template-nested'});visit(block.children,nested);parent.append(nested);}
     }};visit(snapshot.blocks,previewContent);
+  }
+  function renderStructuredPreview(recipe){
+    let sequence=0;const plan=instantiateStructuredPageStarter(recipe,()=>`preview-${++sequence}`),l=recipe.labels;
+    previewContent.append(node('p',{class:'page-template-block'},l.intro));
+    const table=(headers,rows)=>{
+      const grid=node('table',{class:'page-template-sample-table'}),head=node('thead'),body=node('tbody');
+      head.append(node('tr',{},headers.map(label=>node('th',{scope:'col'},label))));
+      for(const cells of rows)body.append(node('tr',{},cells.map(value=>node('td',{},value||'—'))));
+      grid.append(head,body);previewContent.append(node('div',{class:'page-template-table-scroll'},grid));
+    };
+    if(recipe.type==='simple-table'){const rows=plan.blocks[1].data.rows;table(rows[0],rows.slice(1));return;}
+    previewContent.append(node('h4',{},l.name));
+    if(recipe.type==='board'){
+      const board=node('div',{class:'page-template-sample-board'});
+      for(const[key,index]of ['todo','doing','done'].map((key,index)=>[key,index]))board.append(node('section',{class:'page-template-board-column'},[node('h5',{},[node('span',{class:'page-template-status'},l[key]),node('span',{class:'hint'},'1')]),node('ul',{},node('li',{},plan.database.records[index].title))]));
+      previewContent.append(board);
+    }else table([text('recordName'),l.status,l.assignee],plan.database.records.map((row,index)=>[row.title,l[['todo','doing','done'][index]],'—']));
+    previewContent.append(node('p',{class:'hint page-template-database-hint'},text('newDatabaseHint')));
   }
   async function choose(item){
     if(disposed||busy||blocked)return;selected=item;snapshot=item.snapshot??null;pending=!snapshot;const marker=++generation;

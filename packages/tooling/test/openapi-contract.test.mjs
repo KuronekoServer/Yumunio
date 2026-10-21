@@ -500,6 +500,12 @@ test('documented content-blocks header advertises all three bounded parser featu
  const opened=await responseMatches(roomTemplate+'/open','post',await f.request(roomPath+'/open',{method:'POST',body:{expectedRevision:(await content.read('workspace','owner')).revision,protocol:2},headers}),201);assert.deepEqual(opened.supportedFeatures,['check-state','block-transforms','content-blocks']);
 });
 
+test('layout support is explicitly negotiated and documented for every room route',async t=>{
+ const f=fixture(t),{content}=await f.ready,headers={'X-Yumunio-Room-Protocol':'2','X-Yumunio-Room-Features':'check-state','X-Yumunio-Room-Extensions':'block-transforms','X-Yumunio-Room-Content':'content-blocks','X-Yumunio-Room-Layout':'block-layout'};
+ assert.equal(validator(spec.components.parameters.RoomLayout.schema).validate('block-layout').valid,true);assert.equal(validator(spec.components.parameters.RoomLayout.schema).validate('unknown').valid,false);for(const suffix of ['', '/open','/updates','/renew','/presence'])assert.ok(spec.paths[roomTemplate+suffix].parameters.some(row=>row.$ref==='#/components/parameters/RoomLayout'));
+ const opened=await responseMatches(roomTemplate+'/open','post',await f.request(roomPath+'/open',{method:'POST',body:{expectedRevision:(await content.read('workspace','owner')).revision,protocol:2},headers}),201);assert.deepEqual(opened.supportedFeatures,['check-state','block-transforms','content-blocks','block-layout']);
+});
+
 test('documented block-transforms advertisement, split/merge/convert ACK and check-only rejection match actual SQLite routes',async t=>{
  const f=fixture(t,{sourceBlock:true}),{content}=await f.ready,input={expectedRevision:(await content.read('workspace','owner')).revision,protocol:2},headers={'X-Yumunio-Room-Protocol':'2','X-Yumunio-Room-Features':'check-state','X-Yumunio-Room-Extensions':'block-transforms'};
  assert.equal(validator(spec.components.parameters.RoomExtensions.schema).validate('block-transforms').valid,true);assert.equal(validator(spec.components.parameters.RoomExtensions.schema).validate('unknown').valid,false);for(const suffix of ['', '/open','/updates','/renew','/presence'])assert.ok(spec.paths[roomTemplate+suffix].parameters.some(row=>row.$ref==='#/components/parameters/RoomExtensions'));

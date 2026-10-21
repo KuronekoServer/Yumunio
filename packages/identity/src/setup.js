@@ -40,9 +40,12 @@ export async function createInstanceSetup({ env, store, origin, runtime = 'node'
   const key = await crypto.subtle.importKey('raw', await digest('yumunio/settings/v1\0' + token), 'AES-GCM', false, ['encrypt', 'decrypt']);
   const seal = async value => { const iv = crypto.getRandomValues(new Uint8Array(12)); return base64(iv) + '.' + base64(await crypto.subtle.encrypt({ name: 'AES-GCM', iv, additionalData: encoder.encode('yumunio-instance-v1') }, key, encoder.encode(JSON.stringify(value)))); };
   const open = async sealed => { const [iv, data] = sealed.split('.'); return JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: unbase64(iv), additionalData: encoder.encode('yumunio-instance-v1') }, key, unbase64(data)))); };
+  let originSnapshot;
   if (!origin && !env.YUMUNIO_PUBLIC_ORIGIN) {
     const row = await store.read();
-    origin = row ? (await open(row.sealed)).origin : 'https://setup.invalid';
+    const data = row ? await open(row.sealed) : null;
+    originSnapshot = { row, data };
+    origin = data?.origin || 'https://setup.invalid';
   }
   origin = validatePublicOrigin(env.YUMUNIO_PUBLIC_ORIGIN || origin);
   if (!origin.startsWith('https:') && !['127.0.0.1', 'localhost', '[::1]'].includes(new URL(origin).hostname)) throw new Error('Setup requires HTTPS or loopback.');
@@ -50,8 +53,12 @@ export async function createInstanceSetup({ env, store, origin, runtime = 'node'
   const settingsDefaults = Object.fromEntries(SETUP_FIELDS.map(field => [field, env[field] || defaults[field] || '']));
   const effective = data => ({ ...base, ...data?.settings, YUMUNIO_ACCOUNTS_ENABLED: data ? 'true' : 'false', YUMUNIO_SERVER_ADMIN_IDS: [...new Set([...readServerAdminIds(env), ...(data ? [data.adminId] : [])])].join(',') });
   const load = async () => {
-    const row = await store.read();
-    const data = row ? await open(row.sealed) : null;
+    // Origin inference and the first load belong to one configuration read.
+    // Consume it once; later loads always observe persisted settings again.
+    const snapshot = originSnapshot;
+    originSnapshot = undefined;
+    const row = snapshot ? snapshot.row : await store.read();
+    const data = snapshot ? snapshot.data : row ? await open(row.sealed) : null;
     if (data && (data.origin !== origin || !/^[A-Za-z0-9._:-]{1,128}$/.test(data.adminId))) throw new Error('Stored instance configuration does not match this deployment.');
     return { revision: row ? Number(row.revision) : 0, data, env: effective(data) };
   };

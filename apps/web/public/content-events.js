@@ -10,7 +10,7 @@ export function createContentNotifications(view, Channel = globalThis.BroadcastC
   function emit(value) {
     const detail = {
       type: 'content-changed', workspaceId: value.workspaceId,
-      accountId: value.accountId, revision: value.revision
+      accountId: value.accountId, revision: value.revision,...(value.remote?{remote:true}:{})
     };
     view.dispatchEvent(new CustomEvent('yumunio:content-changed', {detail}));
   }
@@ -26,7 +26,7 @@ export function createContentNotifications(view, Channel = globalThis.BroadcastC
       const peer = new Channel('yumunio-content');
       channel = peer;
       peer.addEventListener('message', event => {
-        if (!disposed && channel === peer && validChange(event.data)) emit(event.data);
+        if (!disposed && channel === peer && validChange(event.data)) emit({...event.data,remote:true});
       });
     } catch {
       channel = null;

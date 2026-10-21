@@ -1,3 +1,12 @@
+/** Insert a browsing context with its destination already set, avoiding an initial blank navigation. */
+export function mountRecordEditorFrame(document,host,model){
+  const frame=document.createElement('iframe');
+  frame.className='record-detail-frame';frame.title=model.editorTitle;frame.loading='eager';frame.referrerPolicy='same-origin';
+  frame.src=model.editorUrl;
+  host.append(frame);
+  return frame;
+}
+
 /** DOM fallback for hosts without the React motion provider. */
 export function createRecordPanelDom(document, model) {
   const host = document.createElement('aside');
@@ -22,18 +31,10 @@ export function createRecordPanelDom(document, model) {
   status.setAttribute('role', 'status');
   status.textContent = model.loading;
 
-  function createFrame() {
-    const next = document.createElement('iframe');
-    next.className = 'record-detail-frame';
-    next.title = model.editorTitle;
-    next.referrerPolicy = 'same-origin';
-    return next;
-  }
-  let frame = createFrame();
   header.append(exit, status, full);
-  host.append(header, frame);
+  host.append(header);
   document.body.append(host);
-  frame.src = model.editorUrl;
+  let frame = mountRecordEditorFrame(document,host,model);
 
   return {
     host, exit, full, status,
@@ -44,9 +45,7 @@ export function createRecordPanelDom(document, model) {
     },
     retryFrame() {
       frame.remove();
-      frame = createFrame();
-      host.append(frame);
-      frame.src = model.editorUrl;
+      frame = mountRecordEditorFrame(document,host,model);
       return frame;
     },
     destroy() { host.remove(); }

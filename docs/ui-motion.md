@@ -17,8 +17,9 @@ Motion for Reactを使用し、短い動きで操作の結果と画面のつな�
 
 ## 編集とキーボード操作
 
-Reactが管理する詳細パネルの外枠、サイドバー、メニュー、モーダルに適用しています。
-詳細内のエディターは同じiframeを保持し、保存状態の表示更新で作り直しません。
+Reactが管理するサイドバー、メニュー、モーダルに適用しています。
+詳細パネルはReactのMotionプロバイダーから既存の外枠DOMをアニメーションします。
+エディターはReactの再描画から独立した同じiframeを保持し、保存状態や親画面の更新で作り直しません。
 本文のDOM、文字選択、YjsのデータやUndo／Redoをアニメーション用に再構築しません。
 
 メニューはEscで閉じて開いたボタンへ戻れます。サイドバーメニューは↑↓・Home・Endで項目を移動できます。
@@ -32,6 +33,7 @@ Motionのdragは使用せず、配置後の位置変化だけを補間します�
 依存パッケージは`apps/web/package.json`、共通の時間とイージングは`apps/web/public/ui-motion-policy.js`、
 Reactの実装は`apps/web/src/motion/`の部品に分け、`apps/web/src/ui-motion.jsx`から公開します。
 パネルの保存確認は`apps/web/public/record-panel.js`、標準dialogとの接続は`apps/web/public/motion-dialog-controller.js`に分離しています。
+パネルのDOM生成は`record-panel-dom.js`、開閉・中断・動きを減らす設定への追従は`animated-record-surface.js`に分離しています。
 設定画面など、ワークスペース外のモーダルは適用範囲に含みません。
 デザインの動きと状態は共有ファイル`Yumunio.pen`にも記録します。
 

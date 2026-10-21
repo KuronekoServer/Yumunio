@@ -27,7 +27,8 @@ test('every exported Next page uses local executable assets and carries no inlin
   for(const [,attributes,body]of html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/g)){
    if(/type="application\/ld\+json"/.test(attributes))continue;
    assert.equal(body.trim(),'',name+' executable script body is external');
-   const path=/src="(\/[^"?#]+)"/.exec(attributes)?.[1];assert.ok(path,name+' script is local');
+   const source=/src="(\/[^"#]+)"/.exec(attributes)?.[1],match=/^(\/[^"?#]+)(?:\?v=([a-f0-9]{64}))?$/.exec(source??'');assert.ok(match,name+' script is local');
+   const path=match[1];assert.ok(!path.startsWith('//')&&!path.split('/').includes('..'),name+' script stays in the artifact');if(match[2])assert.equal(path,'/workspace-preload.js');
    await readFile(new URL('../../../.build/web'+path,import.meta.url));
   }
  }
@@ -35,6 +36,7 @@ test('every exported Next page uses local executable assets and carries no inlin
 
 test('workspace and embedded editor preload the same content-versioned controller',async()=>{
  const read=name=>readFile(new URL('../../../.build/web/'+name+'.html',import.meta.url),'utf8'),workspace=await read('workspace'),detail=await read('workspace-detail'),version=workspace.match(/href="\/workspace\.js\?v=([a-f0-9]{64})"/)?.[1];assert.ok(version);assert.ok(detail.includes('/workspace.js?v='+version));
+ for(const html of [workspace,detail]){const index=html.indexOf('src="/workspace-preload.js?v='+version+'"');assert.ok(index>=0&&index<html.indexOf('</head>'),'bootstrap requests start from the head while React loads');}
 });
 test('initial setup authorization is consumed once from the fragment without losing other URL parameters',()=>{
  const calls=[],location={pathname:'/setup',search:'?locale=en',hash:'#start=synthetic'},history={state:{position:1},replaceState(...args){calls.push(args);}};

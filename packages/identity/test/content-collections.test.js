@@ -16,7 +16,7 @@ function fixture(t){
   db.exec("CREATE TABLE prototype_sentinel(value TEXT);INSERT INTO prototype_sentinel VALUES('legacy unchanged')");
   const raw=createSqliteContentStore(db);let beforeWrite=null,reads=0,writes=0,sequence=0;
   const store={async read(...args){reads++;return raw.read(...args);},async write(...args){writes++;if(beforeWrite)await beforeWrite(...args);return raw.write(...args);}};
-  const api=createAccountContentApi({store,origin,roomSecret:'collections-test-room-secret-not-real-12345678',now:()=>stamp,createId:()=> 'generated-'+ ++sequence,resolveSession:async request=>({user:{id:request.headers.get('x-fixture-account'),emailVerified:true}})});
+  const api=createAccountContentApi({store,origin,instanceEnvironment:{YUMUNIO_BRAND_NAME:'Example workspace',YUMUNIO_AUTH_SECRET:'synthetic-instance-private-secret'},roomSecret:'collections-test-room-secret-not-real-12345678',now:()=>stamp,createId:()=> 'generated-'+ ++sequence,resolveSession:async request=>({user:{id:request.headers.get('x-fixture-account'),emailVerified:true}})});
   const request=(path='',method='GET',body,accountId='owner',headers={})=>api(new Request(origin+'/api/content/workspaces/'+workspaceId+path,{method,headers:{Origin:origin,'Content-Type':'application/json','x-fixture-account':accountId,'X-Yumunio-Expected-Account':accountId,...headers},...(body===undefined?{}:{body:JSON.stringify(body)})}));
   return{db,raw,request,get writes(){return writes;},get reads(){return reads;},setBeforeWrite(fn){beforeWrite=fn;}};
 }
@@ -26,6 +26,38 @@ async function create(f,properties=[],extra={}){return ok(await f.request('/coll
 async function row(f,c,expectedRevision,title,values={}){return ok(await f.request('/collections/'+c.collectionId+'/records','POST',{expectedRevision,title,values}),201);}
 async function get(f,c,account='owner'){return ok(await f.request('/collections/'+c.collectionId,'GET',undefined,account));}
 async function grant(f,pageId,accountId,permission,expectedRevision,includeDescendants=false){return ok(await f.request('/pages/'+pageId+'/grants','POST',{expectedRevision,accountId,permission}));}
+
+test('bootstrap returns the page, directory and authorized linked views from one content read',async t=>{
+ const f=fixture(t),c=await create(f,[property('status','status',{options:['Todo','Done']}),property('person','person')]);
+ const row=await ok(await f.request('/collections/'+c.collectionId+'/records','POST',{expectedRevision:c.revision,title:'Only authorized tasks',values:{status:'Todo',person:'owner'}}),201);
+ const block={id:'placed',type:'database',data:{format:'collection-view-v1',collectionId:c.collectionId,view:view(),visiblePropertyIds:null}};
+ const page=await ok(await f.request('/pages','POST',{expectedRevision:row.revision,title:'Project context',blocks:[{id:'description',type:'paragraph',data:{text:'Project description'}},block]}),201);
+ const reads=f.reads,boot=await ok(await f.request('/bootstrap?page='+page.page.id));assert.equal(f.reads,reads+1);
+ assert.equal(boot.user.id,'owner');assert.equal(boot.page.revision,boot.directory.revision);assert.equal(boot.page.context.placements.placed.revision,boot.page.revision);assert.equal(boot.page.context.placements.placed.collection.records[0].title,'Only authorized tasks');assert.equal(boot.page.context.placements.placed.collection.records[0].values.status,'Todo');
+ assert.deepEqual(boot.page.context.placements.placed.people.map(person=>person.accountId),['owner']);assert.ok(Array.isArray(boot.directory.teamspaces));
+ const {validateCollectionEnvelope}=await import('../../../apps/web/public/collections-model.js');
+ const {validateInstanceConfig}=await import('../../../apps/web/public/instance.js');assert.equal(validateInstanceConfig(boot.instance).applicationName,'Example workspace');assert.doesNotMatch(JSON.stringify(boot),/synthetic-instance-private-secret|YUMUNIO_AUTH_SECRET/);
+ assert.equal(validateCollectionEnvelope(boot.page.context.placements.placed,{workspaceId,collectionId:c.collectionId}).view.id,'placement');
+ const record=await ok(await f.request('/pages/'+row.record.pageId+'?context=1'));assert.equal(record.context.collection.revision,record.revision);assert.equal(record.context.collection.collection.records[0].values.person,'owner');
+ const beforeComments=f.reads,comments=await ok(await f.request('/bootstrap?section=comments&page='+page.page.id));assert.equal(f.reads,beforeComments+1);assert.equal(comments.page.page.id,page.page.id);assert.equal(comments.inbox.revision,comments.page.revision);assert.equal(comments.comments.revision,comments.page.revision);assert.equal(comments.people.pageId,page.page.id);assert.equal(Object.hasOwn(comments.page,'context'),false);
+ const backlinks=await ok(await f.request('/bootstrap?section=backlinks&page='+page.page.id));assert.equal(backlinks.backlinks.page.id,page.page.id);assert.equal(Object.hasOwn(backlinks,'directory'),false);assert.equal(Object.hasOwn(backlinks,'page'),false);
+ const missing=await ok(await f.request('/bootstrap?page=missing'));assert.equal(missing.page,null);assert.deepEqual(missing.pageError,{status:404,code:'CONTENT_NOT_FOUND'});
+ await error(await f.request('/bootstrap?page='+page.page.id,'GET',undefined,'member',{'X-Yumunio-Expected-Account':'owner'}),404,'CONTENT_NOT_FOUND');
+ for(const query of ['?page='+page.page.id+'&page=other','?view=unknown','?unknown=1'])await error(await f.request('/bootstrap'+query),400,'INVALID_CONTENT');
+});
+
+test('a readable destination never exposes a private database or people through context or bootstrap',async t=>{
+ const f=fixture(t),c=await create(f,[property('person','person')]);
+ const row=await ok(await f.request('/collections/'+c.collectionId+'/records','POST',{expectedRevision:c.revision,title:'Hidden source task',values:{person:'owner'}}),201);
+ const page=await ok(await f.request('/pages','POST',{expectedRevision:row.revision,title:'Shared destination',blocks:[{id:'placed',type:'database',data:{format:'collection-view-v1',collectionId:c.collectionId,view:view(),visiblePropertyIds:null}}]}),201);
+ const shared=await grant(f,page.page.id,'member','viewer',page.revision);
+ const boot=await ok(await f.request('/bootstrap?page='+page.page.id,'GET',undefined,'member'));
+ assert.deepEqual(boot.page.context.placements.placed,{error:{status:404,code:'CONTENT_NOT_FOUND'}});assert.equal(boot.page.context.collection,null);assert.doesNotMatch(JSON.stringify(boot),/Hidden source task|Name owner|Independent collection/);
+ const visible=await ok(await f.request('/pages/'+page.page.id+'?context=1','GET',undefined,'member'));assert.equal(visible.context.placements.placed.error.status,404);
+ await ok(await f.request('/pages/'+c.pageId+'/grants','POST',{expectedRevision:shared.revision,accountId:'member',permission:'viewer',includeDescendants:true}));
+ const authorized=await ok(await f.request('/bootstrap?page='+page.page.id,'GET',undefined,'member'));assert.equal(authorized.page.context.placements.placed.collection.records[0].title,'Hidden source task');
+ assert.deepEqual(authorized.page.context.placements.placed.people.map(person=>person.accountId),['member','owner']);
+});
 
 test('database templates apply independent bodies and typed defaults atomically and enforce both database and template access',async t=>{
  const f=fixture(t),c=await create(f,[property('state','status',{options:['未着手','進行中','完了']}),property('url','url'),property('created','created_time'),property('edited','last_edited_time')]);let rev=1;

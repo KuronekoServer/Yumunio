@@ -3,6 +3,25 @@ import assert from 'node:assert/strict';
 import { EditorHistory, markdownPrefix, moveEditorBlock } from '../public/editor-model.js';
 const draft = text => ({ title: 'Fixture', blocks: [{ id: 'a', type: 'paragraph', data: { text } }] });
 
+test('accepting a remote block change retains independent local undo and redo',()=>{
+ const initial=draft('');initial.blocks.push({id:'b',type:'paragraph',data:{text:'shared'}});const history=new EditorHistory(initial);
+ const local=structuredClone(initial);local.blocks[0].data.text='my edit';history.record(local);
+ const remote=structuredClone(local);remote.blocks[1].data.text='their edit';history.acceptRemote(remote,{blockId:'a',start:7});
+ assert.equal(history.canUndo,true);const undone=history.undo();assert.equal(undone.draft.blocks[0].data.text,'');assert.equal(undone.draft.blocks[1].data.text,'their edit');
+ assert.equal(history.redo().draft.blocks[0].data.text,'my edit');assert.equal(history.current.draft.blocks[1].data.text,'their edit');
+});
+test('remote deletion cannot be undone by an older local snapshot, while independent text history survives',()=>{
+ const initial=draft('');initial.blocks.push({id:'removed',type:'paragraph',data:{text:'shared'}});const history=new EditorHistory(initial),local=structuredClone(initial);local.blocks[0].data.text='mine';history.record(local);
+ const remote=structuredClone(local);remote.blocks.pop();history.acceptRemote(remote);
+ assert.deepEqual(history.undo().draft.blocks.map(block=>[block.id,block.data.text]),[['a','']]);assert.deepEqual(history.redo().draft.blocks.map(block=>[block.id,block.data.text]),[['a','mine']]);
+});
+test('overlapping remote changes are a protected baseline and pending redo keeps unrelated local work',()=>{
+ const initial=draft('');initial.blocks.push({id:'b',type:'paragraph',data:{text:'shared'}});const history=new EditorHistory(initial),local=structuredClone(initial);local.blocks[0].data.text='mine';history.record(local);history.undo();
+ const remote=structuredClone(initial);remote.title='their title';remote.blocks[1].data.text='theirs';history.acceptRemote(remote);
+ assert.equal(history.canRedo,true);const redone=history.redo();assert.equal(redone.draft.title,'their title');assert.equal(redone.draft.blocks[0].data.text,'mine');assert.equal(redone.draft.blocks[1].data.text,'theirs');
+ const overlap=structuredClone(redone.draft);overlap.blocks[0].data.text='remote replacement';history.acceptRemote(overlap);assert.equal(history.canUndo,false);assert.equal(history.current.draft.blocks[0].data.text,'remote replacement');
+});
+
 test('editor undo coalesces typing but preserves structural changes, selection, redo branches and input snapshots', () => {
   let time = 0; const history = new EditorHistory(draft(''), { now: () => time });
   const first = draft('a'); history.record(first, { group: 'text:a', selection: { blockId: 'a', start: 1 } }); first.blocks[0].data.text = 'external mutation';

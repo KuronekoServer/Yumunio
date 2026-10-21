@@ -57,6 +57,31 @@ export class EditorHistory {
     if (!this.canRedo) return null;
     this.past.push(this.current); this.current = this.future.pop(); this.group = null; this.#trim(); return clone(this.current);
   }
+  /** The host may accept a clean, authorized remote snapshot. Keep independent
+   * local undo/redo steps, without allowing an old snapshot to revert remote
+   * edits or resurrect a remotely deleted block. Overlapping block edits are
+   * retained as the new baseline; Yjs owns character-level collaborative undo. */
+  acceptRemote(draft,selection=null){
+    const next=snapshot(draft,selection),before=this.current.draft;
+    const index=blocks=>{const result=new Map();const visit=items=>{for(const block of items){result.set(block.id,block);if(block.children)visit(block.children);}};visit(blocks);return result;};
+    const shape=blocks=>blocks.map(block=>[block.id,block.type,...(block.children?[shape(block.children)]:[])]);
+    const old=index(before.blocks),incoming=index(next.draft.blocks),changed=new Set([...incoming].filter(([id,block])=>JSON.stringify(old.get(id)?.data)!==JSON.stringify(block.data)).map(([id])=>id));
+    const structural=JSON.stringify(shape(before.blocks))!==JSON.stringify(shape(next.draft.blocks));
+    const rebase=value=>{
+      const prior=index(value.draft.blocks),canonical=structural||[...changed].some(id=>!prior.has(id));
+      const result=clone(canonical?next.draft:value.draft),nodes=index(result.blocks);
+      if(before.title!==next.draft.title)result.title=next.draft.title;else result.title=value.draft.title;
+      for(const[id,block]of nodes){
+        const source=canonical?(!changed.has(id)&&old.has(id)&&prior.get(id)?.type===block.type?prior.get(id):block):changed.has(id)?incoming.get(id):block;
+        if(source.data===undefined)delete block.data;else block.data=clone(source.data);
+      }
+      const selected=value.selection?.blockId&&!nodes.has(value.selection.blockId)?null:value.selection;
+      return snapshot(result,selected);
+    };
+    const prune=items=>{const result=[];for(const value of items.map(rebase)){if(result.length&&JSON.stringify(result.at(-1).draft)===JSON.stringify(value.draft))result[result.length-1]=value;else result.push(value);}while(result.length&&JSON.stringify(result.at(-1).draft)===JSON.stringify(next.draft))result.pop();return result;};
+    const past=prune(this.past),future=prune(this.future);
+    this.current=next;this.past=past;this.future=future;this.group=null;this.changedAt=0;this.#trim();
+  }
 }
 
 /** Same-document tree movement keeps stable IDs, and rejects a drop into its own subtree. */

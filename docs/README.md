@@ -10,11 +10,13 @@
 | 更新やバックアップを行う | [運用と復旧](hosting/maintenance.md) |
 | 起動・ログインで困っている | [トラブルシューティング](hosting/troubleshooting.md) |
 | ページを編集する | [基本操作](editing-basics.md) |
+| ブロックを並べ、幅を変える | [サイズとレイアウト](block-layout.md) |
 | 子ページを増やし、並び替える | [ページ階層とチームスペース](page-tree.md) |
 | 新しいページをひな形から作る | [ページテンプレート](page-templates.md) |
 | 本文に一覧を置き、詳細を編集する | [本文内DBと右側の詳細](inline-databases.md) |
 | DBの新しい項目にひな形を使う | [DBテンプレートと自動項目](database-templates.md) |
 | 共通の内容を複数ページで使う | [同期ブロック](synced-blocks.md) |
+| 保存した変更の自動反映と表示速度を確認する | [自動同期と表示速度](live-synchronization.md) |
 | メールを設定する | [Cloudflare Email Service・SMTP](mail-setup.md) |
 | 外部アプリと接続する | [API・MCP・Webhook](integrations.md) |
 | 翻訳に参加する | [GitHubで1文から翻訳](community-translations.md) / [English](community-translations.en.md) |

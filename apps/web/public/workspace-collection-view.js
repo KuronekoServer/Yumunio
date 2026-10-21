@@ -1,8 +1,10 @@
-import {renderCollectionProjection,boardProjectionError} from './collection-projection.js';
+import {renderCollectionProjection,boardProjectionError,captureCalendarFocus,restoreCalendarFocus} from './collection-projection.js';
 import {prepareBoardOrderMove,prepareBoardMove} from './board-move-model.js';
 import {createBoardDnd} from './board-dnd.js';
 import {CollectionEdits} from './workspace-data.js';
 import {pageBlocksEqual} from './page-save-result.js';
+import {currentCalendarMonth,shiftCalendarMonth} from './collections-model.js';
+import {DATABASE_QUICK_VIEWS,databaseViewForType,defaultDatabaseView} from './database-placement.js';
 
 export function validateWorkspaceCollectionRead(value,page,{workspaceId,collectionId,pageId,baseline,inRoom=false,expectedViewId}){
  const model=new CollectionEdits(value,{workspaceId,collectionId});
@@ -12,8 +14,8 @@ export function validateWorkspaceCollectionRead(value,page,{workspaceId,collecti
 }
 
 /** Section-local view lifecycle: it never replaces the workspace body or owns authentication. */
-export function mountWorkspaceCollectionView({root,getModel,isCurrent,canRead,canWrite,readView,writeBoard,prepare,onModel,onAccepted,onSelected,onError,onBusyChange,confirmDiscard,projectionOptions,labels,selectedViewId=null,boardFactory=createBoardDnd}={}){
- const document=root.ownerDocument,lifecycle=new AbortController();let active=true,busy=false,writing=false,locked=false,generation=0,board=null,error='',notice='',month=new Date().toISOString().slice(0,7),viewId=getModel()?.envelope.view?.id??null;
+export function mountWorkspaceCollectionView({root,getModel,isCurrent,canRead,canWrite,readView,writeBoard,createView,prepare,onModel,onAccepted,onSelected,onError,onBusyChange,confirmDiscard,projectionOptions,labels,selectedViewId=null,boardFactory=createBoardDnd}={}){
+ const document=root.ownerDocument,lifecycle=new AbortController();let active=true,busy=false,writing=false,locked=false,generation=0,board=null,error='',notice='',month=currentCalendarMonth(),viewId=getModel()?.envelope.view?.id??null;
  const current=()=>active&&root.isConnected&&isCurrent();
  const text=(key,values)=>labels(key,values);
  const node=(tag,attrs={},children=[])=>{const result=document.createElement(tag);for(const[key,value]of Object.entries(attrs)){if(value===undefined||value===null||value===false)continue;if(key==='disabled')result.disabled=value;else result.setAttribute(key,String(value));}for(const child of Array.isArray(children)?children:[children])if(child!==null&&child!==undefined)result.append(child?.nodeType?child:document.createTextNode(String(child)));return result;};
@@ -28,13 +30,14 @@ export function mountWorkspaceCollectionView({root,getModel,isCurrent,canRead,ca
  }
  function paint(){
   if(!current())return;board?.destroy();board=null;const model=getModel();
-  const positions=[...root.querySelectorAll('.collection-scroll,.collection-board')].map(element=>[element.scrollLeft,element.scrollTop]),selected=root.querySelector('.record-selected')?.dataset.recordId;
+  const positions=[...root.querySelectorAll('.collection-scroll,.collection-board')].map(element=>[element.scrollLeft,element.scrollTop]),selected=root.querySelector('.record-selected')?.dataset.recordId,calendarFocus=captureCalendarFocus(document,root);
   root.replaceChildren();
   if(error)root.append(node('p',{class:'message',role:'alert'},text(error)));if(notice)root.append(node('p',{class:'hint',role:'status'},text(notice)));
   if(!model)return;
   const tabs=node('nav',{class:'workspace-collection-tabs','aria-label':text('embeddedViews')});
   tabs.append(button(text('allRecords'),()=>void switchView(null),{disabled:busy||!canRead(),selected:viewId===null}));
   for(const view of model.collection.views)tabs.append(button(view.name,()=>void switchView(view.id),{disabled:busy||!canRead(),selected:viewId===view.id}));
+  if(createView)for(const type of DATABASE_QUICK_VIEWS.filter(type=>!model.collection.views.some(view=>view.type===type))){const possible=databaseViewForType(model.envelope.view??defaultDatabaseView(text(type)),model.collection.properties,type),add=button(text('addViewType',{type:text(type)}),()=>void addView(type),{disabled:busy||locked||!canWrite()||!model.envelope.capabilities.includes('manage')||model.collection.views.length>=20||!possible});add.title=!possible?text(type==='board'?'viewGroupRequired':'viewDateRequired'):model.collection.views.length>=20?text('viewLimit'):'';tabs.append(add);}
   tabs.append(button(text('refresh'),()=>void switchView(viewId,{force:true}),{disabled:busy||!canRead()}));root.append(tabs);
   if(busy)root.append(node('p',{class:'hint',role:'status'},text('loading')));
   const options=projectionOptions(),envelope=model.envelope;
@@ -42,7 +45,8 @@ export function mountWorkspaceCollectionView({root,getModel,isCurrent,canRead,ca
   const rendered=renderCollectionProjection({...options,document,envelope,t:labels,month,
    blocked:()=>busy||locked,mutationBlocked:()=>busy||locked||!canWrite(),available:()=>current()&&getModel()===model&&!busy&&!locked,
    getScope:()=>available()?JSON.stringify([envelope.collection.workspaceId,envelope.collection.id,viewId,model.revision]):null,
-   onMonth:offset=>{if(!current()||busy)return;const next=new Date(month+'-01T00:00:00Z');next.setUTCMonth(next.getUTCMonth()+offset);month=next.toISOString().slice(0,7);paint();},
+   onMonth:offset=>{if(!current()||busy)return;const next=shiftCalendarMonth(month,offset);if(next){month=next;paint();}},
+   onSelectMonth:value=>{if(!current()||busy)return;month=value;paint();},
    onBoardDrop:move=>moveBoard(move),
   });
   root.append(rendered.element);
@@ -50,6 +54,7 @@ export function mountWorkspaceCollectionView({root,getModel,isCurrent,canRead,ca
   if(selected)for(const element of root.querySelectorAll('[data-record-id]'))element.classList.toggle('record-selected',element.dataset.recordId===selected);
   // Read-only views remain navigable; row mutation controls have their own current ACL guards.
   if(rendered.board){const config=rendered.board,move=config.canMove,drop=config.canDrop;config.canMove=id=>available()&&move(id);config.canDrop=(id,key)=>available()&&drop(id,key);board=boardFactory(config);}
+  restoreCalendarFocus(document,root,calendarFocus);
  }
  async function load(id,marker){
   const previous=getModel(),drafts=new Map(previous.drafts);
@@ -66,6 +71,19 @@ export function mountWorkspaceCollectionView({root,getModel,isCurrent,canRead,ca
   catch(failure){if(current()&&marker===generation)report(failure);return false;}
   finally{if(active&&marker===generation){busyState(false,'read');paint();}}
  }
+ async function addView(type){
+  const model=getModel();if(!current()||busy||locked||!createView||!canWrite()||!model?.envelope.capabilities.includes('manage')||model.collection.views.length>=20)return false;
+  const existing=model.collection.views.find(view=>view.type===type);if(existing)return switchView(existing.id);
+  const view=databaseViewForType(model.envelope.view??defaultDatabaseView(text(type)),model.collection.properties,type);if(!view)return false;view.name=text(type);
+  if(model.dirty&&(!confirmDiscard||!await confirmDiscard())||!current()||busy||getModel()!==model)return false;
+  const marker=++generation;let acknowledged=false;error=notice='';busyState(true,'write');paint();
+  try{if(prepare&&await prepare('write')===false)return false;if(!current()||marker!==generation||getModel()!==model||!canWrite())return false;
+   const expectedRevision=model.revision;writing=true;const result=await createView({expectedRevision,view},{signal:lifecycle.signal});if(!current()||marker!==generation)return false;
+   if(result?.revision!==expectedRevision+1||result.collectionId!==model.collection.id||typeof result.viewId!=='string'||!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(result.viewId)||model.collection.views.some(view=>view.id===result.viewId))throw Object.assign(new Error('INVALID_RESPONSE'),{code:'INVALID_RESPONSE',status:0});
+   acknowledged=true;writing=false;await onAccepted?.(result,{body:{expectedRevision}});if(!current()||marker!==generation)return false;return await load(result.viewId,marker);
+  }catch(failure){if(current()&&marker===generation)report(failure,{mutation:true,acknowledged});return false;}
+  finally{writing=false;if(active&&marker===generation){busyState(false,'write');paint();restoreFocus();}}
+ }
  async function moveBoard(move){
   if(!current()||busy||locked||!canWrite()||getModel()?.dirty)return false;
   const model=getModel(),marker=++generation,focusRecord=document.activeElement?.closest?.('[data-board-dnd-card]')?.dataset.boardDndCard;let acknowledged=false;error=notice='';busyState(true,'write');paint();
@@ -80,5 +98,5 @@ export function mountWorkspaceCollectionView({root,getModel,isCurrent,canRead,ca
  }
  paint();
  const ready=selectedViewId!==viewId?switchView(selectedViewId):Promise.resolve(true);
- return{ready,switchView,moveBoard,refresh:()=>switchView(viewId,{force:true}),render:paint,get busy(){return busy;},get active(){return board?.active===true;},cancel(){board?.cancel();},destroy(){if(!active)return;if(writing)onError?.(Object.assign(new Error('REQUEST_UNCONFIRMED'),{code:'REQUEST_UNCONFIRMED',status:0}),{mutation:true,acknowledged:false,lost:false});active=false;generation++;lifecycle.abort();board?.destroy();board=null;if(busy)busyState(false,writing?'write':'read');root.replaceChildren();}};
+ return{ready,switchView,addView,moveBoard,refresh:()=>switchView(viewId,{force:true}),render:paint,get busy(){return busy;},get active(){return board?.active===true;},cancel(){board?.cancel();},destroy(){if(!active)return;if(writing)onError?.(Object.assign(new Error('REQUEST_UNCONFIRMED'),{code:'REQUEST_UNCONFIRMED',status:0}),{mutation:true,acknowledged:false,lost:false});active=false;generation++;lifecycle.abort();board?.destroy();board=null;if(busy)busyState(false,writing?'write':'read');root.replaceChildren();}};
 }

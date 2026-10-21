@@ -9,6 +9,7 @@ import {createAccountContentApi} from '@yumunio/identity/content';
 import {createSqliteContentStore} from '@yumunio/identity/content-store';
 import {createSqliteRecoveryStore} from '../src/sqlite.js';
 import {createD1RecoveryStore} from '../src/d1.js';
+import {createSqlRecoveryStore} from '../src/sql.js';
 import {createRecoveryArchive,readRecoveryArchive,verifyRecoveryArchive,manifestKey,newRecoveryHeader,encryptRecoveryChunk,decryptRecoveryChunk,sha256} from '../src/archive.js';
 import {prepareRecoverySnapshot,TABLE_BY_NAME,RECOVERY_LIMITS} from '../src/model.js';
 import {restoreRecoveryArchive,assertRecoveryReady} from '../src/restore.js';
@@ -30,6 +31,17 @@ test('recovery captures and restores sealed instance settings as an optional ins
   assert.deepEqual({...target.prepare('SELECT id,revision,sealed FROM yumunio_instance_settings').get()},{id:1,revision:3,sealed});
 });
 async function archive(t,options={}){const db=database(t),fixture=await seed(db,options),store=createSqliteRecoveryStore(db),snapshot=await store.capture({now:stamp}),destination=await memoryBlobs('backup-destination'),encryptionKey=key(),result=await createRecoveryArchive({snapshot,sourceBlobs:fixture.source,destination,key:encryptionKey,authSecret:secret,backupId:'fixture-backup',createdAt:stamp});return{db,...fixture,store,snapshot,destination,key:encryptionKey,result};}
+
+test('the live recovery gate needs one SQL read and never caches a restoring barrier or hides a storage failure',async t=>{
+ const db=database(t);let reads=0,unavailable=false,batches=0;
+ const store=createSqlRecoveryStore({dialect:'sqlite',async query(sql){reads++;if(unavailable){unavailable=false;throw Error('storage unavailable');}return{rows:db.prepare(sql).all()};},async batch(commands){batches++;return commands.map(({sql})=>({rows:db.prepare(sql).all()}));}});
+ assert.deepEqual(await store.inspectRecoveryGate(),{state:'ready'});assert.equal(reads,1);
+ db.prepare('INSERT INTO yumunio_recovery_state VALUES(1,?,?,?,?,?,?,?,?,?)').run('live-restore','a'.repeat(64),'b'.repeat(64),'',stamp,'restoring',0,0,stamp);
+ await assert.rejects(assertRecoveryReady(store),code('RECOVERY_IN_PROGRESS'));assert.equal(reads,2);
+ unavailable=true;await assert.rejects(store.inspectRecoveryGate(),/storage unavailable/);assert.equal(reads,4);
+ await store.checkSchema();assert.equal(batches,1);
+ db.exec('DROP TABLE yumunio_backup_guards');await assert.rejects(store.checkSchema());
+});
 
 test('SQLite consistent capture declares exclusions, preserves bound Unicode and uses no implicit migration',async t=>{
   const db=database(t);await seed(db);db.exec('CREATE TABLE private_extension(value TEXT)');db.prepare('INSERT INTO private_extension VALUES(?)').run('excluded-extension-secret');const store=createSqliteRecoveryStore(db);await store.checkSchema();assert.deepEqual(await store.inspectRecoveryGate(),{state:'ready'});const snapshot=await store.capture({now:stamp});assert.ok(snapshot.excludedTables.includes('private_extension'));assert.ok(snapshot.excludedTables.includes('yumunio_backup_jobs'));assert.doesNotMatch(JSON.stringify(snapshot),/excluded-extension-secret/);assert.match(JSON.stringify(snapshot),/日本語/);const users=snapshot.tables.find(table=>table.name==='yumunio_users');assert.equal(users.rows[0][3],true);assert.equal(users.rows[0][5],Date.parse(stamp));assert.equal(db.prepare('SELECT COUNT(*) AS n FROM yumunio_backup_guards').get().n,0);

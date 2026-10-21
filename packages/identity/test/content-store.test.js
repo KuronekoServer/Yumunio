@@ -38,6 +38,19 @@ function initialize(db) {
 }
 const principal = (id, accountId, role, emailVerified = true) => ({ id, accountId, displayName: accountId, email: accountId + '@studio.example', emailVerified, role });
 
+test('live head reads recheck membership without loading or decoding the content aggregate',async t=>{
+ const db=database();t.after(()=>db.close());const store=createSqliteContentStore(db);await store.write('workspace-a','user-a',actor());
+ db.prepare('UPDATE yumunio_account_content SET payload_json=? WHERE workspace_id=?').run('corrupt private payload','workspace-a');
+ const head=await store.readHead('workspace-a','user-a');assert.equal(head.revision,1);assert.equal(Object.hasOwn(head,'payload'),false);assert.equal(head.principals.length,3);
+ await assert.rejects(store.read('workspace-a','user-a'),hasCode('CONTENT_STORAGE_ERROR'));
+ db.prepare('DELETE FROM yumunio_memberships WHERE userId=?').run('user-a');assert.equal(await store.readHead('workspace-a','user-a'),null);
+});
+test('only successful CAS commits notify, and fanout failure cannot turn a saved write into an error',async t=>{
+ const db=database();t.after(()=>db.close());const notices=[],store=createSqliteContentStore(db,{onCommit:(...args)=>{notices.push(args);throw Error('Unavailable fanout');}});
+ assert.deepEqual(await store.write('workspace-a','user-a',actor()),{revision:1});assert.deepEqual(notices,[['workspace-a',1]]);
+ await assert.rejects(store.write('workspace-a','user-a',actor()),hasCode('CONTENT_CONFLICT'));assert.equal(notices.length,1);
+});
+
 test('SQLite reads one verified workspace membership snapshot and never migrates legacy data', async t => {
   const db = database(); t.after(() => db.close());
   const store = createSqliteContentStore(db);

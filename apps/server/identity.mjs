@@ -91,7 +91,7 @@ export async function createNodeIdentityService(env, serverConfig, { verifySchem
       try { await contentStore.checkSchema(); await collaborationStore.checkSchema(); await preferencesStore.checkSchema();if(apiTokenConfig.enabled)await apiTokenStore.checkSchema();if(webhookConfig.enabled)await webhookStore.checkSchema({eventTypes:webhookConfig.eventTypes,includeDescendants:webhookConfig.includeDescendants}); } catch { throw new Error('Account content schema (including enabled integrations) requires an explicit migration.'); }
     }
     const blobStore = await createNodeBlobStore(env);
-    const content = createAccountContentApi({ store: contentStore, origin: config.origin, blobStore, roomSecret: config.secret, roomPresenceStore,
+    const content = createAccountContentApi({ instanceEnvironment:env, store: contentStore, origin: config.origin, blobStore, roomSecret: config.secret, roomPresenceStore,
       resolveSession: request => identity.auth.api.getSession({ headers: request.headers }) });
     const preferences = createPreferencesApi({ store: preferencesStore, origin: config.origin, resolveSession: request => identity.auth.api.getSession({ headers: request.headers }) });
     const actions=createExternalPageActions({store:apiTokenStore,contentStore,origin:config.origin,enabled:apiTokenConfig.enabled});

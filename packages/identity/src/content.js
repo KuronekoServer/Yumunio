@@ -1,4 +1,8 @@
 import {accountContentPolicy,pagePlacement} from './content-policy.js';
+import {contentChangesPath,readContentHead} from './content-changes.js';
+import {readPageContext} from './content-read-context.js';
+import {readInstanceConfig} from './instance.js';
+import {applyPageStarter} from './content-page-starter.js';
 import {handlePageTools,validatePageFavorites} from './content-page-tools.js';
 import {validateTeamspaceState,validateTeamspaceJoinRequests} from '@yumunio/domain';
 import {ContentTeamspaceError,handleTeamspaceRequest,requireTeamspaceCreate} from './content-teamspaces.js';
@@ -336,9 +340,10 @@ async function importPages({request,store,saved,payload,actor,accountId,workspac
 }
 /** Page-scoped account content. The store must CAS policy and content together, with live membership guards. */
 export function createAccountContentApi({ store, resolveSession, origin, blobStore = null, roomSecret = null, roomPresenceStore = null, publicationSecret = roomSecret,
-  inlineMentionNotifications = true, now = () => new Date().toISOString(), createId = () => crypto.randomUUID() } = {}) {
+  inlineMentionNotifications = true, instanceEnvironment = {}, now = () => new Date().toISOString(), createId = () => crypto.randomUUID() } = {}) {
   if (!store || typeof store.read !== 'function' || typeof store.write !== 'function' || typeof resolveSession !== 'function' ||
       new URL(origin).origin !== origin || typeof inlineMentionNotifications!=='boolean' || (roomSecret !== null && (typeof roomSecret !== 'string' || roomSecret.length < 32 || roomSecret.length > 4096)) || typeof now !== 'function' || typeof createId !== 'function') throw new Error('Invalid account content service configuration.');
+  const publicInstance=readInstanceConfig(instanceEnvironment);
   const publicPages=createPublicPageApi({store,secret:publicationSecret,origin,readPayload,policy});
   const publicForms=createPublicFormApi({store,secret:publicationSecret,origin,readPayload,validatePayload:validateContentPayload,policy,readJson,now,createId});
   return async request => {
@@ -351,14 +356,35 @@ export function createAccountContentApi({ store, resolveSession, origin, blobSto
           !['same-origin', 'none', null].includes(request.headers.get('sec-fetch-site')) ||
           (mutation && request.headers.get('origin') !== origin)) fail('ORIGIN_REJECTED', 403);
       if (!['GET', 'POST', 'PUT', 'PATCH', 'DELETE'].includes(request.method)) fail('METHOD_NOT_ALLOWED', 405);
+      const changes=contentChangesPath(url.pathname);
+      if(changes){
+        if(request.method!=='GET'||url.pathname.endsWith('/ws')||url.search)fail('METHOD_NOT_ALLOWED',405);
+        const session=await resolveSession(request),accountId=session?.user?.id;
+        if(!accountId||!session.user.emailVerified)fail('UNAUTHORIZED',401);
+        if(request.headers.get('x-yumunio-expected-account')!==accountId)missing();
+        const head=await readContentHead(store,changes[1],accountId);if(!head)missing();return json(head);
+      }
       const searching = /^\/api\/content\/workspaces\/([A-Za-z0-9._:-]+)\/search$/.exec(url.pathname);
+      const bootstrap=/^\/api\/content\/workspaces\/([A-Za-z0-9._:-]+)\/bootstrap$/.exec(url.pathname);
+      if(bootstrap){
+        if(request.method!=='GET')fail('METHOD_NOT_ALLOWED',405);
+        if([...url.searchParams.keys()].some(key=>!['page','view','section'].includes(key))||['page','view','section'].some(key=>url.searchParams.getAll(key).length>1))fail('INVALID_CONTENT');
+        for(const key of ['page','view'])if(url.searchParams.has(key))assertId(url.searchParams.get(key));
+        if(url.searchParams.has('view')&&!url.searchParams.has('page'))fail('INVALID_CONTENT');
+        if(url.searchParams.has('section')&&!['comments','backlinks','attachments'].includes(url.searchParams.get('section')))fail('INVALID_CONTENT');
+        if(['backlinks','attachments'].includes(url.searchParams.get('section'))&&!url.searchParams.has('page'))fail('INVALID_CONTENT');
+      }
       const exporting = /^\/api\/content\/workspaces\/([A-Za-z0-9._:-]+)\/export$/.exec(url.pathname);
       const trashing = /^\/api\/content\/workspaces\/([A-Za-z0-9._:-]+)\/trash$/.exec(url.pathname);
       if ((searching || exporting || trashing) && request.method !== 'GET') fail('METHOD_NOT_ALLOWED',405);
       if (searching || exporting) {
         const key = searching ? 'q' : 'format';
         if (Array.from(url.searchParams.keys()).length !== 1 || url.searchParams.getAll(key).length !== 1) fail('INVALID_CONTENT');
-      } else if (url.search) fail('INVALID_CONTENT');
+      } else if (url.search&&!bootstrap) {
+        const contextPath=/^\/api\/content\/workspaces\/[A-Za-z0-9._:-]+\/(?:pages(?:\/[A-Za-z0-9._:-]+)?|collections\/[A-Za-z0-9._:-]+(?:\/views\/[A-Za-z0-9._:-]+)?)$/.test(url.pathname);
+        if(!contextPath||request.method!=='GET'||url.searchParams.getAll('context').length!==1||url.searchParams.get('context')!=='1'||[...url.searchParams.keys()].some(key=>!['context','view','directory'].includes(key))||url.searchParams.getAll('view').length>1||url.searchParams.getAll('directory').length>1||url.searchParams.has('directory')&&url.searchParams.get('directory')!=='1')fail('INVALID_CONTENT');
+        if(url.searchParams.has('view'))assertId(url.searchParams.get('view'));
+      }
       const publishing = /^\/api\/content\/workspaces\/([A-Za-z0-9._:-]+)\/pages\/([A-Za-z0-9._:-]+)\/publication(?:\/(review))?$/.exec(url.pathname);
       const pageTools=/^\/api\/content\/workspaces\/([A-Za-z0-9._:-]+)\/pages\/([A-Za-z0-9._:-]+)\/(appearance|duplicate|favorite)$/.exec(url.pathname);
       const discussing = /^\/api\/content\/workspaces\/([A-Za-z0-9._:-]+)\/pages\/([A-Za-z0-9._:-]+)\/comments(?:\/([A-Za-z0-9._:-]+)(?:\/(resolve|messages)(?:\/([A-Za-z0-9._:-]+))?)?)?$/.exec(url.pathname);
@@ -397,7 +423,7 @@ export function createAccountContentApi({ store, resolveSession, origin, blobSto
       const previewingRollup=/^\/api\/content\/workspaces\/([A-Za-z0-9._:-]+)\/collections\/([A-Za-z0-9._:-]+)\/rollups\/preview$/.exec(url.pathname);
       if((previewingFormula||previewingRollup)&&request.method!=='POST')fail('METHOD_NOT_ALLOWED',405);
       const collecting = /^\/api\/content\/workspaces\/([A-Za-z0-9._:-]+)\/collections(?:\/([A-Za-z0-9._:-]+)(?:\/(records|views|query|templates|property-conversions)(?:\/([A-Za-z0-9._:-]+))?)?)?$/.exec(url.pathname);
-      const match = copyingAttachments ?? pageTools ?? groups ?? groupGrants ?? teamspaces ?? teamspacePage ?? templating ?? backlinks ?? previewingRollup ?? previewingFormula ?? publishing ?? uploading ?? managingForm ?? respondingForm ?? people ?? discussing ?? notifying ?? rooming ?? historical ?? movingBlock ?? importing ?? staging ?? collecting ?? downloading ?? lifecycle ?? searching ?? exporting ?? trashing ?? /^\/api\/content\/workspaces\/([A-Za-z0-9._:-]+)\/pages(?:\/([A-Za-z0-9._:-]+)(?:\/(grants)(?:\/([A-Za-z0-9._:-]+))?)?)?$/.exec(url.pathname);
+      const match = bootstrap ?? copyingAttachments ?? pageTools ?? groups ?? groupGrants ?? teamspaces ?? teamspacePage ?? templating ?? backlinks ?? previewingRollup ?? previewingFormula ?? publishing ?? uploading ?? managingForm ?? respondingForm ?? people ?? discussing ?? notifying ?? rooming ?? historical ?? movingBlock ?? importing ?? staging ?? collecting ?? downloading ?? lifecycle ?? searching ?? exporting ?? trashing ?? /^\/api\/content\/workspaces\/([A-Za-z0-9._:-]+)\/pages(?:\/([A-Za-z0-9._:-]+)(?:\/(grants)(?:\/([A-Za-z0-9._:-]+))?)?)?$/.exec(url.pathname);
       if (!match) missing();
       if (request.method === 'PUT' && !staging && !uploading) fail('METHOD_NOT_ALLOWED',405);
       const [, workspaceId] = match;
@@ -437,6 +463,7 @@ export function createAccountContentApi({ store, resolveSession, origin, blobSto
       };
       const visible = new Set(payload.pages.filter(item => access(item.page.id).includes('read')).map(item => item.page.id));
       const personCanRead = (recipientId, sourcePageId) => evaluate({accountId:recipientId,workspaceId,pageId:sourcePageId}).capabilities.includes('read');
+      const peopleForPage=id=>saved.principals.filter(person=>person.emailVerified&&personCanRead(person.accountId,id)).map(person=>({accountId:person.accountId,name:person.displayName||person.accountId}));
       const projectAccountDocument = (document, readable) => projectDocument(document,readable,{principals:saved.principals,personCanRead});
       const prepareDocumentBlocks = (blocks, previousBlocks, sourcePageId, referenceAccess = access, recipientAccess = personCanRead) => prepareMentionBlocks({
         blocks:preparePageLinkBlocks({blocks:prepareSyncedBlocks({blocks,previousBlocks,access:referenceAccess,pageId:sourcePageId}),previousBlocks,access:referenceAccess,attachments:payload.attachments??[],pageId:sourcePageId}),
@@ -450,6 +477,26 @@ export function createAccountContentApi({ store, resolveSession, origin, blobSto
       }
       const project = item => ({ ...item.page,...pagePlacement(currentState,item.page.id,accountId,payload.grants), parentId: visible.has(item.page.parentId) ? item.page.parentId : null,
         version: item.document.version, capabilities: access(item.page.id),...((payload.pageFavorites??[]).some(row=>row.membershipId===actor.id&&row.accountId===accountId&&row.pageId===item.page.id)?{favorite:true}:{}),...(bindings.get(item.page.id) ?? {}) });
+      const directory=async()=>{
+        const result={workspaceId,revision:saved.revision,role:actor.role,attachmentsEnabled:Boolean(blobStore),pages:payload.pages.filter(item=>visible.has(item.page.id)).map(project)};
+        const teams=await handleTeamspaceRequest({request,action:'detail',store,saved,payload,actor,accountId,workspaceId,access,policy,readJson,readPayload,validatePayload:validateContentPayload,now,createId});
+        result.teamspaces=(await teams.json()).teamspaces;return result;
+      };
+      const pageContext={request,store,saved,payload,actor,accountId,workspaceId,access,peopleForPage,bindings,directory,projectPage:project,projectDocument:document=>projectAccountDocument(document,visible)};
+      if(bootstrap){
+        const selected=url.searchParams.get('page'),item=selected?payload.pages.find(item=>item.page.id===selected&&visible.has(selected)):null;
+        const result={user:{id:accountId,name:session.user.name,emailVerified:true},instance:publicInstance};
+        const section=url.searchParams.get('section');
+        if(section&&selected&&!item)missing();
+        if(section==='comments'){
+          const discussion={...pageContext,policy,readJson,readPayload,validatePayload:validateContentPayload,now,createId};
+          result.inbox=await(await handleDiscussion({...discussion,action:'notifications'})).json();
+          if(item){result.page=await readPageContext(pageContext,item);result.comments=await(await handleDiscussion({...discussion,pageId:item.page.id,action:'comments'})).json();result.people={revision:saved.revision,pageId:item.page.id,people:peopleForPage(item.page.id)};}
+        }else if(section==='backlinks')result.backlinks=await handleBacklinks({request,pageId:item.page.id,payload,saved,access}).json();
+        else if(section==='attachments'){result.uploads=await listPageUploads({...pageContext,pageId:item.page.id}).json();result.page=await readPageContext(pageContext,item);result.workspace={workspaceId,revision:saved.revision,attachmentsEnabled:Boolean(blobStore)};}
+        else{result.directory=await directory();result.page=item?await readPageContext(pageContext,item,{withContext:true,viewId:url.searchParams.get('view')}):null;if(selected&&!item)result.pageError={status:404,code:'CONTENT_NOT_FOUND'};}
+        return json(result);
+      }
       if(teamspaces||teamspacePage)return await handleTeamspaceRequest({request,teamspaceId:teamspaces?.[2],action:teamspacePage?.[3]??teamspaces?.[3]??'detail',pageId:teamspacePage?.[2],store,saved,payload,actor,accountId,workspaceId,access,policy,readJson,readPayload,validatePayload:validateContentPayload,now,createId});
       if(groups||groupGrants)return await handleGroupRequest({request,groupId:groups?.[2],action:groups?.[3]??'detail',pageId:groupGrants?.[2],store,saved,payload,actor,accountId,workspaceId,readJson,readPayload,validatePayload:validateContentPayload,now,createId});
       if (templating) return await handlePersonalTemplates({request,kind:templateKind,pageId:templateReview?.[2],templateId:templateItem?.[2]??templateApply?.[2],requestId:templateReceipt?.[2],store,saved,payload,actor,accountId,workspaceId,access,policy,readJson,readPayload,validatePayload:validateContentPayload,now,createId});
@@ -474,7 +521,7 @@ export function createAccountContentApi({ store, resolveSession, origin, blobSto
       if (searching) return searchPages({query:url.searchParams.get('q'),payload,saved,workspaceId,visible,project});
       if (backlinks) return handleBacklinks({request,pageId,payload,saved,access});
       if (exporting) { const projectionContext={payload,saved,workspaceId,accountId,access}; return exportPages({format:url.searchParams.get('format'),payload,saved,workspaceId,visible,projectDocument:(document,readable)=>projectDocument(document,readable,{stripReferences:true}),now,projectCollection:entry=>projectAccountCollection(entry,projectionContext)}); }
-      if (collecting || previewingFormula || previewingRollup) return await handleCollectionRequest({request,kind:collectionKind,collectionId,recordId,viewId,templateId:collectionTemplateId,prepareDocumentBlocks,conversionAction:collectionKind==='property-conversions'?collecting?.[4]:undefined,store,saved,payload,actor,accountId,workspaceId,access,policy,readJson,readPayload,validatePayload:validateContentPayload,now,createId});
+      if (collecting || previewingFormula || previewingRollup) return await handleCollectionRequest({request,kind:collectionKind,collectionId,recordId,viewId,templateId:collectionTemplateId,prepareDocumentBlocks,peopleForPage,conversionAction:collectionKind==='property-conversions'?collecting?.[4]:undefined,store,saved,payload,actor,accountId,workspaceId,access,policy,readJson,readPayload,validatePayload:validateContentPayload,now,createId});
       const item = pageId ? payload.pages.find(row => row.page.id === pageId) : null;
       if (pageId && (!item || !visible.has(pageId))) missing();
       if (downloading) {
@@ -490,14 +537,14 @@ export function createAccountContentApi({ store, resolveSession, origin, blobSto
         }});
       }
       if (request.method === 'GET') {
+        if(!pageId&&url.searchParams.get('context')==='1')return json(await directory());
         if (!pageId) return json({ workspaceId, revision: saved.revision, role: actor.role, attachmentsEnabled: Boolean(blobStore),
           pages: payload.pages.filter(item => visible.has(item.page.id)).map(project) });
         if (grantsPath) {
           if (grantId || !access(pageId).includes('manage')) missing();
           return json({ revision: saved.revision, grants: currentState.grants.filter(row => row.pageId === pageId && row.status === 'active') });
         }
-        const attachments = (payload.attachments ?? []).filter(row=>row.pageId === pageId).map(row=>({id:row.id,name:row.name,mediaType:row.mediaType,size:row.size}));
-        return json({ revision: saved.revision, page: project(item), document: projectAccountDocument(item.document,visible),...(attachments.length ? {attachments} : {}) });
+        return json(await readPageContext(pageContext,item,{withContext:url.searchParams.get('context')==='1',viewId:url.searchParams.get('view'),withDirectory:url.searchParams.get('directory')==='1'}));
       }
       const data = await readJson(request);
       revision(data?.expectedRevision);
@@ -508,7 +555,8 @@ export function createAccountContentApi({ store, resolveSession, origin, blobSto
       if (data.expectedRevision !== saved.revision) fail('CONTENT_CONFLICT', 409);
       let result; const guards = [];
       if (!pageId) {
-        object(data, ['expectedRevision', 'title', 'blocks', 'parentId','teamspaceId'], ['expectedRevision', 'title']);
+        object(data, ['expectedRevision', 'title', 'blocks', 'parentId','teamspaceId','starter'], ['expectedRevision', 'title']);
+        if(Object.hasOwn(data,'starter')&&(Object.hasOwn(data,'blocks')||request.headers.get('x-yumunio-expected-account')!==accountId))fail('INVALID_CONTENT');
         const parentId = data.parentId ?? null;
         const teamspaceId=data.teamspaceId??null;if(teamspaceId!==null){assertId(teamspaceId);if(parentId!==null)fail('INVALID_CONTENT');requireTeamspaceCreate(payload,saved.principals,workspaceId,accountId,teamspaceId);}
         if (parentId !== null && !access(assertId(parentId)).includes('manage')) missing();
@@ -520,11 +568,12 @@ export function createAccountContentApi({ store, resolveSession, origin, blobSto
         const grantId = assertId(createId());
         payload.grants.push({ id: grantId, workspaceId, pageId: id, accountId, permission: 'full', includeDescendants: true, status: 'active' });
         payload.grantBindings.push({ grantId, membershipId: actor.id });
+        const starter=Object.hasOwn(data,'starter')?applyPageStarter({payload,workspaceId,pageId:id,recipe:data.starter,createId,stamp,accountId,membershipId:actor.id}):null;
         const createdAccess = createPageAccessEvaluator(policy(payload,saved.principals,workspaceId));
         const recipientAccess = (recipientId,sourcePageId) => createdAccess({accountId:recipientId,workspaceId,pageId:sourcePageId}).capabilities.includes('read');
-        const prepared = prepareDocumentBlocks(data.blocks??[],[],id,targetId=>createdAccess({accountId,workspaceId,pageId:targetId}).capabilities,recipientAccess);
+        const prepared = prepareDocumentBlocks(starter?.blocks??data.blocks??[],[],id,targetId=>createdAccess({accountId,workspaceId,pageId:targetId}).capabilities,recipientAccess);
         document.blocks = prepared.blocks; guards.push(...prepared.guards);
-        result = { page, document:projectDocument(document,new Set([...visible,id]),{principals:saved.principals,personCanRead:recipientAccess}) };
+        result = { page, document:projectDocument(document,new Set([...visible,id]),{principals:saved.principals,personCanRead:recipientAccess}),...(starter?{starter:starter.receipt}:{}) };
       } else if (!grantsPath) {
         if (request.method !== 'PATCH') fail('METHOD_NOT_ALLOWED', 405);
         object(data, ['expectedRevision', 'expectedVersion', 'title', 'blocks'], ['expectedRevision', 'expectedVersion']);

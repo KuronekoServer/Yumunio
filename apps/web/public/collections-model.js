@@ -94,7 +94,9 @@ export function recordPatch(record,{expectedRevision,title,values,dirtyPropertyI
   if(Object.keys(changed).length)body.values=changed;
   return Object.keys(body).length===1?null:body;
 }
-export function monthCells(month){if(!/^\d{4}-\d{2}$/.test(month))throw new Error('invalidDate');const first=new Date(month+'-01T00:00:00.000Z');if(!Number.isFinite(first.getTime())||first.toISOString().slice(0,7)!==month)throw new Error('invalidDate');const days=new Date(Date.UTC(first.getUTCFullYear(),first.getUTCMonth()+1,0)).getUTCDate();return{offset:first.getUTCDay(),days,dates:Array.from({length:days},(_,index)=>month+'-'+String(index+1).padStart(2,'0'))};}
+export function currentCalendarMonth(now=new Date()){return String(now.getFullYear()).padStart(4,'0')+'-'+String(now.getMonth()+1).padStart(2,'0');}
+export function shiftCalendarMonth(month,offset){monthCells(month);if(!Number.isInteger(offset))throw new Error('invalidDate');const index=Number(month.slice(0,4))*12+Number(month.slice(5))-1+offset;if(index<12||index>119999)return null;return String(Math.floor(index/12)).padStart(4,'0')+'-'+String(index%12+1).padStart(2,'0');}
+export function monthCells(month){if(!/^\d{4}-\d{2}$/.test(month)||month.startsWith('0000'))throw new Error('invalidDate');const first=new Date(month+'-01T00:00:00.000Z');if(!Number.isFinite(first.getTime())||first.toISOString().slice(0,7)!==month)throw new Error('invalidDate');const last=new Date(first);last.setUTCMonth(last.getUTCMonth()+1,0);const days=last.getUTCDate();return{offset:first.getUTCDay(),days,dates:Array.from({length:days},(_,index)=>month+'-'+String(index+1).padStart(2,'0'))};}
 export function timelineRange(start,end,month){if(typeof start!=='string'||typeof end!=='string'||start>end)return null;const{days}=monthCells(month),first=month+'-01',last=month+'-'+days;if(end<first||start>last)return null;return{start:start<first?1:Number(start.slice(8)),end:end>last?days:Number(end.slice(8))};}
 
 export function validateFormulaPreview(value,{revision,property,recordId=null}) {

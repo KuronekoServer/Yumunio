@@ -28,7 +28,7 @@ test('returning from browser history reconnects cross-tab notifications', t => {
   f.channels[0].receive({type: 'content-changed', ...change});
   assert.equal(f.received.length, 0);
   f.channels[1].receive({type: 'content-changed', ...change, content: 'must not be forwarded'});
-  assert.deepEqual(f.received, [{type: 'content-changed', ...change}]);
+  assert.deepEqual(f.received, [{type: 'content-changed', ...change,remote:true}]);
   f.notifications.notify({...change, revision: 5});
   assert.equal(f.channels[1].sent[0].revision, 5);
 });

@@ -5,6 +5,7 @@ export function createAttachmentBlock(attachment,{pageId,id=crypto.randomUUID()}
 }
 export function renderAttachmentBlock(block,{document=globalThis.document,pageId,attachments=[],path,unavailable='Attachment unavailable',imageError='Image preview unavailable'}={}){
  const host=document.createElement('figure');host.className='attachment-block';
+ if(block.data.layout){host.style.setProperty('--attachment-width',block.data.layout.width+'%');host.dataset.align=block.data.layout.align;}
  const link=block.data.links[0],asset=link.unavailable!==true&&link.pageId===pageId?attachments.find(row=>row.id===link.attachmentId):null;
  if(!asset){const note=document.createElement('p');note.textContent=unavailable;host.append(note);return host;}
  if(block.type==='image'&&previewableImage(asset.mediaType)){

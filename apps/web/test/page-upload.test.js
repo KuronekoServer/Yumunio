@@ -8,6 +8,7 @@ async function fixture({lost=null}={}){
     calls.push({path,method,body:clone(body)});
     if(headers['X-Yumunio-Expected-Account']!==actor)throw Object.assign(new Error('CONTENT_NOT_FOUND'),{status:404});
     if(method==='GET'){
+      if(path.includes('/bootstrap?'))return{user:{id:actor},page:{revision,page:{id:'page',title:'Synthetic',capabilities:['read','editBody']},document:{version:1},attachments:clone(attachments)},uploads:{revision,pageId:'page',uploads:clone(pending)},workspace:{workspaceId:'workspace',revision,attachmentsEnabled:true}};
       if(path.endsWith('/uploads'))return{revision,pageId:'page',uploads:clone(pending)};
       if(path.endsWith('/pages'))return{revision,attachmentsEnabled:true};
       return{revision,page:{id:'page',title:'Synthetic',capabilities:['read','editBody']},document:{version:1},attachments:clone(attachments)};
@@ -34,7 +35,7 @@ async function fixture({lost=null}={}){
 }
 test('page file preparation captures bytes before hashing and publishes through one reserve/upload/commit sequence',async()=>{
   const f=await fixture(),input=new Uint8Array([1,2,3]),preparing=f.flow.prepare({name:'架空.txt',mediaType:'text/plain',bytes:input});input.fill(9);await preparing;
-  assert.deepEqual(f.calls.map(call=>call.method),['GET','GET','GET']);assert.equal(f.flow.snapshot().state,'prepared');
+  assert.deepEqual(f.calls.map(call=>call.method),['GET']);assert.match(f.calls[0].path,/bootstrap\?section=attachments/);assert.equal(f.flow.snapshot().state,'prepared');
   await f.flow.send();assert.equal(f.attachments.length,1);assert.deepEqual(f.stored[0],new Uint8Array([1,2,3]));assert.equal(f.flow.snapshot().file,null);
   assert.deepEqual(f.calls.filter(call=>call.method!=='GET').map(call=>call.method),['POST','PUT','POST']);
 });

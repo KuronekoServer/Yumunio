@@ -58,3 +58,16 @@ test('dialog cancellation returns focus to a replaced opener without stealing it
   const menu=f.doc.createElement('button');menu.setAttribute('id','row-menu');f.background.append(menu);const action=f.doc.createElement('button');action.setAttribute('data-menu-trigger-id','row-menu');action.textContent='Add child';f.background.append(action);action.focus();
   const fromMenu=capturePageCreatorFocus({document:f.doc,root:f.background});action.remove();f.doc.body.focus();fromMenu(dialog);assert.equal(f.doc.activeElement,menu);
 });
+
+test('kanban and table previews submit reference-free recipes only after explicit creation',async t=>{
+ const f=setup(t);await f.creator.ready;
+ for(const[id,type]of [['kanban','board'],['taskTable','table'],['simpleTable','simple-table']]){
+  card(f.root,'starter:'+id).dispatch('click');const preview=f.root.querySelector('.page-template-document');
+  if(type==='board'){assert.equal(preview.querySelectorAll('.page-template-board-column').length,3);assert.match(preview.textContent,/未着手.*進行中.*完了/);}
+  else assert.equal(preview.querySelectorAll('table').length,1);
+  assert.equal(f.calls.length,['kanban','taskTable','simpleTable'].indexOf(id));f.root.dispatch('submit');await flush();
+  const value=f.calls.at(-1);assert.equal(value.starter.type,type);assert.deepEqual(Object.keys(value.starter),['type','labels']);assert.deepEqual(value.snapshot.blocks,[]);
+ }
+ const search=f.root.querySelector('input[type="search"]');search.value='表';search.dispatch('input');assert.deepEqual(f.root.querySelectorAll('[data-page-template]').map(row=>row.getAttribute('data-page-template')),['starter:taskTable','starter:simpleTable']);
+ assert.equal(f.editor.textContent,'Unchanged body draft');
+});

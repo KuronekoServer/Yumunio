@@ -15,6 +15,7 @@ export function attachRoomSockets(server,{acquire,assertReady=async()=>{}}){
   }
  }
  server.on('upgrade',async(request,socket,head)=>{
+  try{if(!roomSocketScope(new URL(request.url,'http://localhost').pathname))return;}catch{return;}
   socket.on('error',()=>{});let timer;
   const reject=status=>{clearTimeout(timer);if(!socket.destroyed)socket.end('HTTP/1.1 '+status+' Rejected\r\nConnection: close\r\nContent-Length: 0\r\n\r\n');};
   try{

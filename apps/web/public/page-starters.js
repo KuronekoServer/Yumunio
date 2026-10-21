@@ -1,4 +1,5 @@
 import {validatePersonalSnapshot} from './templates-model.js';
+import {validatePageStarter} from './page-starter.js';
 
 const paragraph = key => ({type:'paragraph', data:{text:key}});
 const heading = key => ({type:'heading', data:{text:key, level:2}});
@@ -16,10 +17,15 @@ const definitions = [
 
 /** These are independent page bodies. No source page, attachment or DB IDs travel with them. */
 export function pageStarters(t){
-  return definitions.map(({id,icon,blocks})=>({
+  const rows=definitions.map(({id,icon,blocks})=>({
     id:'starter:'+id, icon, name:t('pageTemplates.'+id+'.name'), description:t('pageTemplates.'+id+'.description'),
     snapshot:{title:t('pageTemplates.'+id+'.name'), blocks:blocks.map(block=>({...structuredClone(block),data:{...block.data,text:block.data.text?t('pageTemplates.body.'+block.data.text):''}}))}
   }));
+  const recipe=(id,type,icon,keys)=>({id:'starter:'+id,icon,name:t('pageTemplates.'+id+'.name'),description:t('pageTemplates.'+id+'.description'),snapshot:{title:t('pageTemplates.'+id+'.name'),blocks:[]},starter:validatePageStarter({type,labels:Object.fromEntries(keys.map(key=>[key,t('pageTemplates.structured.'+(type==='simple-table'?'simple.':'database.')+key)]))})});
+  rows.splice(1,0,
+    ...[['kanban','board','board'],['taskTable','table','table']].map(([id,type,icon])=>recipe(id,type,icon,['intro','name','status','assignee','due','todo','doing','done','first','second','third','summary','details','tableView','boardView','calendarView','timelineView'])),
+    recipe('simpleTable','simple-table','table',['intro','item','value','note','first']));
+  return rows;
 }
 
 /** Mint a new tree only on submission, preserving literal text, formatting and nesting. */

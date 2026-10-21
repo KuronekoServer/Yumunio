@@ -5,10 +5,11 @@ const fail=(code,status)=>{throw new BlockForestMoveError(code,status);};
 import {isSimpleTableData} from './simple-table.js';
 import {isAttachmentBlock} from './attachment-block-model.js';
 import {TEXT_BLOCK_TYPES,BLOCK_PARENT_TYPES,GENERATED_BLOCK_TYPES,isBookmarkBlock,isDatabaseBlock,isSyncedBlock} from './block-types.js';
+import {isColumnWrapper} from './block-layout.js';
 const id=value=>typeof value==='string'&&/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(value);
 const editable=new Set([...TEXT_BLOCK_TYPES,...GENERATED_BLOCK_TYPES,'divider']);
 const parents=new Set(BLOCK_PARENT_TYPES);
-const layout=block=>block&&Object.keys(block).every(key=>['id','type','data','children'].includes(key))&&(block.data===undefined||block.data&&typeof block.data==='object'&&!Array.isArray(block.data)&&!Object.keys(block.data).length)&&Array.isArray(block.children);
+const layout=isColumnWrapper;
 const group=block=>block?.type==='columns'&&layout(block)&&[2,3].includes(block.children.length)&&block.children.every(child=>child?.type==='column'&&layout(child));
 function locations(blocks){
  const result=new Map();let count=0;
@@ -27,6 +28,29 @@ function selection(map,blockIds){
  const chosen=new Set(blockIds);for(const value of chosen)if(!map.has(value))fail('CONTENT_NOT_FOUND',404);
  const roots=[...map.values()].filter(location=>chosen.has(location.block.id)&&!location.ancestors.some(parent=>chosen.has(parent.id)));
  for(const root of roots)if(!writableRoot(root))fail('BLOCK_NESTING_READ_ONLY',409);return roots;
+}
+/** A preview captures one tree index; no IDs or editor nodes change during dragging. */
+export function createBlockColumnPlanner(blocks){
+ const map=locations(blocks),containsColumns=block=>block.type==='columns'||!!block.children?.some(containsColumns);
+ return({blockIds,targetId,side})=>{
+  if(!['left','right'].includes(side))fail('BLOCK_COLUMNS_STRUCTURE');
+  const roots=selection(map,blockIds),target=map.get(targetId),chosen=new Set(roots.map(row=>row.block.id));
+  if(!target||!writableRoot(target))fail('BLOCK_NESTING_READ_ONLY',409);
+  if(chosen.has(targetId)||target.ancestors.some(block=>chosen.has(block.id))||roots.some(row=>row.ancestors.some(block=>block.id===targetId)))fail('BLOCK_MOVE_CYCLE');
+  if(containsColumns(target.block)||roots.some(row=>containsColumns(row.block))||target.ancestors.some(block=>['columns','column'].includes(block.type)))fail('BLOCK_COLUMNS_NESTED',409);
+  if([target,...roots].some(row=>target.depth+2+height(row.block)>=BLOCK_MOVE_NESTING))fail('BLOCK_NESTING_LIMIT',409);
+  if(map.size+3>10000)fail('INVALID_BLOCK_TREE');
+  return{blockIds:roots.map(row=>row.block.id),targetId,side};
+ };
+}
+/** Move intact blocks beside another block, creating two fixed column wrappers atomically. */
+export function arrangeBlockColumns(blocks,{blockIds,targetId,side,groupId,columnIds}){
+ const plan=createBlockColumnPlanner(blocks)({blockIds,targetId,side}),used=locations(blocks),ids=[groupId,...(columnIds??[])];
+ if(ids.length!==3||new Set(ids).size!==3||ids.some(value=>!id(value)||used.has(value)))fail('INVALID_BLOCK_TREE');
+ const next=structuredClone(blocks),map=locations(next),moving=plan.blockIds.map(key=>map.get(key).block);
+ for(const key of plan.blockIds){const row=map.get(key);row.siblings.splice(row.siblings.indexOf(row.block),1);}
+ const target=map.get(targetId),columnBodies=side==='left'?[moving,[target.block]]:[[target.block],moving],group={id:groupId,type:'columns',children:columnBodies.map((children,index)=>({id:columnIds[index],type:'column',children}))};
+ target.siblings.splice(target.siblings.indexOf(target.block),1,group);locations(next);return{blocks:next,groupId,columnIds:[...columnIds],blockIds:plan.blockIds};
 }
 /** Normalize ancestors once, retain document order, and validate the entire move before copying. */
 export function planBlockForestMove(sourceBlocks,targetBlocks,{blockIds,parentBlockId=null,index,sameDocument=false}={}){

@@ -109,3 +109,14 @@ test('setup cannot claim existing accounts even with the installation key', asyn
   await f.stop();
   await assert.rejects(() => createNodeSetup(f.env));
 });
+
+test('origin inference shares the first settings read while later loads observe updates',async t=>{
+ const f=await fixture(t);assert.equal((await f.request('/api/setup',{method:'POST',key:token,body:f.owner()})).status,201);
+ const db=new DatabaseSync(f.database),store=createSqliteSetupStore(db);let reads=0;
+ try{
+ const setup=await createInstanceSetup({env:{YUMUNIO_SETUP_TOKEN:token},store:{...store,async read(){reads++;return store.read();}}});
+ const initial=await setup.load();assert.equal(reads,1);assert.equal(initial.env.YUMUNIO_PUBLIC_ORIGIN,f.origin);
+ const account=await f.login();assert.equal((await f.request('/api/admin/settings',{method:'PUT',cookie:account.cookie,headers:{'X-Yumunio-Expected-Account':account.id},body:{revision:initial.revision,settings:{YUMUNIO_BRAND_NAME:'Changed after origin lookup'}}})).status,200);
+ const latest=await setup.load();assert.equal(reads,2);assert.equal(latest.env.YUMUNIO_BRAND_NAME,'Changed after origin lookup');assert.equal(latest.revision,initial.revision+1);
+ }finally{db.close();}
+});

@@ -6,6 +6,7 @@ import { assertId } from '@yumunio/domain';
 import {externalTokenGuardSql} from './external-token-guard.js';
 import {buildWorkspaceWebhookCommands} from './webhooks-lifecycle.js';
 import {webhookSubscriptionSnapshotSql} from './webhooks-commands.js';
+import {publishContentCommit} from './content-changes.js';
 
 const MAX_PRINCIPALS = 1000;
 const MAX_GUARDS = 16;
@@ -84,12 +85,14 @@ export class SqlAccountContentStore {
   #webhooks;
   #batch;
   #chunkReady;
+  #onCommit;
 
   constructor(client, options = {}) {
     if (!client || !['sqlite', 'mysql', 'postgres'].includes(client.dialect) || typeof client.query !== 'function') throw storageError();
     this.#dialect = client.dialect;
     this.#query = client.query.bind(client);
     this.#batch=createContentBatch(client);
+    this.#onCommit=options.onCommit??publishContentCommit;
     if(options.webhookConfig?.enabled){
       if(options.webhookStore?.dialect!==client.dialect||!['subscriptions','approval','commitContent'].every(key=>typeof options.webhookStore[key]==='function')||typeof options.validatePayload!=='function'||!(options.webhookAdminIds instanceof Set)&&!Array.isArray(options.webhookAdminIds))throw storageError();
       this.#webhooks={store:options.webhookStore,config:options.webhookConfig,adminIds:new Set(options.webhookAdminIds),validatePayload:options.validatePayload,now:options.webhookNow??(()=>new Date().toISOString())};
@@ -124,12 +127,14 @@ export class SqlAccountContentStore {
    * One SELECT captures authorization, the head and all principals. Chunk data
    * is fetched only for that still-current revision, or the entire read fails.
    */
-  async read(workspaceId, accountId) {
+  async readHead(workspaceId,accountId){return this.read(workspaceId,accountId,{headOnly:true});}
+
+  async read(workspaceId, accountId,{headOnly=false}={}) {
     identifier(workspaceId); identifier(accountId);
     const s = sqlContext(this.#dialect);
     const isActor = s.equal(s.column('m', 'id'), s.column('a', 'id'));
     const sql = 'SELECT c.workspace_id AS content_workspace_id, c.revision AS revision, ' +
-      'CASE WHEN ' + isActor + ' THEN c.payload_json ELSE NULL END AS payload_json, ' +
+      (headOnly?'NULL AS payload_json, ':'CASE WHEN ' + isActor + ' THEN c.payload_json ELSE NULL END AS payload_json, ') +
       'CASE WHEN ' + isActor + ' THEN 1 ELSE 0 END AS is_actor, ' +
       s.column('m', 'id') + ' AS membership_id, ' + s.column('mu', 'id') + ' AS account_id, ' +
       s.column('mu', 'email') + ' AS email, ' + s.column('mu', 'name') + ' AS display_name, ' + s.column('mu', 'emailVerified') + ' AS email_verified, ' +
@@ -164,8 +169,8 @@ export class SqlAccountContentStore {
       const currentRevision = revision(actor.revision);
       if (rows.some(row => row.content_workspace_id !== workspaceId || revision(row.revision) !== currentRevision ||
           (row !== actor && row.payload_json !== null))) throw storageError();
-      return { revision: currentRevision, payload: await readContentPayload((...args)=>this.#execute(...args),this.#dialect,workspaceId,currentRevision,actor.payload_json), principals };
-    } catch { throw storageError(); }
+      return { revision: currentRevision, ...(headOnly?{}:{payload: await readContentPayload((...args)=>this.#execute(...args),this.#dialect,workspaceId,currentRevision,actor.payload_json)}), principals };
+    } catch {throw storageError();}
   }
 
   /**
@@ -261,7 +266,12 @@ export class SqlAccountContentStore {
       try{await this.#batch([{sql,params:s.params,expectChanges:1},...contentChunkCommands(this.#dialect,{workspaceId,revision:expectedRevision+1,chunks:encoded.chunks})]);result={rows:[],affectedRows:1};}
       catch(error){if(error?.code==='CONTENT_CONFLICT'||error?.code==='ER_DUP_ENTRY'||error?.errno===1062){if(!await this.read(workspaceId,accountId))throw missing();throw conflict();}throw storageError();}
     }else result=await this.#execute(sql,s.params,expectedRevision===0&&this.#dialect==='mysql');
-    if (result.affectedRows === 1) return { revision: expectedRevision + 1 };
+    if (result.affectedRows === 1) {
+      // A committed write must remain successful even if notification delivery
+      // fails. Reconnection and server head checks repair missed invalidations.
+      try{void Promise.resolve(this.#onCommit(workspaceId,expectedRevision+1)).catch(()=>{});}catch{}
+      return { revision: expectedRevision + 1 };
+    }
     if (result.affectedRows !== 0) throw storageError();
     if (!await this.read(workspaceId, accountId)) throw missing();
     throw conflict();

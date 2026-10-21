@@ -5,6 +5,7 @@ import {validatePageLinks} from './page-links.js';
 import {validateMentions} from './mentions.js';
 import {validateSimpleTableData} from './simple-table.js';
 import {isAttachmentBlock} from './attachment-block-model.js';
+import {isColumnWrapper} from './block-layout.js';
 
 export const BLOCK_CLIPBOARD_TYPE='application/x-yumunio-blocks+json';
 const limit=800000,fail=code=>{throw new TypeError(code||'INVALID_BLOCK_CLIPBOARD');};
@@ -36,11 +37,11 @@ function cleanBlocks(blocks,{source,target=source,createId,allowAttachmentTransf
    if(data.links?.length){const links=validatePageLinks(data.text,data.links,{allowUnavailable:true});if(!samePage&&links.some(link=>link.attachmentId)&&!(sameWorkspace&&allowAttachmentTransfer))fail('BLOCK_CLIPBOARD_ATTACHMENT_PAGE');if(sameWorkspace)next.data.links=links;}
    if(data.mentions?.length){const mentions=validateMentions(data.text,data.mentions,{allowUnavailable:true});if(sameWorkspace)next.data.mentions=mentions;}
   }else if(type==='table'){validateSimpleTableData(data);next.data=clone(data);}
-  else if(isAttachmentBlock(block)){if(!samePage&&!(sameWorkspace&&allowAttachmentTransfer))fail('BLOCK_CLIPBOARD_ATTACHMENT_PAGE');next.data={format:data.format,text:data.text,links:validatePageLinks(data.text,data.links,{allowUnavailable:true})};}
+  else if(isAttachmentBlock(block)){if(!samePage&&!(sameWorkspace&&allowAttachmentTransfer))fail('BLOCK_CLIPBOARD_ATTACHMENT_PAGE');next.data={format:data.format,text:data.text,links:validatePageLinks(data.text,data.links,{allowUnavailable:true}),...(data.layout?{layout:clone(data.layout)}:{})};}
   else if((isDatabaseBlock(block)||isSyncedBlock(block))){if(!sameWorkspace)fail('BLOCK_CLIPBOARD_UNSUPPORTED');next.data=clone(data);}
   else if(isBookmarkBlock(block))next.data={format:data.format,text:data.text,url:data.url};
-  else if(type==='column'){if(parentType!=='columns'||!Array.isArray(block.children))fail();}
-  else if(type==='columns'){if(!Array.isArray(block.children)||![2,3].includes(block.children.length)||block.children.some(child=>child.type!=='column'))fail();}
+  else if(type==='column'){if(parentType!=='columns'||!isColumnWrapper(block))fail();}
+  else if(type==='columns'){if(!isColumnWrapper(block)||![2,3].includes(block.children.length)||block.children.some(child=>child.type!=='column'))fail();if(block.data)next.data=clone(block.data);}
   else if(!['divider',...GENERATED_BLOCK_TYPES].includes(type))fail('BLOCK_CLIPBOARD_UNSUPPORTED');
   if(own(block,'children')){if(!Array.isArray(block.children))fail();next.children=block.children.map(child=>visit(child,depth+1,type));}
   return next;

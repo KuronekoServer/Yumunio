@@ -69,6 +69,8 @@ export async function buildWeb(root = projectRoot) {
   const blockForestSource=join(domainRoot,'block-forest.js');
   await rejectLink(blockForestSource);
   shared.set('block-forest.js',await readFile(blockForestSource));
+  const blockLayoutSource=join(domainRoot,'block-layout.js');await rejectLink(blockLayoutSource);shared.set('block-layout.js',await readFile(blockLayoutSource));
+  const pageStarterSource=join(domainRoot,'page-starter.js');await rejectLink(pageStarterSource);shared.set('page-starter.js',await readFile(pageStarterSource));
   const simpleTableSource=join(domainRoot,'simple-table.js');
   await rejectLink(simpleTableSource);
   shared.set('simple-table.js',await readFile(simpleTableSource));
@@ -146,7 +148,7 @@ export async function buildWeb(root = projectRoot) {
     const sources=new Map();
     for(const name of files.filter(name=>name.endsWith('.js')))sources.set(name,await readFile(join(publicRoot,name),'utf8'));
     for(const[name,bytes]of shared){if(name.endsWith('.js'))sources.set('shared/'+name,Buffer.from(bytes).toString('utf8'));if(sources.has(name))sources.set(name,Buffer.from(bytes).toString('utf8'));}
-    const entries=new Set(['app.js','workspace.js']);
+    const entries=new Set(['app.js','workspace.js','workspace-preload.js']);
     async function controllers(path){for(const entry of await readdir(path,{withFileTypes:true})){if(entry.isSymbolicLink())throw new Error('Unexpected controller path.');const child=join(path,entry.name);if(entry.isDirectory())await controllers(child);else if(entry.name.endsWith('.jsx')){const source=await readFile(child,'utf8');for(const match of source.matchAll(/controllers=\{\[([^\]]*)\]\}/g))for(const name of match[1].matchAll(/["']([a-z][a-z-]*\.js)["']/g))entries.add(name[1]);}}}
     await controllers(join(root,'apps/web/app'));
     for(const[name,bytes]of await bundleBrowserControllers(sources,[...entries]))generated.set(name,bytes);
