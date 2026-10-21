@@ -1,6 +1,8 @@
 import {renderCollectionProjection,captureCalendarFocus,restoreCalendarFocus} from './collection-projection.js';
 import {validateCollectionEnvelope,VIEW_TYPES,FILTER_OPERATORS,effectivePropertyType,currentCalendarMonth,shiftCalendarMonth} from './collections-model.js';
 import {createCollectionValueInput} from './collection-fields.js';
+import {createBoardDnd} from './board-dnd.js';
+import {prepareBoardMove} from './board-move-model.js';
 
 export function defaultDatabaseView(name='Table'){return{name,type:'table',filters:[],sorts:[],groupBy:null,datePropertyId:null,endDatePropertyId:null};}
 
@@ -42,9 +44,10 @@ export function createDatabaseViewSettings({document,properties,view,visibleProp
 }
 
 /** Refresh one projection without remounting its surrounding page or other placements. */
-export function mountDatabasePlacement({root,getBlock,workspaceId,request,isCurrent,canConfigure,t,fieldT,onConfigure,onChangeView,onActions,onNewRecord,onOpenRecord,onRevision,onAccessLost,signal,initialRead,initialState}){
+export function mountDatabasePlacement({root,getBlock,workspaceId,request,isCurrent,canConfigure,t,fieldT,onConfigure,onChangeView,onActions,onNewRecord,onOpenRecord,onRevision,onAccessLost,signal,initialRead,initialState,prepareMutation=async()=>true,boardFactory=createBoardDnd}){
  const document=root.ownerDocument,lifetime=new AbortController();let envelope=null,people=[],generation=0,busy=false,selected=initialState?.selected??null,month=initialState?.month??currentCalendarMonth(),signature='',timer,refreshPending=false,previewView=null,previewBaseline=null,paintedType=null,queuedView=null;
  const viewMemory=new Map(),scrollMemory=new Map(initialState?.scrollMemory??[]),viewButtons=new Map();let paintedConfig=null;
+ let board=null,writeBlocked=false,paintedWritable=null;
  const config=block=>JSON.stringify([block?.data.collectionId,block?.data.view,block?.data.visiblePropertyIds]);
  const viewForBlock=()=>{const saved=getBlock()?.data.view;if(previewView&&JSON.stringify(saved)!==previewBaseline)previewView=null;return previewView??saved;};
  const current=()=>!lifetime.signal.aborted&&root.isConnected&&isCurrent();
@@ -61,11 +64,29 @@ export function mountDatabasePlacement({root,getBlock,workspaceId,request,isCurr
  function updatePresentation(){const data=getBlock()?.data.presentation??{};title.hidden=data.showTitle===false;title.textContent=(data.icon?data.icon+' ':'')+(data.title?.trim()||envelope?.collection.title||t('inlineDatabase.title'));root.style.setProperty('--database-height',(data.height??480)+'px');}
  function paint(){
   if(!envelope)return;const block=getBlock();if(!block)return;
+  board?.destroy();board=null;
+  paintedWritable=canConfigure()&&!writeBlocked;
   updatePresentation();controls();paintedConfig=config(block);
   if(paintedType)scrollMemory.set(paintedType,[...body.querySelectorAll('.collection-scroll,.collection-board')].map(el=>[el.scrollLeft,el.scrollTop]));
   const positions=scrollMemory.get(envelope.view.type)??[],focus=document.activeElement?.closest?.('[data-record-id]')?.dataset.recordId,calendarFocus=captureCalendarFocus(document,body);
   const options={document,envelope,t:fieldT,locale:document.documentElement.lang||'ja',people,month,visiblePropertyIds:block.data.visiblePropertyIds,selectedRecordId:selected,onOpenRecord:record=>{selected=record.id;mark();void onOpenRecord(record,envelope.collection.id);},onOpenPage:record=>onOpenRecord(record,envelope.collection.id),pageHref:record=>'/workspace?'+new URLSearchParams({workspace:workspaceId,page:record.pageId}),onMonth:offset=>{const next=shiftCalendarMonth(month,offset);if(next){month=next;paint();}},onSelectMonth:value=>{month=value;paint();}};
-  body.replaceChildren(renderCollectionProjection(options).element);paintedType=envelope.view.type;[...body.querySelectorAll('.collection-scroll,.collection-board')].forEach((el,i)=>{el.scrollLeft=positions[i]?.[0]??0;el.scrollTop=positions[i]?.[1]??0;});mark();if(focus){const row=[...body.querySelectorAll('[data-record-id]')].find(row=>row.dataset.recordId===focus);(row?.nodeName==='BUTTON'?row:row?.querySelector('.record-title'))?.focus({preventScroll:true});}restoreCalendarFocus(document,body,calendarFocus);
+  const captured=signature,rendered=renderCollectionProjection({...options,boardReorder:false,onBoardDrop:move=>moveBoard(move),available:()=>current()&&signature===captured&&!busy,mutationBlocked:()=>writeBlocked||!canConfigure(),getScope:()=>current()&&signature===captured&&!busy&&!writeBlocked&&canConfigure()?captured:null});
+  body.replaceChildren(rendered.element);if(rendered.board)board=boardFactory(rendered.board);paintedType=envelope.view.type;[...body.querySelectorAll('.collection-scroll,.collection-board')].forEach((el,i)=>{el.scrollLeft=positions[i]?.[0]??0;el.scrollTop=positions[i]?.[1]??0;});mark();if(focus){const row=[...body.querySelectorAll('[data-record-id]')].find(row=>row.dataset.recordId===focus);(row?.nodeName==='BUTTON'?row:row?.querySelector('.record-title'))?.focus({preventScroll:true});}restoreCalendarFocus(document,body,calendarFocus);
+ }
+ async function moveBoard(move){
+  if(!current()||busy||writeBlocked||!canConfigure()||!envelope)return false;
+  const captured=envelope,block=getBlock(),before=config(block);let sent=false;busy=true;controls();board?.cancel();
+  try{
+   if(await prepareMutation()===false||!current()||envelope!==captured||getBlock()!==block||config(block)!==before||!canConfigure())return false;
+   const view=structuredClone(viewForBlock()),fresh=validatePlacementQuery(await request('/api/content/workspaces/'+encodeURIComponent(workspaceId)+'/collections/'+encodeURIComponent(captured.collection.id)+'/query',{method:'POST',body:{view},signal:lifetime.signal}),workspaceId,captured.collection.id,view);
+   if(!current()||envelope!==captured||getBlock()!==block||config(block)!==before||!canConfigure())return false;
+   const old=captured.collection.records.find(row=>row.id===move.recordId),next=fresh.collection.records.find(row=>row.id===move.recordId);
+   if(!old||!next||JSON.stringify(old.values[view.groupBy])!==JSON.stringify(next.values[view.groupBy]))throw Object.assign(Error('CONTENT_CONFLICT'),{status:409});
+   const intent=prepareBoardMove(fresh,move);if(!intent)return false;sent=true;
+   const result=await request('/api/content/workspaces/'+encodeURIComponent(workspaceId)+'/collections/'+encodeURIComponent(captured.collection.id)+'/records/'+encodeURIComponent(intent.recordId),{method:'PATCH',body:intent.body,signal:lifetime.signal});
+   if(!current()||envelope!==captured)return false;intent.validateResponse(result);await onRevision?.(result.revision);refreshPending=true;status.textContent=fieldT('boardMoved');return true;
+  }catch(error){if(!current())return false;if([401,403,404].includes(error.status)){board?.destroy();board=null;envelope=null;people=[];body.replaceChildren();title.textContent=t('inlineDatabase.title');onAccessLost?.();}else if(sent&&(!error.status||error.status>=500)){writeBlocked=true;board?.destroy();board=null;}status.textContent=fieldT(error.status===409?'conflict':writeBlocked?'uncertain':'unavailable');refreshPending=!writeBlocked;return false;}
+  finally{busy=false;if(current())controls();drainView();}
  }
  function mark(){for(const row of body.querySelectorAll('[data-record-id]')){row.classList.toggle('record-selected',row.dataset.recordId===selected);row.setAttribute('aria-selected',String(row.dataset.recordId===selected));}}
  function drainView(){if(refreshPending&&!queuedView){refreshPending=false;queueMicrotask(()=>void refresh());}const queued=queuedView;queuedView=null;if(queued)void switchView(queued.type).then(queued.resolve);}
@@ -73,8 +94,8 @@ export function mountDatabasePlacement({root,getBlock,workspaceId,request,isCurr
   if(!current()||document.hidden&&!force)return;if(busy){refreshPending=true;return;}const block=getBlock();if(!block)return;busy=true;const marker=++generation;
   try{if(seed?.error)throw Object.assign(Error(seed.error.code),{status:seed.error.status});const view=structuredClone(viewForBlock()),value=validatePlacementQuery(seed??await request('/api/content/workspaces/'+encodeURIComponent(workspaceId)+'/collections/'+encodeURIComponent(block.data.collectionId)+'/query',{method:'POST',body:{view},signal:lifetime.signal}),workspaceId,block.data.collectionId,view);if(!current()||marker!==generation||getBlock()!==block||JSON.stringify(viewForBlock())!==JSON.stringify(view))return;
    if(value.collection.properties.some(property=>property.type==='person')){if(Array.isArray(value.people))people=value.people;else{const result=await request('/api/content/workspaces/'+encodeURIComponent(workspaceId)+'/pages/'+encodeURIComponent(value.pageId)+'/people',{signal:lifetime.signal});people=result.people??[];}}
-   if(!current()||marker!==generation||getBlock()!==block)return;const next=JSON.stringify([value.collection,value.view,value.chart,people,block.data.visiblePropertyIds]);envelope=value;viewMemory.set(value.view.type,value.view);status.textContent=fieldT(value.view.type);if(force||next!==signature){signature=next;paint();}await onRevision?.(value.revision);
-  }catch(error){if(!current()||marker!==generation)return;if([400,401,403,404].includes(error.status)){envelope=null;people=[];signature='';body.replaceChildren();title.textContent=t('inlineDatabase.title');add.disabled=true;settings.disabled=!canConfigure();if(error.status!==400)onAccessLost?.();}status.textContent=t(error.status===400?'inlineDatabase.configurationChanged':'inlineDatabase.unavailable');}
+   if(!current()||marker!==generation||getBlock()!==block)return;const next=JSON.stringify([value.collection,value.view,value.chart,people,block.data.visiblePropertyIds]);envelope=value;viewMemory.set(value.view.type,value.view);status.textContent=writeBlocked?fieldT('uncertain'):'';if(force||next!==signature){signature=next;paint();}await onRevision?.(value.revision);
+  }catch(error){if(!current()||marker!==generation)return;if([400,401,403,404].includes(error.status)){board?.destroy();board=null;envelope=null;people=[];signature='';body.replaceChildren();title.textContent=t('inlineDatabase.title');add.disabled=true;settings.disabled=!canConfigure();if(error.status!==400)onAccessLost?.();}status.textContent=t(error.status===400?'inlineDatabase.configurationChanged':'inlineDatabase.unavailable');}
   finally{busy=false;if(current())controls();drainView();}
  }
  async function switchView(type){
@@ -83,11 +104,11 @@ export function mountDatabasePlacement({root,getBlock,workspaceId,request,isCurr
   try{const value=validatePlacementQuery(await request('/api/content/workspaces/'+encodeURIComponent(workspaceId)+'/collections/'+encodeURIComponent(block.data.collectionId)+'/query',{method:'POST',body:{view},signal:lifetime.signal}),workspaceId,block.data.collectionId,view);if(!current()||marker!==generation||getBlock()!==block||JSON.stringify(block.data.view)!==before)return false;
    await onRevision?.(value.revision);if(!current()||marker!==generation||getBlock()!==block||JSON.stringify(block.data.view)!==before)return false;
    if(canConfigure()&&onChangeView){if(await onChangeView(view,value.revision)===false)return false;previewView=null;}else{previewView=view;previewBaseline=before;}
-   if(!current()||marker!==generation||getBlock()!==block)return false;envelope=value;viewMemory.set(type,view);signature='';status.textContent=fieldT(type);paint();return true;
+   if(!current()||marker!==generation||getBlock()!==block)return false;envelope=value;viewMemory.set(type,view);signature='';status.textContent='';paint();return true;
   }catch(error){if(current()&&marker===generation){if([401,403,404].includes(error.status)){envelope=null;body.replaceChildren();title.textContent=t('inlineDatabase.title');onAccessLost?.();}status.textContent=t('inlineDatabase.switchFailed');}return false;}
   finally{busy=false;if(current()){controls();if(focus===viewButtons.get(type)&&(!document.activeElement||document.activeElement===document.body||!document.activeElement.isConnected))focus.focus({preventScroll:true});}drainView();}
  }
  const wake=event=>{if(event?.detail&&event.detail.workspaceId!==workspaceId)return;void refresh();};globalThis.window.addEventListener('yumunio:content-changed',wake,{signal:lifetime.signal});
- timer=setInterval(wake,10000);const destroy=()=>{clearInterval(timer);lifetime.abort();generation++;queuedView?.resolve(false);queuedView=null;};signal?.addEventListener('abort',destroy,{once:true});const ready=refresh(true,initialRead);
- return{root,ready,refresh,switchView,destroy,matchesBlock:block=>block?.type==='database'&&paintedConfig===config(block),updatePresentation(){updatePresentation();controls();},captureState(){if(paintedType)scrollMemory.set(paintedType,[...body.querySelectorAll('.collection-scroll,.collection-board')].map(el=>[el.scrollLeft,el.scrollTop]));return structuredClone({month,selected,scrollMemory:[...scrollMemory]});},get envelope(){return envelope;}};
+ timer=setInterval(wake,10000);const destroy=()=>{clearInterval(timer);board?.destroy();board=null;lifetime.abort();generation++;queuedView?.resolve(false);queuedView=null;};signal?.addEventListener('abort',destroy,{once:true});const ready=refresh(true,initialRead);
+ return{root,ready,refresh,switchView,moveBoard,destroy,matchesBlock:block=>block?.type==='database'&&paintedConfig===config(block),updatePresentation(){updatePresentation();if(envelope&&paintedWritable!==(canConfigure()&&!writeBlocked))paint();controls();},captureState(){if(paintedType)scrollMemory.set(paintedType,[...body.querySelectorAll('.collection-scroll,.collection-board')].map(el=>[el.scrollLeft,el.scrollTop]));return structuredClone({month,selected,scrollMemory:[...scrollMemory]});},get envelope(){return envelope;}};
 }

@@ -1,0 +1,29 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {mountDatabasePlacement} from '../public/database-placement.js';
+import {settingsDomFixture} from './fixtures/settings-dom.js';
+const dto=()=>({revision:4,pageId:'source',capabilities:['read','manage'],collection:{id:'tasks',workspaceId:'studio',title:'Tasks',properties:[{id:'status',name:'Status',type:'status',options:['Todo','Done']}],views:[],records:[{id:'row',pageId:'row-page',title:'Task',values:{status:'Todo'},sourceValues:{},sourceKind:'manual',capabilities:['read','editBody','editRecordValues']}]},view:{id:'placement',name:'Board',type:'board',filters:[],sorts:[],groupBy:'status',datePropertyId:null,endDatePropertyId:null}});
+function fixture(t,{prepare=async()=>true,fail=null}={}){
+ const f=settingsDomFixture(t),root=f.doc.createElement('section');f.background.append(root);let data=dto(),writable=true;const {id,...view}=data.view,block={id:'inline',type:'database',data:{collectionId:'tasks',view,visiblePropertyIds:null}},requests=[],boards=[],revisions=[],lost=[];
+ const controller=mountDatabasePlacement({root,getBlock:()=>block,workspaceId:'studio',initialRead:data,isCurrent:()=>true,canConfigure:()=>writable,t:key=>key,fieldT:key=>key,prepareMutation:prepare,boardFactory:config=>{const board={config,destroyed:false,cancel(){},destroy(){this.destroyed=true;}};boards.push(board);return board;},request:async(path,call)=>{requests.push({path,...call});if(fail&&call.method==='PATCH')throw fail;if(call.method==='PATCH'){data=structuredClone(data);data.revision++;data.collection.records[0].values.status=call.body.values.status;return{revision:data.revision,collectionId:'tasks',record:data.collection.records[0]};}return structuredClone(data);},onConfigure(){},onNewRecord(){},onOpenRecord(){},onRevision:value=>revisions.push(value),onAccessLost:()=>lost.push(true)});t.after(()=>controller.destroy());return{...f,root,block,controller,requests,boards,revisions,lost,setWritable:value=>{writable=value;},get data(){return data;}};
+}
+test('an inline card changes only its typed group field, refreshes linked data, and keeps the surrounding editor and source view unchanged',async t=>{
+ const f=fixture(t);await f.controller.ready;const editor=f.editor,original=structuredClone(f.block.data.view),board=f.boards.at(-1).config;assert.equal(board.canMove('row'),true);assert.equal(board.canDrop('row','group-1-end'),true);assert.equal(board.canDrop('row','group-0-end'),false);
+ assert.equal(await f.controller.moveBoard({recordId:'row',targetValue:'Done',beforeRecordId:null}),true);for(let i=0;i<30;i++)await Promise.resolve();
+ const writes=f.requests.filter(call=>call.method==='PATCH');assert.equal(writes.length,1);assert.match(writes[0].path,/\/records\/row$/);assert.deepEqual(writes[0].body,{expectedRevision:4,values:{status:'Done'}});assert.equal(f.data.collection.records[0].values.status,'Done');assert.deepEqual(f.block.data.view,original);assert.equal(f.editor,editor);assert.ok(f.revisions.includes(5));
+});
+test('permission transitions rebind the card sensor without fetching again, and guarded preparation prevents writes',async t=>{
+ const f=fixture(t,{prepare:async()=>false});f.setWritable(false);await f.controller.ready;f.controller.updatePresentation();assert.equal(f.root.querySelector('[data-board-dnd-handle]').disabled,true);f.setWritable(true);f.controller.updatePresentation();assert.notEqual(f.root.querySelector('[data-board-dnd-handle]').disabled,true);assert.equal(f.requests.length,0);assert.equal(await f.controller.moveBoard({recordId:'row',targetValue:'Done'}),false);assert.equal(f.requests.length,0);
+ f.setWritable(false);assert.equal(await f.controller.moveBoard({recordId:'row',targetValue:'Done'}),false);assert.equal(f.requests.length,0);
+});
+test('an unchanged background read keeps the live board scope and its existing cards usable',async t=>{
+ const f=fixture(t);await f.controller.ready;const board=f.boards[0].config,scope=board.getScope(),card=f.root.querySelector('[data-record-id]');await f.controller.refresh();assert.equal(f.boards.length,1);assert.equal(board.getScope(),scope);assert.notEqual(board.getScope(),null);assert.equal(board.canMove('row'),true);assert.equal(f.root.querySelector('[data-record-id]'),card);
+});
+test('preparing editor changes uses the fresh revision and never overwrites a concurrent group change',async t=>{
+ const f=fixture(t,{prepare:async()=>{f.data.revision=9;return true;}});await f.controller.ready;assert.equal(await f.controller.moveBoard({recordId:'row',targetValue:'Done'}),true);assert.equal(f.requests.find(call=>call.method==='PATCH').body.expectedRevision,9);
+ const changed=fixture(t,{prepare:async()=>{changed.data.collection.records[0].values.status='Done';return true;}});await changed.controller.ready;assert.equal(await changed.controller.moveBoard({recordId:'row',targetValue:null}),false);assert.equal(changed.requests.some(call=>call.method==='PATCH'),false);
+});
+test('an unknown write is not replayed and access loss clears the card data',async t=>{
+ const uncertain=fixture(t,{fail:Object.assign(Error('network'),{status:0})});await uncertain.controller.ready;assert.equal(await uncertain.controller.moveBoard({recordId:'row',targetValue:'Done'}),false);assert.equal(await uncertain.controller.moveBoard({recordId:'row',targetValue:'Done'}),false);assert.equal(uncertain.requests.filter(call=>call.method==='PATCH').length,1);
+ const revoked=fixture(t,{fail:Object.assign(Error('denied'),{status:403})});await revoked.controller.ready;await revoked.controller.moveBoard({recordId:'row',targetValue:'Done'});assert.equal(revoked.controller.envelope,null);assert.equal(revoked.root.querySelector('[data-record-id]'),null);assert.deepEqual(revoked.lost,[true]);assert.equal(revoked.boards[0].destroyed,true);
+});

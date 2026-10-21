@@ -1,3 +1,5 @@
+import {mountRecordPanelSize} from './record-panel-size.js';
+
 /** Insert a browsing context with its destination already set, avoiding an initial blank navigation. */
 export function mountRecordEditorFrame(document,host,model){
   const frame=document.createElement('iframe');
@@ -34,6 +36,7 @@ export function createRecordPanelDom(document, model) {
   header.append(exit, status, full);
   host.append(header);
   document.body.append(host);
+  const size=mountRecordPanelSize({document,host,model});
   let frame = mountRecordEditorFrame(document,host,model);
 
   return {
@@ -48,6 +51,6 @@ export function createRecordPanelDom(document, model) {
       frame = mountRecordEditorFrame(document,host,model);
       return frame;
     },
-    destroy() { host.remove(); }
+    destroy() { size.destroy();host.remove(); }
   };
 }

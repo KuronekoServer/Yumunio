@@ -1,3 +1,4 @@
+@import url('./workspace-document.css');
 /* Compact navigation and quiet document chrome. Editable DOM stays independent. */
 .workspace-brand{font-size:14px;font-weight:600;letter-spacing:0}
 .workspace-sidebar .page-link{min-height:30px;padding-block:4px;font-size:13px;line-height:1.45;border-radius:5px}

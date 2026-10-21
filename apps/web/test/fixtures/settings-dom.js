@@ -17,13 +17,13 @@ export function settingsDomFixture(t){
   return true;
  };
  doc.createElement=tag=>{
-  const element=create(tag);element.className='';element.style={setProperty(key,value){this[key]=value;}};element.dataset={};element.value='';element.checked=false;
+  const element=create(tag);element.className='';element.style={setProperty(key,value){this[key]=value;},removeProperty(key){delete this[key];}};element.dataset={};element.value='';element.checked=false;
   element.classList={add(...names){element.className=[...new Set([...element.className.split(' ').filter(Boolean),...names])].join(' ');},remove(...names){element.className=element.className.split(' ').filter(name=>!names.includes(name)).join(' ');},contains:name=>element.className.split(' ').includes(name)};
   element.classList.toggle=(name,force)=>{const enabled=force??!element.classList.contains(name);if(enabled)element.classList.add(name);else element.classList.remove(name);return enabled;};
   const set=element.setAttribute.bind(element);element.setAttribute=(key,value)=>{set(key,value);if(key==='class')element.className=String(value);if(key==='id')element.id=String(value);if(key.startsWith('data-'))element.dataset[key.slice(5).replace(/-([a-z])/g,(_,char)=>char.toUpperCase())]=String(value);};
   element.querySelectorAll=selector=>visit(element).slice(1).filter(item=>selector.split(',').some(part=>matches(item,part)));
   element.querySelector=selector=>element.querySelectorAll(selector)[0]??null;
-  element.closest=selector=>{let item=element;while(item){if(matches(item,selector))return item;item=item.parentElement;}return null;};
+  element.closest=selector=>{let item=element;while(item){if(selector.split(',').some(part=>matches(item,part)))return item;item=item.parentElement;}return null;};
   element.insertBefore=(child,before)=>{child.remove?.();const at=element.childNodes.indexOf(before);child.parentElement=element;element.childNodes.splice(at<0?element.childNodes.length:at,0,child);};
   element.remove=()=>{if(element.parentElement){const parent=element.parentElement;parent.childNodes=parent.childNodes.filter(item=>item!==element);element.parentElement=null;}};
   element.removeEventListener=(name,fn)=>element.listeners.set(name,(element.listeners.get(name)??[]).filter(item=>item!==fn));

@@ -1,0 +1,39 @@
+/* Quiet document and database chrome, without changing navigation or editor nodes. */
+.workspace-main .document-content{padding-top:76px}
+.workspace-main .document-content .page-title{margin-bottom:24px;letter-spacing:-.025em}
+.document-content .child-pages{margin-block:8px 24px}
+.document-content .child-page-create{width:fit-content;border:0;box-shadow:none;background:transparent;color:var(--muted);padding:4px 0;min-height:28px}
+.document-content .child-page-create:hover{color:var(--text);background:var(--soft)}
+.document-content .document-tools:not([open])>summary{opacity:0}
+.document-content .document-tools:hover>summary,.document-content .document-tools:focus-within>summary{opacity:1}
+.document-content .collection-editor{margin-block:24px 32px}
+.document-content .collection-heading{margin-bottom:8px}
+.document-content .collection-heading h2{font-size:18px;font-weight:600;letter-spacing:-.01em}
+.document-content .workspace-collection-tabs{gap:4px;padding-bottom:4px;margin-bottom:12px}
+.document-content .workspace-collection-tabs .collection-view-tab{border-color:transparent;box-shadow:none;background:transparent;padding:5px 9px;min-height:30px;color:var(--muted);font-size:13px}
+.document-content .workspace-collection-tabs .collection-view-tab:hover,.document-content .workspace-collection-tabs .collection-view-tab.active{background:var(--soft);color:var(--text)}
+.document-content .database-placement-toolbar{gap:8px;min-height:32px}
+.workspace-shell .block-row.block-database{margin-inline-start:0}
+.database-placement>.hint:empty{display:none}
+.document-content .database-placement-toolbar>strong{font-size:18px;font-weight:600}
+.document-content .database-placement .database-view-tab[aria-pressed=true]{border-radius:5px}
+.document-content .database-placement-body>.view-kind{display:none}
+.document-content .collection-projection .collection-scroll{border:0;border-radius:0}
+.document-content .collection-projection .typed-table :is(th,td){padding:7px 9px;border-inline-end:1px solid var(--border);line-height:1.5}
+.document-content .collection-projection .typed-table :is(th,td):last-child{border-inline-end:0}
+.document-content .collection-projection .typed-table th{background:transparent;font-weight:400;color:var(--muted)}
+.document-content .collection-projection .typed-table th small{display:none}
+.document-content .collection-projection .typed-table tbody tr:hover{background:var(--soft)}
+.document-content .collection-projection .record-title{color:var(--text);font-weight:500}
+.document-content .record-properties{border:0;padding:0;gap:4px}
+.document-content .record-property{grid-template-columns:minmax(100px,150px) minmax(0,1fr);align-items:start;margin:0;gap:12px}
+.document-content .record-property>span{padding-block:7px;color:var(--muted);font-size:13px;font-weight:400}
+.document-content .record-field-content .collection-value-input{min-height:32px;border-color:transparent;background:transparent;padding:5px 8px}
+.document-content .record-field-content .collection-value-input:hover{background:var(--soft)}
+.document-content .record-field-content .collection-value-input:focus-visible{border-color:var(--accent);background:var(--surface)}
+.detail-editor .workspace-main .document-content{padding:40px 40px 100px}
+.detail-editor .document-content .page-title{font-size:30px;margin-bottom:24px}
+.detail-editor .document-content .record-property{grid-template-columns:105px minmax(0,1fr)}
+@media(hover:none){.document-content .document-tools:not([open])>summary{opacity:.55}}
+@media(max-width:760px){.workspace-main .document-content{padding-top:36px}.detail-editor .workspace-main .document-content{padding:28px 24px 80px}}
+@media(max-width:380px){.document-content .record-property,.detail-editor .document-content .record-property{grid-template-columns:1fr;gap:2px}}

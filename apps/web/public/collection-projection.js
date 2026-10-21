@@ -1,5 +1,5 @@
 import {validateCollectionEnvelope,monthCells,timelineRange,currentCalendarMonth,shiftCalendarMonth,effectivePropertyType,isComputedProperty} from './collections-model.js';
-import {collectionBoardModel,prepareBoardOrderMove} from './board-move-model.js';
+import {collectionBoardModel,prepareBoardMove,prepareBoardOrderMove} from './board-move-model.js';
 import {renderRecordCollectionValue,renderCollectionValue} from './collection-fields.js';
 import {renderCollectionChart} from './collections-chart.js';
 import {feedWindow,FEED_WINDOW_SIZE} from './collections-feed-model.js';
@@ -14,6 +14,7 @@ export function renderCollectionProjection(options){
  const {document,envelope,t,locale='ja',month=currentCalendarMonth(),people=[],pages=[],onEdit,onOpenRecord,onOpenPage,pageHref,onSource,onTrash,onBoardMove,onMonth,onSelectMonth,tableRow,tableHeader,canTrash=()=>false,blocked=()=>false,mutationBlocked=blocked,available=()=>true,getScope=()=>envelope,onBoardDrop}=options;
  const data=validateCollectionEnvelope(envelope,{workspaceId:envelope?.collection?.workspaceId,collectionId:envelope?.collection?.id}),collection=data.collection,type=data.view?.type??'table';
  const properties=options.visiblePropertyIds==null?collection.properties:collection.properties.filter(property=>options.visiblePropertyIds.includes(property.id));
+ const boardIntent=(data,move)=>options.boardReorder===false?prepareBoardMove(data,move):prepareBoardOrderMove(data,move);
  const openRecord=record=>onOpenRecord?onOpenRecord(record):onEdit?onEdit(record):onOpenPage?.(record);
  const node=(tag,attributes={},children=[])=>{const result=document.createElement(tag);for(const[key,value]of Object.entries(attributes)){if(value===undefined||value===null||value===false)continue;if(key.startsWith('on'))result.addEventListener(key.slice(2).toLowerCase(),value);else if(['disabled','checked','value'].includes(key))result[key]=value;else result.setAttribute(key,String(value));}for(const child of Array.isArray(children)?children:[children])if(child!==null&&child!==undefined)result.append(child?.nodeType?child:document.createTextNode(String(child)));return result;};
  const button=(key,action,{disabled=false,literal=false,className='button'}={})=>node('button',{type:'button',class:className,disabled:disabled||blocked(),onClick:()=>{if(available()&&!blocked()&&!disabled)action?.();}},literal?key:t(key));
@@ -28,12 +29,20 @@ export function renderCollectionProjection(options){
   ...(onTrash?[button('trash',()=>onTrash(record),{disabled:mutationBlocked()||!canTrash(record)})]:[])
  ]);
  function card(record,{compact=false,boardModel=null}={}){
-  const result=node('article',{class:'collection-card','data-record-id':record.id,...(boardModel?{'data-board-dnd-card':record.id,'data-board-dnd-label':record.title||t('untitled')}:{})});
-  result.addEventListener('click',event=>{if(!event.target.closest('button,a,input,select,textarea,[contenteditable]')&&available()&&!blocked())openRecord(record);});
+  const result=node('article',{class:'collection-card','data-record-id':record.id,tabindex:'0',role:'group','aria-label':record.title||t('untitled'),'aria-keyshortcuts':'Enter',...(boardModel?{'data-board-dnd-card':record.id,'data-board-dnd-title':record.title||t('untitled'),'data-board-dnd-label':record.title||t('untitled')}:{})});
+  const activate=()=>{if(available()&&!blocked())openRecord(record);};
+  result.addEventListener('click',event=>{if(!event.defaultPrevented&&!event.ctrlKey&&!event.metaKey&&!event.shiftKey&&!event.altKey&&!event.target.closest('button,a,input,select,textarea,summary,[contenteditable],[data-card-actions]')&&document.getSelection?.()?.isCollapsed!==false)activate();});
+  result.addEventListener('keydown',event=>{if(event.target===result&&event.key==='Enter'&&!event.isComposing&&event.keyCode!==229&&!event.defaultPrevented){event.preventDefault();activate();}});
   const title=button(record.title||t('untitled'),()=>openRecord(record),{literal:true,className:'record-title'});
-  if(boardModel){const handle=node('button',{type:'button',class:'board-dnd-handle','data-board-dnd-handle':'','aria-label':t('boardDndHandle',{text:record.title||t('untitled')}),title:t('boardDndInstructions'),disabled:!boardModel.canReorder(record.id)||mutationBlocked()||typeof onBoardDrop!=='function'},'\u283f');result.append(node('div',{class:'collection-card-heading'},[title,handle]));}else result.append(title);
-  if(!compact)result.append(node('dl',{},properties.slice(0,6).map(property=>node('div',{},[node('dt',{},property.name),node('dd',{},value(record,property))]))));
-  result.append(actions(record,boardModel));if(boardModel&&!boardModel.canMove(record.id))result.append(node('p',{class:'hint board-move-reason'},t(boardProjectionError(boardModel.reasonFor(record.id)))));return result;
+  title.setAttribute('data-card-open','');title.setAttribute('tabindex','-1');
+  const heading=node('div',{class:'collection-card-heading'},title);result.append(heading);
+  if(boardModel){const handle=node('button',{type:'button',class:'board-dnd-handle','data-board-dnd-handle':'','aria-label':t('boardDndHandle',{text:record.title||t('untitled')}),title:t('boardDndInstructions'),disabled:!(options.boardReorder===false?boardModel.canMove(record.id):boardModel.canReorder(record.id))||mutationBlocked()||typeof onBoardDrop!=='function'},'\u283f');heading.append(handle);}
+  const controls=actions(record,boardModel);
+  let menu;
+  if(controls.childNodes.length){menu=node('details',{class:'record-card-menu','data-card-actions':''});const trigger=node('summary',{'aria-label':t('actions')+' · '+(record.title||t('untitled')),title:t('actions')},'⋯');menu.append(trigger,controls);menu.addEventListener('keydown',event=>{if(event.key==='Escape'&&menu.open){event.preventDefault();event.stopPropagation();menu.open=false;trigger.focus({preventScroll:true});}});controls.addEventListener('click',()=>{menu.open=false;});}
+  if(!compact){const shown=properties.filter(property=>property.id!==boardModel?.property.id&&(record.redactedProperties?.includes(property.id)||record.formulaErrors?.[property.id]||record.rollupErrors?.[property.id]||record.values[property.id]!==null&&record.values[property.id]!==undefined&&record.values[property.id]!==''&&(!Array.isArray(record.values[property.id])||record.values[property.id].length)));
+   result.append(node('dl',{},shown.slice(0,6).map(property=>node('div',{title:property.name},[node('dt',{},property.name),node('dd',{},value(record,property))]))));}
+  if(menu)result.append(menu);if(boardModel&&!boardModel.canMove(record.id))result.append(node('p',{class:'hint board-move-reason'},t(boardProjectionError(boardModel.reasonFor(record.id)))));return result;
  }
  function table(){
   const headings=tableHeader?.()??[node('th',{scope:'col'},t('recordTitle')),...properties.map(property=>node('th',{scope:'col'},[property.name,node('small',{},isComputedProperty(property)?t(property.type)+' · '+t(effectivePropertyType(property)):t(property.type))])),node('th',{scope:'col'},t('actions'))];
@@ -43,7 +52,7 @@ export function renderCollectionProjection(options){
  let board=null;
  function boardView(){
   const model=collectionBoardModel(data),targets=new Map(),outer=node('section',{class:'board-projection'}),columns=node('div',{class:'collection-board',tabindex:'0','aria-label':t('board')});
-  outer.append(node('p',{class:'hint'},t(model.reason?boardProjectionError(model.reason):data.view.sorts.length?'boardSorted':!data.capabilities.includes('manage')?'boardOrderReadOnly':'boardDragHint')));
+  if(model.reason||data.view.sorts.length||!data.capabilities.includes('manage'))outer.append(node('p',{class:'hint'},t(model.reason?boardProjectionError(model.reason):data.view.sorts.length?'boardSorted':'boardOrderReadOnly')));
   // Moving a card may change record order; configured select columns keep their schema order.
   const optionOrder=new Map((model.property.options??[]).map((value,index)=>[value,index]));
   const groups=['select','status'].includes(model.property.type)?[...model.groups].sort((left,right)=>(optionOrder.get(left.value)??Number.MAX_SAFE_INTEGER)-(optionOrder.get(right.value)??Number.MAX_SAFE_INTEGER)):model.groups;
@@ -53,7 +62,7 @@ export function renderCollectionProjection(options){
    if(targetAllowed){const key='group-'+index+'-end';targets.set(key,{targetValue:group.value,beforeRecordId:null});column.append(node('div',{class:'board-drop-end','data-board-dnd-target':key,'data-board-dnd-label':t('boardDropEnd',{group:label(model.property,group.value)})},node('span',{},t(group.records.length?'boardAtEnd':'boardEmptyGroup'))));}else if(!group.records.length)column.append(node('p',{class:'hint board-empty-group'},t('boardEmptyGroup')));columns.append(column);
   }
   outer.append(columns);
-  board={root:outer,getScope:()=>available()&&!blocked()?getScope():null,canMove:recordId=>typeof onBoardDrop==='function'&&available()&&!blocked()&&model.canReorder(recordId),canDrop:(recordId,key)=>{if(typeof onBoardDrop!=='function'||!available()||blocked()||!targets.has(key))return false;try{return!!prepareBoardOrderMove(data,{recordId,...targets.get(key)});}catch{return false;}},onCommit:({recordId,targetKey})=>available()&&!blocked()&&targets.has(targetKey)&&typeof onBoardDrop==='function'?onBoardDrop({recordId,...targets.get(targetKey)}):false,labels:(key,values)=>t('boardDnd'+key[0].toUpperCase()+key.slice(1),values)};
+  board={root:outer,getScope:()=>available()&&!blocked()?getScope():null,canMove:recordId=>typeof onBoardDrop==='function'&&available()&&!blocked()&&(options.boardReorder===false?model.canMove(recordId):model.canReorder(recordId)),canDrop:(recordId,key)=>{if(typeof onBoardDrop!=='function'||!available()||blocked()||!targets.has(key))return false;try{return!!boardIntent(data,{recordId,...targets.get(key)});}catch{return false;}},onCommit:({recordId,targetKey})=>available()&&!blocked()&&targets.has(targetKey)&&typeof onBoardDrop==='function'?onBoardDrop({recordId,...targets.get(targetKey)}):false,labels:(key,values)=>t('boardDnd'+key[0].toUpperCase()+key.slice(1),values)};
   return outer;
  }
  function datedView(){

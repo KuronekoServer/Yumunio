@@ -173,6 +173,8 @@ export function createRecordPanel({
       editor.searchParams.set('synced', '1');
     }
     const model = {
+      workspaceId,accountId,
+      resizeLabel:t('detailPanel.resize'),resizeKeys:t('detailPanel.resizeKeys'),resizeValue:width=>t('detailPanel.resizeValue',{width}),
       title: t('detailPanel.title'),
       closeLabel: t('detailPanel.close'),
       fullPageLabel: t('detailPanel.fullPage'),
