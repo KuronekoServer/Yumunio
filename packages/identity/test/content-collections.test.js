@@ -238,9 +238,27 @@ test('title updates retain page history and invalidate an existing collaboration
   const stale=await f.request('/pages/'+first.record.pageId+'/room','GET',undefined,'owner',{'X-Yumunio-Room-Ticket':room.ticket});assert.equal(stale.status,409);assert.equal((await stale.json()).error.code,'ROOM_EPOCH_CHANGED');
 });
 
-test('new collection routes enforce the expected actor before reads and bound property and membership guard counts',async t=>{
+test('new collection routes enforce the expected actor, bound properties and guard large person assignments with the atomic principal snapshot',async t=>{
   const f=fixture(t);await error(await f.request('/collections','POST',{expectedRevision:0,title:'Wrong actor',parentId:null,properties:[]},'owner',{'X-Yumunio-Expected-Account':'member'}),404,'CONTENT_NOT_FOUND');assert.equal(f.reads,0);assert.equal(f.writes,0);
   await error(await f.request('/collections','POST',{expectedRevision:0,title:'Oversized schema',parentId:null,properties:Array.from({length:129},(_,index)=>property('p'+index))}),413,'CONTENT_TOO_LARGE');assert.equal(f.writes,0);
   const props=Array.from({length:17},(_,index)=>property('p'+index,'person')),values={};for(let index=0;index<17;index++){const id='person-'+index;f.db.prepare('INSERT INTO yumunio_users(id,name,email,emailVerified,createdAt,updatedAt) VALUES(?,?,?,1,?,?)').run(id,id,id+'@example.invalid',stamp,stamp);f.db.prepare('INSERT INTO yumunio_memberships(id,organizationId,userId,role,createdAt) VALUES(?,?,?,?,?)').run('membership-'+id,workspaceId,id,'member',stamp);values['p'+index]=id;}
-  const c=await create(f,props),writes=f.writes;await error(await f.request('/collections/'+c.collectionId+'/records','POST',{expectedRevision:1,title:'Too many guards',values}),413,'CONTENT_TOO_LARGE');assert.equal(f.writes,writes);assert.equal((await get(f,c)).collection.records.length,0);
+  const c=await create(f,props);await row(f,c,1,'Many assignees',values);assert.deepEqual((await get(f,c)).collection.records[0].values,values);
+  const before=await f.raw.read(workspaceId,'owner');f.setBeforeWrite(()=>{f.db.prepare('UPDATE yumunio_users SET emailVerified=0 WHERE id=?').run('person-16');f.setBeforeWrite(null);});await error(await f.request('/collections/'+c.collectionId+'/records','POST',{expectedRevision:2,title:'Revoked assignee',values}),404,'CONTENT_NOT_FOUND');assert.deepEqual((await f.raw.read(workspaceId,'owner')).payload,before.payload);
+});
+
+test('multiple people survive reload and scalar membership filters while forged arrays and stale memberships fail atomically',async t=>{
+ const f=fixture(t),c=await create(f,[property('assignee','person')]),first=await row(f,c,1,'Shared task',{assignee:['owner','person']});
+ assert.deepEqual(first.record.values.assignee,['owner','person']);const legacy=await row(f,c,2,'Legacy task',{assignee:'person'});
+ const saved=await ok(await f.request('/collections/'+c.collectionId+'/views','POST',{expectedRevision:3,view:view('table',{filters:[{propertyId:'assignee',operator:'eq',value:'person'}]})}),201);assert.equal((await ok(await f.request('/collections/'+c.collectionId+'/views/'+saved.viewId))).collection.records.length,2);
+ const other=await ok(await f.request('/collections/'+c.collectionId+'/query','POST',{view:view('table',{filters:[{propertyId:'assignee',operator:'neq',value:'owner'}]})}));assert.deepEqual(other.collection.records.map(row=>row.id),[legacy.record.id]);
+ const path='/collections/'+c.collectionId+'/records/'+first.record.id,before=await f.raw.read(workspaceId,'owner');for(const value of [['owner','owner'],['owner','invalid/id']])assert.equal((await f.request(path,'PATCH',{expectedRevision:4,values:{assignee:value}})).status,400);await error(await f.request(path,'PATCH',{expectedRevision:4,values:{assignee:['owner','outside']}}),404,'CONTENT_NOT_FOUND');assert.deepEqual((await f.raw.read(workspaceId,'owner')).payload,before.payload);
+ f.setBeforeWrite(()=>{f.db.prepare('UPDATE yumunio_users SET emailVerified=0 WHERE id=?').run('member');f.setBeforeWrite(null);});await error(await f.request(path,'PATCH',{expectedRevision:4,values:{assignee:['owner','person','member']}}),404,'CONTENT_NOT_FOUND');assert.deepEqual((await f.raw.read(workspaceId,'owner')).payload,before.payload);
+ f.db.prepare('UPDATE yumunio_users SET emailVerified=0 WHERE id=?').run('person');const read=await get(f,c);assert.equal(read.collection.records[0].values.assignee,null);assert.deepEqual(read.collection.records[0].redactedProperties,['assignee']);assert.deepEqual((await f.raw.read(workspaceId,'owner')).payload.collections[0].collection.records[0].values.assignee,['owner','person']);
+});
+
+test('database template defaults apply multiple people and preserve their identities after projection',async t=>{
+ const f=fixture(t),c=await create(f,[property('assignee','person')]),path='/collections/'+c.collectionId;
+ const template=await ok(await f.request(path+'/templates','POST',{expectedRevision:1,name:'Shared review',values:{assignee:['owner','person']}}),201);
+ const listed=await get(f,c);assert.deepEqual(listed.collection.templates[0].values.assignee,['owner','person']);
+ const created=await ok(await f.request(path+'/records','POST',{expectedRevision:template.revision,title:'Review the issue',templateId:template.templateId,values:{}}),201);assert.deepEqual(created.record.values.assignee,['owner','person']);
 });

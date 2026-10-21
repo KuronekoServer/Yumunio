@@ -1,0 +1,21 @@
+.person-picker{display:flex;align-items:center;flex-wrap:wrap;gap:4px;position:relative;min-width:0;border:1px solid transparent;border-radius:5px;cursor:text;color:var(--text)}
+.person-picker:focus-within{border-color:var(--accent)!important;background:var(--surface)!important}
+.person-chips,.person-values{display:inline-flex;align-items:center;gap:4px;flex-wrap:wrap;min-width:0;max-width:100%}
+.person-chip{display:inline-flex;align-items:center;gap:5px;max-width:100%;min-width:0;border-radius:4px;background:var(--soft);padding:2px 5px;font-size:13px;line-height:20px;color:var(--text)}
+.person-avatar{display:inline-flex;flex:none;align-items:center;justify-content:center;width:18px;height:18px;border-radius:50%;font-size:10px;background:var(--nav);color:var(--muted)}
+.person-chip-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.person-picker .person-search{flex:1 1 110px;width:110px;min-width:60px;max-width:100%;font:inherit;font-size:13px;color:var(--text);background:transparent;border:0!important;outline:0!important;box-shadow:none!important;padding:3px 2px;min-height:24px;border-radius:0}
+.person-search::placeholder{color:var(--muted)}
+.person-chip .person-remove{display:inline-flex;align-items:center;justify-content:center;flex:none;width:20px;height:20px;min-height:20px;padding:0;border:0;background:transparent;color:var(--muted);font:inherit;border-radius:3px;cursor:pointer}
+.person-chip .person-remove:hover,.person-chip .person-remove:focus-visible{background:var(--nav);color:var(--text)}
+.person-popup{position:fixed;inset:auto;margin:0;box-sizing:border-box;padding:5px;overflow:auto;border:1px solid var(--border);border-radius:7px;background:var(--surface);color:var(--text);box-shadow:0 5px 18px #0002;z-index:90;animation:person-popup-in 120ms ease-out}
+.person-popup[hidden]{display:none}
+.person-options{max-height:260px;overflow:auto;overscroll-behavior:contain}
+.person-option{display:flex;align-items:center;gap:8px;padding:7px 9px;border-radius:4px;cursor:pointer;font-size:13px;min-height:32px;box-sizing:border-box}
+.person-option-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.person-option[aria-selected=true],.person-option:hover{background:var(--soft)}
+.person-status,.person-hint{margin:0;padding:7px 9px;font-size:11px;line-height:1.5;color:var(--muted)}
+.person-hint{border-top:1px solid var(--border)}
+.person-picker[aria-disabled=true]{cursor:default;color:var(--muted)}
+@keyframes person-popup-in{from{opacity:0;transform:translateY(-3px)}to{opacity:1;transform:translateY(0)}}
+@media(prefers-reduced-motion:reduce){.person-popup{animation:none}}

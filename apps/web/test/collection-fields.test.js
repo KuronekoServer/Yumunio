@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createCollectionValueInput,renderCollectionValue,renderRecordCollectionValue,collectionFieldHint} from '../public/collection-fields.js';
+import {settingsDomFixture} from './fixtures/settings-dom.js';
 class Element{
  constructor(tag){this.tagName=tag;this.children=[];this._value='';this._text='';this.multiple=false;this.selected=false;}
  set innerHTML(_value){throw new Error('HTML parsing forbidden');}
@@ -18,8 +19,8 @@ test('shared fields keep raw incomplete numeric drafts and empty literal text wi
  const number=input({type:'number'},'-');assert.equal(number.type,'text');assert.equal(number.inputMode,'decimal');assert.equal(number.rawValue(),'-');assert.throws(()=>number.readValue(),/invalidNumber/);assert.equal(number.rawValue(),'-');number.value='1e-';assert.throws(()=>number.readValue());number.value='0';assert.equal(number.readValue(),0);number.value='';assert.equal(number.readValue(),null);
  const text=input({type:'text'},'');assert.equal(text.readValue(),'');const checkbox=input({type:'checkbox'},'false');assert.equal(checkbox.readValue(),false);checkbox.value='';assert.equal(checkbox.readValue(),null);
 });
-test('saved person and relation selections absent from current ACL options remain selected until explicitly changed',()=>{
- const person=input({type:'person'},'saved-person',{people:[{accountId:'other-person',name:'Other'}]});assert.equal(person.readValue(),'saved-person');assert.equal(person.selectedOptions[0].textContent,'Saved reference');assert.equal(person.options.some(option=>option.value==='saved-person'),true);
+test('saved person and relation selections absent from current ACL options remain selected until explicitly changed',testContext=>{
+ const rich=settingsDomFixture(testContext),person=createCollectionValueInput({document:rich.document,property:{type:'person'},value:'saved-person',t,people:[{accountId:'other-person',name:'Other'}]});assert.equal(person.readValue(),'saved-person');assert.match(person.textContent,/Saved reference/);assert.doesNotMatch(person.textContent,/saved-person/);
  const relation=input({type:'relation'},['saved-record','visible-record'],{pages:[{id:'visible-record',recordId:'record',title:'Visible'},{id:'ordinary-page',title:'Not a row'}]});assert.deepEqual(relation.readValue(),['saved-record','visible-record']);assert.equal(relation.options.some(option=>option.value==='ordinary-page'),false);assert.deepEqual(new Set(relation.readValue()),new Set(['saved-record','visible-record']));
  for(const option of relation.options)option.selected=option.value==='saved-record';assert.deepEqual(relation.readValue(),['saved-record']);
 });

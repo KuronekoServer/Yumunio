@@ -149,6 +149,12 @@ const typedEnvelope=()=>({revision:8,pageId:'container',capabilities:['read','ma
  {id:'formula',name:'Formula',type:'formula',formula:{version:1,expression:'1',resultType:'number'}},{id:'rollup',name:'Rollup',type:'rollup',rollup:{version:1,relationPropertyId:'relation',targetCollectionId:'other',targetPropertyId:'amount',operation:'sum',resultType:'number'}}
 ],records:[{id:'typed-row',pageId:'typed-page',title:'Body title',capabilities:['read','editBody','editRecordValues'],values:{text:'',number:0,check:false,date:'2026-10-15',select:'A',multi:['A'],person:'person-A',relation:['record-page'],formula:1,rollup:5},sourceValues:{original:'000\n=SUM(A1)'}}]}});
 const typedModel=source=>new CollectionEdits(source??typedEnvelope(),{workspaceId:'workspace-A',collectionId:'typed'});
+
+test('an assignee-list ACK preserves newer additions and removals instead of restoring the submitted selection',()=>{
+ const model=typedModel();model.setRaw('typed-row','person',['person-A','person-B']);const submitted={patch:model.patch('typed-row'),values:model.values('typed-row')};model.setRaw('typed-row','person',['person-B','person-C']);
+ const response={collectionId:'typed',revision:9,record:{...structuredClone(model.record('typed-row')),values:structuredClone(submitted.values)}};model.accept(response,'typed-row',submitted);assert.deepEqual(model.rawValue('typed-row','person'),['person-B','person-C']);assert.deepEqual(model.patch('typed-row'),{expectedRevision:9,values:{person:['person-B','person-C']}});
+ const next={patch:model.patch('typed-row'),values:model.values('typed-row')};model.accept({collectionId:'typed',revision:10,record:{...response.record,values:next.values}},'typed-row',next);assert.equal(model.dirty,false);
+});
 test('typed record drafts preserve raw intermediate numbers and parse only explicit dirty patches',()=>{
  const model=typedModel();model.setRaw('typed-row','number','-');model.setRaw('typed-row','text','Own note');assert.equal(model.rawValue('typed-row','number'),'-');assert.throws(()=>model.patch('typed-row'),/invalidNumber/);assert.equal(model.rawValue('typed-row','text'),'Own note');
  model.setRaw('typed-row','number','1e-');assert.throws(()=>model.changes('typed-row'),/invalidNumber/);assert.deepEqual(model.dirtyPropertyIds('typed-row'),['number','text']);

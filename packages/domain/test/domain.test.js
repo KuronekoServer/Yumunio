@@ -10,6 +10,12 @@ const invalid = error => error instanceof DomainError && error.code === "INVALID
 const stamp = "2026-10-15T00:00:00.000Z";
 const property = (type, extra = {}) => ({ id: "value", name: "Value", type, ...extra });
 
+test('person properties accept legacy IDs and bounded distinct lists, with required emptiness checked identically',()=>{
+ const person=property('person');assert.equal(validatePropertyValue(person,'one'),'one');assert.deepEqual(validatePropertyValue(person,['one','two']),['one','two']);assert.deepEqual(validatePropertyValue(person,[]),[]);
+ for(const value of [['one','one'],['invalid/id'],[null],Array.from({length:1001},(_,i)=>'member-'+i)])assert.throws(()=>validatePropertyValue(person,value),invalid);
+ assert.throws(()=>validatePropertyValue({...person,required:true},[]),invalid);assert.throws(()=>validatePropertyValue({...person,required:true},null),invalid);
+});
+
 test("stable IDs reject empty, path-like, Unicode, and oversized values", () => {
   for (const id of ["", "../page", "page/child", " page", "ページ", "_first", "a".repeat(129), null, 4]) {
     assert.throws(() => assertId(id), invalid);

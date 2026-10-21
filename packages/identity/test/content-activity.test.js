@@ -28,6 +28,16 @@ test('new assignment notifies a row-only reader in the same CAS without sharing 
  const f=await fixture(t);await f.grant();const before=await f.inspect();await f.ok(await f.assign('reader'));const after=await f.inspect();assert.equal(after.revision,before.revision+1);assert.deepEqual(after.payload.grants,before.payload.grants);const inbox=await f.inbox();assert.equal(inbox.notifications.length,1);assert.deepEqual(inbox.notifications[0],{id:after.payload.activityNotifications[0].id,pageId:f.row.pageId,pageTitle:'Readable record',authorId:'owner',createdAt:stamp,readAt:null,reason:'assignment'});assert.equal((await f.request('/pages/'+f.collection.pageId,{account:'reader'})).status,404);assert.equal((await f.request(f.path,{account:'reader'})).status,404);assert.equal((await f.inbox('peer')).notifications.length,0);assert.equal((await f.inbox('owner')).notifications.length,0);
 });
 
+test('multiple assignees receive one event each; reorder and adding others retain read receipts and removing one only prunes their event',async t=>{
+ const f=await fixture(t);await f.grant();await f.grant('peer');await f.ok(await f.assign(['reader','peer','owner','hidden']));const reader=(await f.inbox()).notifications[0],peer=(await f.inbox('peer')).notifications[0];assert.ok(reader&&peer);assert.notEqual(reader.id,peer.id);assert.equal((await f.inbox('hidden')).notifications.length,0);assert.equal((await f.inbox('owner')).notifications.length,0);
+ await f.ok(await f.save('/notifications',{notificationIds:[reader.id]},{account:'reader'}));await f.ok(await f.assign(['peer','reader','hidden','owner']));assert.equal((await f.inbox()).notifications[0].id,reader.id);assert.equal((await f.inbox()).notifications[0].readAt,stamp);
+ await f.ok(await f.assign(['peer','owner']));assert.deepEqual((await f.inbox()).notifications,[]);assert.equal((await f.inbox('peer')).notifications[0].id,peer.id);await f.ok(await f.assign(['peer','owner','reader']));assert.notEqual((await f.inbox()).notifications[0].id,reader.id);assert.equal((await f.inbox('peer')).notifications[0].id,peer.id);validateContentPayload((await f.inspect()).payload,workspaceId);
+});
+
+test('legacy single person becoming a list does not renotify the existing assignee',async t=>{
+ const f=await fixture(t);await f.grant();await f.ok(await f.assign('reader'));const first=(await f.inbox()).notifications[0];await f.ok(await f.assign(['reader']));assert.equal((await f.inbox()).notifications[0].id,first.id);
+});
+
 test('self, unchanged values and unreadable recipients create no events or read grants, and later sharing never sends retroactively',async t=>{
  const f=await fixture(t);await f.ok(await f.assign('owner'));assert.equal((await f.inspect()).payload.activityNotifications,undefined);await f.ok(await f.assign('hidden'));assert.equal((await f.inspect()).payload.activityNotifications,undefined);const grants=(await f.inspect()).payload.grants.length;assert.equal((await f.request('/pages/'+f.row.pageId,{account:'hidden'})).status,404);await f.grant('hidden');await f.ok(await f.assign('hidden'));assert.equal((await f.inbox('hidden')).notifications.length,0);assert.equal((await f.inspect()).payload.grants.length,grants+1);
 });

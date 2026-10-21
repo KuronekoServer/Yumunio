@@ -5,6 +5,7 @@ export const ACTIVITY_LIMITS=Object.freeze({notifications:1000,bytes:240000});
 export class ContentActivityError extends Error{constructor(code='INVALID_CONTENT',status=400){super(code);this.code=code;this.status=status;}}
 const fail=(code,status)=>{throw new ContentActivityError(code,status);};
 const own=(value,key)=>Object.hasOwn(value,key);
+const personIds=value=>Array.isArray(value)?value:typeof value==='string'?[value]:[];
 const size=value=>new TextEncoder().encode(JSON.stringify(value)).length;
 function capacity(payload){if((payload.activityNotifications?.length??0)+(payload.discussion?.notifications?.length??0)>ACTIVITY_LIMITS.notifications||size({comment:payload.discussion?.notifications??[],assignment:payload.activityNotifications??[]})>ACTIVITY_LIMITS.bytes)fail('NOTIFICATIONS_TOO_LARGE',413);}
 const timestamp=value=>{if(typeof value!=='string'||!Number.isFinite(Date.parse(value))||new Date(value).toISOString()!==value)fail();};
@@ -22,12 +23,12 @@ export function validateActivityNotifications(payload,pages){
   assertPlainObject(item);assertJsonSerializable(item);const inline=item.kind==='inline-mention',keys=inline?inlineFields:fields;if(Object.keys(item).length!==keys.length||keys.some(key=>!own(item,key)))fail();
   for(const key of keys.filter(key=>!['kind','createdAt','readAt'].includes(key)))assertId(item[key]);
   if(ids.has(item.id)||item.recipientId===item.authorId||!pages.has(item.pageId))fail();ids.add(item.id);timestamp(item.createdAt);if(item.readAt!==null)timestamp(item.readAt);
-  const assignment=inline?'inline\0'+item.pageId+'\0'+item.recipientId+'\0'+item.recipientMembershipId:'assignment\0'+item.collectionId+'\0'+item.recordId+'\0'+item.propertyId;if(assignments.has(assignment))fail();assignments.add(assignment);
+  const assignment=inline?'inline\0'+item.pageId+'\0'+item.recipientId+'\0'+item.recipientMembershipId:'assignment\0'+item.collectionId+'\0'+item.recordId+'\0'+item.propertyId+'\0'+item.recipientId;if(assignments.has(assignment))fail();assignments.add(assignment);
  }
 }
 function activeBinding(payload,item){
  const entry=(payload.collections??[]).find(entry=>entry.collection.id===item.collectionId),binding=entry?.recordPages.find(binding=>binding.recordId===item.recordId&&binding.pageId===item.pageId),row=entry?.collection.records.find(row=>row.id===item.recordId),property=entry?.collection.properties.find(property=>property.id===item.propertyId);
- return!!binding&&property?.type==='person'&&row?.values[property.id]===item.recipientId;
+ return!!binding&&property?.type==='person'&&personIds(row?.values[property.id]).includes(item.recipientId);
 }
 /** A schema change or assignment removal invalidates the old event; it cannot revive later. */
 export function pruneAssignmentNotifications(payload,{collectionId=null,pageIds=null}={}){
@@ -73,14 +74,15 @@ export function recordInlineMentions(context,pageId,beforeBlocks,afterBlocks){
 }
 /** Derive new recipients from canonical value differences, never a caller's notification list. */
 export function recordAssignments(context,entry,row,before){
- const changes=entry.collection.properties.filter(property=>property.type==='person'&&(before[property.id]??null)!==(row.values[property.id]??null));
+ const changes=entry.collection.properties.filter(property=>property.type==='person'&&JSON.stringify(personIds(before[property.id]).slice().sort())!==JSON.stringify(personIds(row.values[property.id]).slice().sort()));
  if(!changes.length)return[];
  const changed=new Set(changes.map(property=>property.id)),binding=entry.recordPages.find(binding=>binding.recordId===row.id);
  if(!binding)fail();
- if(own(context.payload,'activityNotifications'))context.payload.activityNotifications=context.payload.activityNotifications.filter(item=>item.collectionId!==entry.collection.id||item.recordId!==row.id||!changed.has(item.propertyId));
+ if(own(context.payload,'activityNotifications'))context.payload.activityNotifications=context.payload.activityNotifications.filter(item=>item.collectionId!==entry.collection.id||item.recordId!==row.id||!changed.has(item.propertyId)||personIds(row.values[item.propertyId]).includes(item.recipientId));
  const evaluate=createPageAccessEvaluator(context.policy(context.payload,context.saved.principals,context.workspaceId)),guards=[];
- for(const property of changes){
-  const recipientId=row.values[property.id],person=context.saved.principals.find(person=>person.accountId===recipientId&&person.emailVerified);
+ for(const property of changes)for(const recipientId of personIds(row.values[property.id])){
+  if(personIds(before[property.id]).includes(recipientId))continue;
+  const person=context.saved.principals.find(person=>person.accountId===recipientId&&person.emailVerified);
   if(!person||person.accountId===context.accountId||!evaluate({accountId:person.accountId,workspaceId:context.workspaceId,pageId:binding.pageId}).capabilities.includes('read'))continue;
   const id=assertId(context.createId());if(discussionIds(context.payload).has(id)||(context.payload.activityNotifications??[]).some(item=>item.id===id))fail('CONTENT_UNAVAILABLE',503);
   context.payload.activityNotifications??=[];context.payload.activityNotifications.push({id,collectionId:entry.collection.id,recordId:row.id,pageId:binding.pageId,propertyId:property.id,recipientId:person.accountId,recipientMembershipId:person.id,authorId:context.accountId,authorMembershipId:context.actor.id,createdAt:context.now(),readAt:null});guards.push({id:person.id,accountId:person.accountId,role:person.role});

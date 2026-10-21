@@ -1,4 +1,5 @@
 import {parseCollectionValue,effectivePropertyType,isComputedProperty,formulaErrorCode,rollupErrorCode} from './collections-model.js';
+import {createPersonPicker,personDisplayName} from './person-picker.js';
 const asText=value=>value===null||value===undefined?'':String(value);
 function element(document,tag,text,classes){const node=document.createElement(tag);if(text!==undefined)node.textContent=String(text);if(classes)node.className=classes;return node;}
 function referenceOptions(options,selected,t){
@@ -9,6 +10,7 @@ export function createCollectionValueInput({document,property,value,filter=false
   if(filter&&['created_time','last_edited_time'].includes(property.type))property={...property,type:'datetime'};
   if(property.type==='status')property={...property,type:'select'};
   if(isComputedProperty(property)){if(!filter)throw new Error('computedReadOnly');property={...property,type:effectivePropertyType(property)};}
+  if(property.type==='person'){const input=createPersonPicker({document,property,value,filter,people,t,disabled});input.readValue=()=>parseCollectionValue(property,input.rawValue(),{filter});return input;}
   let input;const select=(options,selected,{multiple=false}={})=>{
     const control=element(document,'select');control.multiple=multiple;if(multiple)control.size=4;
     for(const[id,label]of options){const option=element(document,'option',label);option.value=id;option.selected=multiple?Array.isArray(selected)&&selected.includes(id):id===(selected??'');control.append(option);}
@@ -23,8 +25,6 @@ export function createCollectionValueInput({document,property,value,filter=false
     const multiple=!filter,selected=multiple?(Array.isArray(value)?value:[]):value;
     const options=referenceOptions(pages.filter(page=>typeof page.recordId==='string').map(page=>[page.id,page.title||t('untitled')]),multiple?selected:[selected],t);
     input=select([...(multiple?[]:[['',t('empty')]]),...options],selected,{multiple});
-  }else if(property.type==='person'){
-    const options=referenceOptions(people.map(person=>[person.accountId,person.name||person.accountId]),[value],t);input=select([['',t('empty')],...options],value);
   }else if(property.type==='text'){
     input=element(document,'textarea');input.rows=2;input.maxLength=100000;input.value=asText(value);
   }else{
@@ -41,7 +41,10 @@ export function renderCollectionValue({document,property,value,people=[],pages=[
   if(type==='datetime'){const time=element(document,'time',new Intl.DateTimeFormat(document.documentElement?.lang||'ja',{dateStyle:'medium',timeStyle:'short'}).format(new Date(value)),'collection-cell-value');time.dateTime=value;return time;}
   if(property.type==='status'){const badge=element(document,'span',String(value),'collection-badge collection-status');badge.setAttribute('data-status-group',String(Math.min(2,Math.max(0,(property.options??[]).indexOf(value)))));return badge;}
   if(type==='checkbox')return element(document,'span',t(value?'yes':'no'),'collection-cell-value');
-  if(type==='person')return element(document,'span',people.find(person=>person.accountId===value)?.name||String(value),'collection-cell-value');
+  if(type==='person'){
+    const selected=Array.isArray(value)?value:[value];if(!selected.length)return element(document,'span',t('empty'),'hint collection-empty-value');
+    const group=element(document,'span',undefined,'collection-cell-value person-values');for(const id of selected){const name=personDisplayName(people,id,t),chip=element(document,'span',undefined,'person-chip'),avatar=element(document,'span',Array.from(name)[0]||'@','person-avatar');avatar.ariaHidden='true';chip.append(avatar,element(document,'span',name,'person-chip-name'));group.append(chip);}return group;
+  }
   if(Array.isArray(value)){
     if(!value.length)return element(document,'span',t('empty'),'hint collection-empty-value');
     const group=element(document,'span',undefined,'collection-cell-value');for(const item of value)group.append(element(document,'span',type==='relation'?pages.find(page=>page.id===item)?.title||t('relatedRecord'):item,'collection-badge'));return group;

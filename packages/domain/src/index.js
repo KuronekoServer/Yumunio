@@ -332,7 +332,11 @@ function validateValue(property, value, checkDefinition) {
       }
       break;
     case "person":
-      assertId(value, field);
+      // Keep legacy single-account values readable; new editors store a distinct list.
+      if (Array.isArray(value)) {
+        if (value.length > 1000 || new Set(value).size !== value.length) invalid(field, "Expected distinct person IDs (at most 1000).");
+        for (const id of value) assertId(id, field);
+      } else assertId(value, field);
       break;
     case "relation":
       if (!Array.isArray(value) || new Set(value).size !== value.length) invalid(field, "Expected distinct related IDs.");

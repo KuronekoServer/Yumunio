@@ -32,7 +32,11 @@ export function parseCollectionValue(property,raw,{filter=false,computed=false}=
   if(property.type==='number'){const text=String(raw).trim();if(!/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/.test(text)||!Number.isFinite(Number(text)))throw new Error('invalidNumber');return Number(text);}
   if(property.type==='checkbox'){if(raw===true||raw==='true')return true;if(raw===false||raw==='false')return false;throw new Error('invalidValue');}
   if(property.type==='date'){const value=String(raw);if(!/^\d{4}-\d{2}-\d{2}$/.test(value)||!Number.isFinite(Date.parse(value))||new Date(value+'T00:00:00.000Z').toISOString().slice(0,10)!==value)throw new Error('invalidDate');return value;}
-  if(property.type==='person'||property.type==='relation'&&filter){if(!id(raw))throw new Error('invalidReference');return raw;}
+  if(property.type==='person'){
+    if(filter||typeof raw==='string'){if(!id(raw))throw new Error('invalidReference');return raw;}
+    if(!Array.isArray(raw)||raw.length>1000||new Set(raw).size!==raw.length||raw.some(value=>!id(value)))throw new Error('invalidReference');return [...raw];
+  }
+  if(property.type==='relation'&&filter){if(!id(raw))throw new Error('invalidReference');return raw;}
   if(property.type==='select'||property.type==='multi_select'&&filter){if(!property.options?.includes(raw))throw new Error('invalidValue');return raw;}
   if(property.type==='multi_select'||property.type==='relation'){const values=Array.isArray(raw)?raw:String(raw).split(/\r?\n/).map(value=>value.trim()).filter(Boolean);if(new Set(values).size!==values.length||values.some(value=>property.type==='relation'?!id(value):!property.options?.includes(value)))throw new Error('invalidReference');return values;}
   if(typeof raw!=='string'||raw.length>100000)throw new Error('invalidValue');return raw;
@@ -47,7 +51,7 @@ export function validateCollectionValue(property,value){
   else if(type==='text'){if(typeof value!=='string'||value.length>100000)throw new Error('invalidResponse');}
   else if(type==='date'){try{if(typeof value!=='string'||parseCollectionValue({type:'date'},value)!==value)throw new Error();}catch{throw new Error('invalidResponse');}}
   else if(type==='datetime'){if(typeof value!=='string'||!Number.isFinite(Date.parse(value))||new Date(value).toISOString()!==value)throw new Error('invalidResponse');}
-  else if(type==='person'){if(!id(value))throw new Error('invalidResponse');}
+  else if(type==='person'){if(Array.isArray(value)?value.length>1000||new Set(value).size!==value.length||value.some(item=>!id(item)):!id(value))throw new Error('invalidResponse');}
   else if(type==='select'){if(typeof value!=='string'||!(property.options??[]).includes(value))throw new Error('invalidResponse');}
   else if(type==='multi_select'||type==='relation'){
     if(!Array.isArray(value)||value.length>1000||new Set(value).size!==value.length||value.some(item=>type==='relation'?!id(item):typeof item!=='string'||!(property.options??[]).includes(item)))throw new Error('invalidResponse');
