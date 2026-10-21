@@ -5,8 +5,14 @@
 .sidebar-menu-popover{position:fixed;z-index:110;width:230px;max-width:calc(100vw - 16px);max-height:calc(100dvh - 16px);overflow:auto;padding:6px;border:1px solid var(--border);border-radius:7px;background:var(--surface);color:var(--text);box-shadow:0 6px 24px #0002}
 .sidebar-menu-popover>div{display:grid;gap:2px}.sidebar-menu-popover .nav-link{width:100%;justify-content:flex-start;text-align:start;border:0;background:transparent}.sidebar-menu-popover .nav-link:hover{background:var(--soft)}
 .motion-workspace .workspace-sidebar{transition:none}
-@media(min-width:761px){.motion-workspace.sidebar-collapsed .workspace-sidebar{display:flex}.motion-workspace>.workspace-sidebar{width:256px;min-width:256px}.motion-workspace>.workspace-main{min-width:0}}
+.motion-workspace{position:relative}
+.sidebar-size-handle{position:absolute;inset-block:0;left:calc(var(--workspace-sidebar-width,256px) - 4px);width:8px;z-index:12;cursor:col-resize;touch-action:none;user-select:none;outline:none}
+.sidebar-size-handle::after{content:"";position:absolute;inset-block:0;left:3px;width:2px;background:transparent;transition:background-color .12s ease}
+.sidebar-size-handle:hover::after,.sidebar-size-handle:focus-visible::after,.sidebar-resizing .sidebar-size-handle::after{background:var(--accent)}
+.sidebar-resizing,.sidebar-resizing *{cursor:col-resize!important;user-select:none!important}
+@media(min-width:761px){.motion-workspace.sidebar-collapsed .workspace-sidebar{display:flex}.motion-workspace>.workspace-sidebar{width:var(--workspace-sidebar-width,256px);min-width:var(--workspace-sidebar-width,256px)}.motion-workspace>.workspace-main{min-width:0}}
+@media(max-width:760px){.sidebar-size-handle{display:none}}
 .motion-dialog-shade{position:fixed;inset:0;z-index:80;pointer-events:none;background:#0006}
 dialog[data-motion-dialog]::backdrop{background:transparent}
 @media(min-width:1100px){.workspace-main{transition:margin-inline-end var(--ui-panel-duration) var(--ui-motion-ease)}}
-@media(prefers-reduced-motion:reduce){.workspace-main{transition:none!important}}
+@media(prefers-reduced-motion:reduce){.workspace-main,.sidebar-size-handle::after{transition:none!important}}

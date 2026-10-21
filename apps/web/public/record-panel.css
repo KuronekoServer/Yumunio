@@ -3,7 +3,7 @@
 .record-detail-status{font-size:12px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .record-detail-frame{border:0;flex:1;min-height:0;width:100%;background:var(--surface)}
 .record-selected{background:var(--soft)}
-.detail-editor .workspace-sidebar,.detail-editor .nav-scrim,.detail-editor .nav-toggle,.detail-editor .desktop-sidebar-toggle,.detail-editor .breadcrumb,.detail-editor .toolbar-backlinks,.detail-editor .toolbar-favorite,.detail-editor .topbar-actions>.button.quiet{display:none!important}
+.detail-editor .workspace-sidebar,.detail-editor .sidebar-size-handle,.detail-editor .nav-scrim,.detail-editor .nav-toggle,.detail-editor .desktop-sidebar-toggle,.detail-editor .breadcrumb,.detail-editor .toolbar-backlinks,.detail-editor .toolbar-favorite,.detail-editor .topbar-actions>.button.quiet{display:none!important}
 .detail-editor .workspace-shell{grid-template-columns:minmax(0,1fr)!important}.detail-editor .workspace-topbar{padding-inline:16px;justify-content:flex-end}.detail-editor .topbar-actions{margin:0;width:100%;justify-content:flex-end}
 .detail-editor .document-content{padding:30px 28px 100px;max-width:none;width:100%}.detail-editor .page-title{font-size:28px}.detail-editor .document-tools{margin-block:12px}
 .detail-editor .collection-editor{padding:0;margin-block:12px 24px}.detail-editor .collection-heading .hint{display:none}.detail-editor .record-properties{border:0;padding:0}
