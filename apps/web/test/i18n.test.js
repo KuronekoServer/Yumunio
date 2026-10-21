@@ -33,3 +33,15 @@ test('catalog loader requires successful flat JSON catalogs', async () => {
   await assert.rejects(loadCatalogs({manifest,fetcher:async () => new Response(null,{status:503})}), /CATALOG_UNAVAILABLE/);
   await assert.rejects(loadCatalogs({manifest,fetcher:async () => Response.json({bad:{}})}), /INVALID_CATALOG/);
 });
+
+test('bundled dictionaries preserve validation and language switching without startup catalog requests',async()=>{
+ const catalogs=await loadCatalogs({manifest,initialCatalogs:{ja,en},fetcher:()=>assert.fail('Bundled source and fallback need no HTTP request')});
+ const i18n=createI18n(catalogs,'ja');assert.equal(i18n.t('nav.home'),ja['nav.home']);await i18n.switchLocale('en');assert.equal(i18n.t('nav.home'),'Home');
+ await assert.rejects(loadCatalogs({manifest,initialCatalogs:{ja,en:{...en,'nav.home':'Home {unexpected}'}},fetcher:()=>assert.fail('No network fallback for an invalid bundled dictionary')}),/CATALOG_MISMATCH/);
+});
+
+test('source and fallback downloads run together even when English arrives first',async()=>{
+ let releaseSource;const paths=[];
+ const loading=loadCatalogs({manifest,fetcher:url=>{paths.push(url.pathname.split('/').at(-1));return url.pathname.endsWith('ja.json')?new Promise(resolve=>{releaseSource=()=>resolve(Response.json(ja));}):Promise.resolve(Response.json(en));}});
+ assert.deepEqual(paths,['ja.json','en.json']);releaseSource();const catalogs=await loading;assert.equal(catalogs.en['nav.home'],'Home');
+});

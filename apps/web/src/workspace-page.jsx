@@ -5,7 +5,7 @@ import {motion} from 'motion/react';
 import {MotionDialog,SidebarMenu,useReducedMotionPreference} from './ui-motion.jsx';
 import {surfaceTransition} from '../public/ui-motion-policy.js';
 import {Icon} from './icons.jsx';
-import {sidebarSiblingPositions,sidebarAncestors} from '../public/sidebar-model.js';
+import {sidebarSiblingPositions,sidebarAncestors,sidebarLayoutKey} from '../public/sidebar-model.js';
 
 function Action({label,icon,onClick,disabled=false,className='',children,...props}){
  return <button type="button" className={className||'icon-button'} aria-label={label} title={label} disabled={!!disabled} onClick={onClick} {...props}>{icon&&<Icon name={icon}/>} {children}</button>;
@@ -13,6 +13,7 @@ function Action({label,icon,onClick,disabled=false,className='',children,...prop
 const Sidebar=memo(function Sidebar({model,onCollapse,desktop,collapsed}){
  const reduced=useReducedMotionPreference(),hidden=desktop?collapsed:!model.state.navOpen;
  const {state:s,t,handlers:h,workspaceId,pageRows,activeTeams,collapsedTeams,expandedPages,newDisabled}=model;
+ const treeLayoutKey=sidebarLayoutKey(model);
  const query='?workspace='+encodeURIComponent(workspaceId),disabled=!s.user||!!s.fatal||s.busy;
  const sections=[],sectionsByKey=new Map(),teamsById=new Map(activeTeams.map(team=>[team.id,team]));
  const siblingPositions=sidebarSiblingPositions(s.pages);
@@ -21,7 +22,7 @@ const Sidebar=memo(function Sidebar({model,onCollapse,desktop,collapsed}){
  for(const row of pageRows){const page=row.page,team=teamsById.get(page.teamspaceId),key=team?'team:'+team.id:page.sidebarSection==='personal'?'personal':page.sidebarSection==='shared'||page.sidebarSection==='teamspace'?'shared':'legacy';section(key,t(key==='personal'?'teamspaces.personalPages':key==='shared'?'teamspaces.sharedPages':'pages'),team||null).rows.push(row);}
  function pageRow({page,depth,hasChildren}){
   const expanded=expandedPages.includes(page.id),manageable=s.role!=='guest'&&page.capabilities.includes('manage'),movable=manageable&&!page.recordId&&!page.templateId,{index,count}=siblingPositions.get(page.id);
-  return <Fragment key={page.id}><motion.li layout="position" transition={surfaceTransition('placement',reduced)} className="sidebar-page-row" style={{paddingInlineStart:depth*14,minWidth:170+depth*14}}>
+  return <Fragment key={page.id}><motion.li layout="position" layoutDependency={treeLayoutKey} transition={surfaceTransition('placement',reduced)} className="sidebar-page-row" style={{paddingInlineStart:depth*14,minWidth:170+depth*14}}>
    {hasChildren||manageable?<Action className="sidebar-page-disclosure" label={t(expanded?'sidebarCollapse':'sidebarExpand',{name:page.title||t('untitled')})} aria-expanded={expanded} onClick={()=>h.togglePage(page.id)}><Icon name="chevron" className={expanded?'chevron expanded':'chevron'}/></Action>:<span className="sidebar-page-spacer" aria-hidden="true"/>}
    <a href={'/workspace'+query+'&page='+encodeURIComponent(page.id)} className={'page-link'+((s.pendingPageId||s.current?.page.id)===page.id?' selected':'')} aria-current={(s.pendingPageId||s.current?.page.id)===page.id?'page':undefined} aria-disabled={s.busy||undefined}
     data-dnd-page-id={!model.room&&page.id!==s.current?.page.id&&page.capabilities.includes('editBody')?page.id:undefined}

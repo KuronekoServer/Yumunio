@@ -50,6 +50,7 @@ import {connectContentStream} from './content-stream.js';
 import {CoalescedReads} from './coalesced-reads.js';
 import {prepareLivePagePatch} from './live-page-patch.js';
 import {claimInitialWorkspaceReads} from './initial-workspace-reads.js';
+import {bundledLocaleManifest,workspaceCatalogs,collectionsCatalogs} from './bundled-catalogs.js';
 import {defaultDatabaseView,createDatabaseViewSettings,mountDatabasePlacement} from './database-placement.js';
 import {renderOutline,renderBreadcrumb,renderBookmark,createBookmarkBlock} from './block-features.js';
 import {renderEquation} from './equation-view.js';
@@ -608,9 +609,12 @@ function setNavigation(open) {
 function autoSize(input) { input.style.height = 'auto'; input.style.height = Math.max(40, input.scrollHeight) + 'px'; }
 function afterModalExit(action){if(modal.open&&modal.inert){modal.addEventListener('close',action,{once:true});return true;}return false;}
 function focusContent() {if(afterModalExit(focusContent))return;document.getElementById('page-title')?.focus({preventScroll:true});}
+function restoreSidebarDisclosure(){
+ if(state.user?.id){const key='yumunio.sidebar.v1:'+workspaceId+':'+state.user.id;if(key!==sidebarStorageScope){sidebarStorageScope=key;expandedSidebarPages.clear();collapsedTeamspaces.clear();let saved;try{saved=readSidebarDisclosure(localStorage,key);}catch{}if(saved){for(const id of saved.expanded)expandedSidebarPages.add(id);for(const id of saved.collapsedTeams)collapsedTeamspaces.add(id);}}}
+}
 function paintChrome(){
  if(signal.aborted)return null;
- if(state.user?.id){const key='yumunio.sidebar.v1:'+workspaceId+':'+state.user.id;if(key!==sidebarStorageScope){sidebarStorageScope=key;expandedSidebarPages.clear();collapsedTeamspaces.clear();let saved;try{saved=readSidebarDisclosure(localStorage,key);}catch{}if(saved){for(const id of saved.expanded)expandedSidebarPages.add(id);for(const id of saved.collapsedTeams)collapsedTeamspaces.add(id);}}}
+ restoreSidebarDisclosure();
  const activeTeams=state.teamspaces.filter(team=>team.role!==null&&!team.archivedAt);
  const mounted=renderChrome({workspaceId,t,room:!!room,selectionMode:blockSelection.mode,state:{...state,current:state.current?{...state.current,page:{...state.current.page}}:null,draft:state.draft?{title:state.draft.title}:null},
   activeTeams,pageRows:sidebarPageRows(state.pages,expandedSidebarPages),collapsedTeams:[...collapsedTeamspaces],expandedPages:[...expandedSidebarPages],
@@ -1851,7 +1855,7 @@ async function selectPage(pageId, reload = false, discardConfirmed = false, owns
   const preview=reload?null:pageReads.preview(pageId);
   if(route.viewId!==undefined)collectionViewId=route.viewId;
   state.current=preview;state.draft=preview?{title:preview.page.title,blocks:clone(preview.document.blocks)}:null;editorHistory=null;state.collection=null;state.collectionError='';state.recordError='';state.people=[];state.dirty=false;state.conflict=false;state.locked=false;
-  state.pendingPageId=pageId;state.loading = true; state.error = ''; state.notice = '';state.navOpen=false;pageHistory(pageId,{...route,historyMode:route.historyMode??(reload?'replace':'push')});render();
+  state.pendingPageId=pageId;state.loading = true; state.error = ''; state.notice = '';state.navOpen=false;pageHistory(pageId,{...route,historyMode:route.historyMode??(reload?'replace':'push')});if(!route.initialPage)render();
   try {
     if(route.initialError)throw new ApiError(route.initialError.status,route.initialError.code);
     const data = route.initialPage?validatePageEnvelope(route.initialPage,pageId):await pageReads.load(pageId,{signal:pageController.signal});
@@ -2459,7 +2463,7 @@ try {
   const initialLocale=preferences.snapshot().locale;
   const requestedPage=new URL(location.href).searchParams.get('page');
   const bootQuery=new URLSearchParams();if(validId(requestedPage)){bootQuery.set('page',requestedPage);if(collectionViewId)bootQuery.set('view',collectionViewId);}
-   const [catalogs,fieldCatalogs,bootRead]=await Promise.all([loadCatalogs({namespace:'workspace',locale:initialLocale}),loadCatalogs({namespace:'collections',locale:initialLocale}),request(workspaceApi('/bootstrap')+(bootQuery.size?'?'+bootQuery:'')).then(value=>({value}),error=>({error}))]);
+   const [catalogs,fieldCatalogs,bootRead]=await Promise.all([loadCatalogs({namespace:'workspace',locale:initialLocale,manifest:bundledLocaleManifest,initialCatalogs:workspaceCatalogs}),loadCatalogs({namespace:'collections',locale:initialLocale,manifest:bundledLocaleManifest,initialCatalogs:collectionsCatalogs}),request(workspaceApi('/bootstrap')+(bootQuery.size?'?'+bootQuery:'')).then(value=>({value}),error=>({error}))]);
    const [instance,config]=bootRead.value?.instance?[validateInstanceConfig(bootRead.value.instance),{enabled:true}]:await Promise.all([loadInstanceConfig(),request('/api/auth/config')]);
   const sessionRead=bootRead.value?{value:{user:bootRead.value.user}}:bootRead.error?.status===401?await request('/api/auth/get-session').then(value=>({value}),error=>({error})):{error:bootRead.error};
   instanceConfig=instance;workspaceBrand=createInstanceBrand(instance);applyInstanceDefaults(preferences,instance);
@@ -2482,7 +2486,8 @@ try {
       }
     }
   }
-  render();
+  restoreSidebarDisclosure();
+  if(state.fatal||!bootRead.value)render();
   if (!state.fatal) {
     contentStream=connectContentStream({workspaceId,accountId:state.user.id,signal,onChange:detail=>window.dispatchEvent(new CustomEvent('yumunio:content-changed',{detail})),onDenied:()=>{pageReads.clear();destroyRoom();state.current=null;state.draft=null;state.collection=null;state.pages=[];state.locked=true;state.fatal='unauthorized';render();}});
     if(bootRead.value)applyLiveDirectory(bootRead.value.directory);

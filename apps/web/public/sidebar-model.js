@@ -1,4 +1,7 @@
 /** Only projected readable pages are supplied; never infer hidden ancestors. */
+export function sidebarLayoutKey({pageRows,activeTeams,collapsedTeams,expandedPages,state}){
+ return JSON.stringify([pageRows.map(({page,depth,hasChildren})=>[page.id,depth,hasChildren]),activeTeams.map(team=>team.id),collapsedTeams,expandedPages,state.pages.filter(page=>page.favorite).map(page=>page.id)]);
+}
 export function sidebarPageRows(pages,expanded=new Set()){
  const byId=new Map(pages.map(page=>[page.id,page])),children=new Map(),roots=[];
  for(const page of pages){if(!byId.has(page.parentId))roots.push(page);else{if(!children.has(page.parentId))children.set(page.parentId,[]);children.get(page.parentId).push(page);}}

@@ -1,6 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {sidebarPageRows,revealSidebarPage,sidebarSiblings,sidebarSiblingPositions,sidebarAncestors,sidebarDropPlacement,readSidebarDisclosure,writeSidebarDisclosure} from '../public/sidebar-model.js';
+import {sidebarPageRows,revealSidebarPage,sidebarSiblings,sidebarSiblingPositions,sidebarAncestors,sidebarDropPlacement,readSidebarDisclosure,writeSidebarDisclosure,sidebarLayoutKey} from '../public/sidebar-model.js';
+
+test('sidebar layout measurements follow tree geometry rather than selection or document edits',()=>{
+ const pages=[{id:'a',parentId:null},{id:'b',parentId:null}],model={state:{pages,current:{page:{id:'a'}},draft:{title:'Before'}},pageRows:sidebarPageRows(pages),activeTeams:[{id:'team'}],collapsedTeams:[],expandedPages:[]},before=sidebarLayoutKey(model);
+ model.state.current.page.id='b';model.state.draft.title='After';assert.equal(sidebarLayoutKey(model),before);
+ model.pageRows=sidebarPageRows(pages.toReversed());assert.notEqual(sidebarLayoutKey(model),before);model.pageRows=sidebarPageRows(pages);
+ model.expandedPages=['a'];assert.notEqual(sidebarLayoutKey(model),before);model.expandedPages=[];
+ model.collapsedTeams=['team'];assert.notEqual(sidebarLayoutKey(model),before);model.collapsedTeams=[];
+ pages[1].favorite=true;assert.notEqual(sidebarLayoutKey(model),before);
+});
 test('sidebar collapses descendants without synthesizing unreadable ancestors or mixing independent roots',()=>{
  const pages=[{id:'collection',parentId:null},{id:'record',parentId:'collection'},{id:'child',parentId:'record'},{id:'shared',parentId:null},{id:'orphan',parentId:'unreadable'}],expanded=new Set();
  assert.deepEqual(sidebarPageRows(pages,expanded).map(({page,depth,hasChildren})=>[page.id,depth,hasChildren]),[['collection',0,true],['shared',0,false],['orphan',0,false]]);

@@ -38,6 +38,14 @@ test('workspace and embedded editor preload the same content-versioned controlle
  const read=name=>readFile(new URL('../../../.build/web/'+name+'.html',import.meta.url),'utf8'),workspace=await read('workspace'),detail=await read('workspace-detail'),version=workspace.match(/href="\/workspace\.js\?v=([a-f0-9]{64})"/)?.[1];assert.ok(version);assert.ok(detail.includes('/workspace.js?v='+version));
  for(const html of [workspace,detail]){const index=html.indexOf('src="/workspace-preload.js?v='+version+'"');assert.ok(index>=0&&index<html.indexOf('</head>'),'bootstrap requests start from the head while React loads');}
 });
+
+test('workspace and detail styles are compiled without a stylesheet request waterfall',async()=>{
+ for(const name of ['workspace','workspace-detail']){
+  const html=await readFile(new URL('../../../.build/web/'+name+'.html',import.meta.url),'utf8'),styles=[...html.matchAll(/<link rel="stylesheet" href="([^"?]+)"/g)].map(match=>match[1]);
+  assert.ok(styles.length>0&&styles.length<=5,'compiled route styles stay within five parallel requests');assert.ok(styles.every(path=>path.startsWith('/_next/static/css/')));
+  const css=(await Promise.all(styles.map(path=>readFile(new URL('../../../.build/web'+path,import.meta.url),'utf8')))).join('\n');assert.doesNotMatch(css,/@import\s+(?:url|["'])/);assert.match(css,/database-placement/);assert.match(css,/record-detail-panel/);
+ }
+});
 test('initial setup authorization is consumed once from the fragment without losing other URL parameters',()=>{
  const calls=[],location={pathname:'/setup',search:'?locale=en',hash:'#start=synthetic'},history={state:{position:1},replaceState(...args){calls.push(args);}};
  assert.equal(consumeSetupAuthorization(location,history),'synthetic');assert.deepEqual(calls,[[{position:1},'','/setup?locale=en']]);
