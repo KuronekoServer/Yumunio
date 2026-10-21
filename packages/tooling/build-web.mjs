@@ -8,6 +8,8 @@ import { offlineAssetPaths } from '../../apps/web/public/offline-policy.js';
 import {buildNextPages} from './next-pages.mjs';
 import {syncLocalizations} from './localization.mjs';
 import {bundleBrowserControllers,addControllerPreloads} from './browser-bundles.mjs';
+import {buildUiStyles} from './build-ui.mjs';
+import {uiLicenseNotices} from './ui-licenses.mjs';
 
 const projectRoot = fileURLToPath(new URL('../../', import.meta.url));
 const allowedExtensions = new Set(['.html', '.css', '.js', '.json', '.svg', '.png', '.ico', '.txt']);
@@ -128,6 +130,8 @@ export async function buildWeb(root = projectRoot) {
   ]);
   const notices = [];
   if(nextEnabled){
+    await buildUiStyles(root);
+    notices.push(...await uiLicenseNotices(projectRoot));
     const editorDigest=createHash('sha256');
     for(const name of [...files].sort())if(/\.(?:js|json)$/.test(name)&&name!=='sw.js')editorDigest.update(name+'\0').update((await readFile(join(publicRoot,name),'utf8')).replaceAll('\r\n','\n'));
     for(const[name,bytes]of [...shared].sort(([a],[b])=>a<b?-1:a>b?1:0))editorDigest.update(name+'\0').update(Buffer.from(bytes).toString('utf8').replaceAll('\r\n','\n'));

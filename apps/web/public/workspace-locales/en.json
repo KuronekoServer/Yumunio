@@ -1,4 +1,8 @@
 {
+  "realtime.connected": "Connected in real time",
+  "realtime.connecting": "Preparing the connection",
+  "realtime.connectionFailed": "Could not connect to collaborative editing. Reconnect to resume editing safely.",
+  "realtime.retry": "Reconnect",
   "synced.insert": "Insert synced block",
   "synced.label": "Synced content",
   "synced.edit": "Edit synced content",

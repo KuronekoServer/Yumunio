@@ -13,7 +13,7 @@ import {createSqliteApiTokenStore} from '../../identity/src/api-token-store.js';
 import {createSqliteContentStore} from '../../identity/src/content-store.js';
 import {createAccountContentApi,validateContentPayload} from '../../identity/src/content.js';
 import {createSqliteRoomPresenceStore} from '../../identity/src/room-presence-store.js';
-import {ROOM_LIMITS,Y,fromBase64,toBase64,loadRoomDocument,loadStructuredRoom,structuredRoomOperation,structuredRoomText,structuredRoomFormat} from '@yumunio/collaboration';
+import {ROOM_LIMITS,Y,fromBase64,toBase64,loadRoomDocument,loadStructuredRoom,structuredRoomOperation,structuredRoomText,structuredRoomReferences,structuredRoomFormat} from '@yumunio/collaboration';
 import {PRESENCE_LIMITS} from '@yumunio/collaboration/presence';
 import {createMcpApi,MCP_PROTOCOL_VERSION} from '../../identity/src/mcp.js';
 import {createWebhookApi} from '../../identity/src/webhooks.js';
@@ -83,7 +83,7 @@ test('OpenAPI YAML parses without duplicate keys, resolves local references and 
   }
  }
  const visit=value=>{if(!value||typeof value!=='object')return;if(value.$ref)resolve(value);Object.values(value).forEach(visit);};visit(spec);
- assert.equal(operationIds.size,71);assert.equal(Object.keys(spec.components.schemas).length,148);assert.equal(Object.hasOwn(spec.paths,'/api/mcp'),false);assert.equal(spec['x-mcp-transport'].endpoint,'/api/mcp');assert.equal(Object.hasOwn(spec['x-mcp-transport'],'x-docs-file'),false);assert.equal(spec['x-mcp-transport'].protocolVersion,MCP_PROTOCOL_VERSION);assert.ok(spec.webhooks.pageUpdateMetadata.post);assert.equal(operationIds.has(spec.webhooks.pageUpdateMetadata.post.operationId),false);
+ assert.equal(operationIds.size,71);assert.equal(Object.keys(spec.components.schemas).length,149);assert.equal(Object.hasOwn(spec.paths,'/api/mcp'),false);assert.equal(spec['x-mcp-transport'].endpoint,'/api/mcp');assert.equal(Object.hasOwn(spec['x-mcp-transport'],'x-docs-file'),false);assert.equal(spec['x-mcp-transport'].protocolVersion,MCP_PROTOCOL_VERSION);assert.ok(spec.webhooks.pageUpdateMetadata.post);assert.equal(operationIds.has(spec.webhooks.pageUpdateMetadata.post.operationId),false);
 });
 
 test('documented private inbox union separates minimal page references from comment excerpts',()=>{
@@ -504,6 +504,16 @@ test('layout support is explicitly negotiated and documented for every room rout
  const f=fixture(t),{content}=await f.ready,headers={'X-Yumunio-Room-Protocol':'2','X-Yumunio-Room-Features':'check-state','X-Yumunio-Room-Extensions':'block-transforms','X-Yumunio-Room-Content':'content-blocks','X-Yumunio-Room-Layout':'block-layout'};
  assert.equal(validator(spec.components.parameters.RoomLayout.schema).validate('block-layout').valid,true);assert.equal(validator(spec.components.parameters.RoomLayout.schema).validate('unknown').valid,false);for(const suffix of ['', '/open','/updates','/renew','/presence'])assert.ok(spec.paths[roomTemplate+suffix].parameters.some(row=>row.$ref==='#/components/parameters/RoomLayout'));
  const opened=await responseMatches(roomTemplate+'/open','post',await f.request(roomPath+'/open',{method:'POST',body:{expectedRevision:(await content.read('workspace','owner')).revision,protocol:2},headers}),201);assert.deepEqual(opened.supportedFeatures,['check-state','block-transforms','content-blocks','block-layout']);
+});
+
+test('documented settings and opaque reference registries match real updates, ACL projection and shared-state responses',async t=>{
+ const f=fixture(t),{content}=await f.ready,headers={'X-Yumunio-Room-Protocol':'2','X-Yumunio-Room-Features':'check-state','X-Yumunio-Room-Extensions':'block-transforms','X-Yumunio-Room-Content':'content-blocks','X-Yumunio-Room-Layout':'block-layout','X-Yumunio-Room-Settings':'block-settings','X-Yumunio-Room-References':'rich-references'};
+ for(const name of ['RoomSettings','RoomReferences'])for(const suffix of ['', '/open','/updates','/renew','/presence'])assert.ok(spec.paths[roomTemplate+suffix].parameters.some(row=>row.$ref==='#/components/parameters/'+name));
+ const opened=await responseMatches(roomTemplate+'/open','post',await f.request(roomPath+'/open',{method:'POST',body:{expectedRevision:(await content.read('workspace','owner')).revision,protocol:2},headers}),201);assert.equal(opened.supportedFeatures.length,6);
+ const doc=loadStructuredRoom(fromBase64(opened.update),opened.seed);let body;
+ try{const vector=Y.encodeStateVector(doc);structuredRoomOperation(doc,opened.seed,{kind:'block-presentation',blockId:'body',presentation:{color:'blue'}});structuredRoomReferences(doc,opened.seed,{blockId:'body',text:'Original body',links:[{start:0,end:8,label:'Original',pageId:'page'}]});body={epoch:opened.epoch,ticket:opened.ticket,update:toBase64(Y.encodeStateAsUpdate(doc,vector)),references:opened.seed.references};}finally{doc.destroy();}
+ requestMatches(roomTemplate+'/updates','post',body);const ack=await responseMatches(roomTemplate+'/updates','post',await f.request(roomPath+'/updates',{method:'POST',body,headers}));assert.equal(Object.keys(ack.referenceTargets).length,1);
+ await responseMatches(roomTemplate,'get',await f.request(roomPath,{headers:{...headers,'X-Yumunio-Room-Ticket':opened.ticket}}));
 });
 
 test('documented block-transforms advertisement, split/merge/convert ACK and check-only rejection match actual SQLite routes',async t=>{

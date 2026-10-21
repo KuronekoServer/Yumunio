@@ -2,7 +2,7 @@
  * authority for sessions, membership, room epochs and every Yjs update. */
 export const ROOM_SOCKET_LIMITS=Object.freeze({messageBytes:100000,responseBytes:400000,peers:64,accountPeers:8,queued:8,idleMs:90000});
 const route=/^\/api\/content\/workspaces\/([A-Za-z0-9._:-]+)\/pages\/([A-Za-z0-9._:-]+)\/room(?:\/ws)?$/;
-const allowedHeaders=new Set(['x-yumunio-expected-account','x-yumunio-room-protocol','x-yumunio-room-features','x-yumunio-room-extensions','x-yumunio-room-content','x-yumunio-room-layout','x-yumunio-room-ticket','x-yumunio-state-vector','x-yumunio-presence-client']);
+const allowedHeaders=new Set(['x-yumunio-expected-account','x-yumunio-room-protocol','x-yumunio-room-features','x-yumunio-room-extensions','x-yumunio-room-content','x-yumunio-room-layout','x-yumunio-room-settings','x-yumunio-room-references','x-yumunio-room-ticket','x-yumunio-state-vector','x-yumunio-presence-client','x-yumunio-room-push']);
 const fail=()=>{throw Object.assign(new Error('Invalid room socket request.'),{code:'ROOM_SOCKET_PROTOCOL'});};
 export function roomSocketScope(path){const match=route.exec(path);return match?{workspaceId:match[1],pageId:match[2],path:'/api/content/workspaces/'+match[1]+'/pages/'+match[2]+'/room'}:null;}
 export function roomSocketRoute(path){return /^\/api\/content\/workspaces\/[A-Za-z0-9._:-]+\/pages\/[A-Za-z0-9._:-]+\/room(?:\/(?:ws|open|updates|renew|presence))?$/.test(path);}
@@ -30,12 +30,13 @@ export async function processRoomSocketFrame(state,raw,dispatch){
  if(suffix===''&&method!=='GET'||['/updates','/renew'].includes(suffix)&&method!=='POST'||(method==='GET')!==!Object.hasOwn(message,'body'))fail();
  const headers={};
  for(const[key,value]of Object.entries(message.headers)){const name=key.toLowerCase();if(!allowedHeaders.has(name)||Object.hasOwn(headers,name)||typeof value!=='string'||value.length>4096||/[\r\n\0]/.test(value))fail();headers[name]=value;}
- if(headers['x-yumunio-expected-account']!==state.accountId||headers['x-yumunio-room-protocol']!=='2'||!state.joined&&suffix!=='')fail();
+ if(headers['x-yumunio-expected-account']!==state.accountId||headers['x-yumunio-room-protocol']!=='2'||!state.joined&&suffix!==''||headers['x-yumunio-room-push']!==undefined&&headers['x-yumunio-room-push']!=='1')fail();
  const now=Date.now();if(now-state.rateAt>=10000){state.rate=0;state.rateAt=now;}if(++state.rate>250)fail();
  state.lastId=id;state.lastSeen=now;
  const response=await dispatch(roomSocketRequest(state,{suffix,method,headers,body}));
  const value=await response.json();
  if(response.ok){
+  if(suffix===''&&headers['x-yumunio-room-push']==='1')state.push=true;
   if(suffix===''||suffix==='/renew')state.joined={...headers,'x-yumunio-room-ticket':value.ticket??headers['x-yumunio-room-ticket']};
   if(state.joined)delete state.joined['x-yumunio-state-vector'];
   if(suffix==='/presence'&&method==='POST')state.presence=body;
@@ -45,9 +46,14 @@ export async function processRoomSocketFrame(state,raw,dispatch){
 }
 /** No content or activity notification is sent to a peer without a fresh check. */
 export async function checkRoomSocketPeer(state,dispatch){
- if(!state.joined||Date.now()-state.lastSeen>ROOM_SOCKET_LIMITS.idleMs)return false;
+ return (await readRoomSocketPeer(state,dispatch))!==null;
+}
+/** The same fresh session/epoch/ACL check returns the state to an opted-in peer,
+ * avoiding a second client request after a content-change notification. */
+export async function readRoomSocketPeer(state,dispatch){
+ if(!state.joined||Date.now()-state.lastSeen>ROOM_SOCKET_LIMITS.idleMs)return null;
  const response=await dispatch(roomSocketRequest(state,{headers:state.joined}));
- return response.ok;
+ return response.ok?response.json():null;
 }
 export async function leaveRoomSocket(state,dispatch){
  if(!state.presence)return;

@@ -47,3 +47,5 @@ Reactの実装は`apps/web/src/motion/`の部品に分け、`apps/web/src/ui-mot
 6. OSの「動きを減らす」を有効にして同じ操作を確認する。
 
 公式資料: [インストール](https://motion.dev/docs/react-installation)、[useReducedMotion](https://motion.dev/docs/react-use-reduced-motion)。
+
+サイドバーメニューはshadcn/uiのRadix Dropdown Menuを使い、フォーカス移動・Esc・外側クリック・位置補正を共通化しています。非モーダルのメニューなので本文を再マウントしません。メニューからダイアログを開いた場合は、そのダイアログからフォーカスを奪いません。公式資料: [Dropdown Menu](https://ui.shadcn.com/docs/components/radix/dropdown-menu)。

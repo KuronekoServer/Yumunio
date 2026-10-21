@@ -2,7 +2,7 @@ import {createInstanceSetup} from '../../packages/identity/src/setup.js';
 import {createD1SetupStore} from '../../packages/identity/src/setup-store.js';
 import {createD1RecoveryStore,assertRecoveryReady} from '@yumunio/backup';
 import {createWorkerAccountServices} from './identity.js';
-import {authorizeRoomSocket,processRoomSocketFrame,checkRoomSocketPeer,leaveRoomSocket,ROOM_SOCKET_LIMITS,roomSocketRoute} from '../../packages/identity/src/room-socket.js';
+import {authorizeRoomSocket,processRoomSocketFrame,readRoomSocketPeer,leaveRoomSocket,ROOM_SOCKET_LIMITS,roomSocketRoute} from '../../packages/identity/src/room-socket.js';
 import {contentChangesPath} from '../../packages/identity/src/content-changes.js';
 import {WorkspaceEvents} from './content-socket.js';
 
@@ -21,7 +21,7 @@ export class PageRoom{
  async state(socket){const id=socket.deserializeAttachment()?.id;if(!id)return null;let state=this.states.get(id);if(!state){state=await this.ctx.storage.get('socket:'+id);if(state)this.states.set(id,state);}return state?{id,state}:null;}
  send(socket,message){const text=JSON.stringify(message);if(new TextEncoder().encode(text).length>ROOM_SOCKET_LIMITS.responseBytes){socket.close(1013);return;}try{socket.send(text);}catch{socket.close(1011);}}
  async notify(kind,source){
-  for(const socket of this.ctx.getWebSockets())if(socket!==source){const peer=await this.state(socket);if(!peer?.state.joined)continue;try{if(await checkRoomSocketPeer(peer.state,request=>this.dispatch(request)))this.send(socket,{type:'changed',kind});else socket.close(4003);}catch{socket.close(1011);}}
+  for(const socket of this.ctx.getWebSockets())if(socket!==source){const peer=await this.state(socket);if(!peer?.state.joined)continue;try{const body=await readRoomSocketPeer(peer.state,request=>this.dispatch(request));if(body)this.send(socket,kind==='content'&&peer.state.push?{type:'state',body}:{type:'changed',kind});else socket.close(4003);}catch{socket.close(1011);}}
  }
  async fetch(request){
   if(request.url==='https://events.internal/changed'||contentChangesPath(new URL(request.url).pathname))return this.enqueue(()=>this.events.fetch(request));

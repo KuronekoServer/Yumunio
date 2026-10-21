@@ -6,9 +6,12 @@ import {MotionDialog,SidebarMenu,useReducedMotionPreference} from './ui-motion.j
 import {surfaceTransition} from '../public/ui-motion-policy.js';
 import {Icon} from './icons.jsx';
 import {sidebarSiblingPositions,sidebarAncestors,sidebarLayoutKey} from '../public/sidebar-model.js';
+import {Button} from './components/ui/button.jsx';
+import {Tooltip,TooltipTrigger,TooltipContent} from './components/ui/tooltip.jsx';
 
 function Action({label,icon,onClick,disabled=false,className='',children,...props}){
- return <button type="button" className={className||'icon-button'} aria-label={label} title={label} disabled={!!disabled} onClick={onClick} {...props}>{icon&&<Icon name={icon}/>} {children}</button>;
+ const button=<Button type="button" variant="ghost" size={children?'sm':'icon-sm'} className={className||'icon-button'} aria-label={label} disabled={!!disabled} onClick={onClick} {...props}>{icon&&<Icon name={icon}/>} {children}</Button>;
+ return icon&&!children?<Tooltip><TooltipTrigger asChild>{button}</TooltipTrigger><TooltipContent>{label}</TooltipContent></Tooltip>:button;
 }
 const Sidebar=memo(function Sidebar({model,onCollapse,desktop,collapsed}){
  const reduced=useReducedMotionPreference(),hidden=desktop?collapsed:!model.state.navOpen;
@@ -79,7 +82,8 @@ function Toolbar({model,controls,sidebarCollapsed,onExpandSidebar}){
  return <header className="workspace-topbar">{sidebarCollapsed&&<Action className="desktop-sidebar-toggle icon-button" label={t('expandSidebar')} icon="sidebar" aria-expanded={false} aria-controls="workspace-sidebar" onClick={onExpandSidebar}/>}<Action className="nav-toggle icon-button" label={t('menu')} icon="menu" aria-expanded={s.navOpen} aria-controls="workspace-sidebar" onClick={()=>h.setNavigation(!s.navOpen)}/>
   <nav className="breadcrumb" aria-label={t('pageTree.breadcrumb')} title={ancestors.map(page=>page.title).join(' / ')}><span translate="no">{team?.name||s.name||t('serverWorkspace')}</span>{ancestors.length>2&&<span aria-hidden="true"> / …</span>}{ancestors.slice(-2).map(page=><Fragment key={page.id}><span className="breadcrumb-divider" aria-hidden="true">/</span><button type="button" className="breadcrumb-page" disabled={s.busy} translate="no" onClick={()=>h.selectPage(page.id)}>{page.title||t('untitled')}</button></Fragment>)}{(s.current||s.pendingPageId)&&<><span className="breadcrumb-divider" aria-hidden="true">/</span><span translate="no" data-page-crumb="">{controls.title??s.draft?.title??t('untitled')}</span></>}</nav>
   <div className="topbar-actions"><span className="save-status" role="status" aria-live="polite" hidden={!controls.status}>{controls.status||''}</span><Action label={t('undo')} icon="undo" disabled={controls.undoDisabled!==false} onClick={()=>h.applyEditorHistory('undo')}/><Action label={t('redo')} icon="redo" disabled={controls.redoDisabled!==false} onClick={()=>h.applyEditorHistory('redo')}/>
-   {s.current&&!model.room&&<Action label={t('roomStart')} icon="users" disabled={s.busy||s.loading||s.listLoading} onClick={h.showRoomStart}/>}
+   {s.current&&<div className="collaboration-presence" data-room-presence=""/>}
+   {s.current&&model.collaboration&&<span className={'connection-indicator'+(controls.collaboration?.connected?' connected':'')} role="status" aria-label={t(controls.collaboration?.connected?'realtime.connected':'realtime.connecting')} title={t(controls.collaboration?.connected?'realtime.connected':'realtime.connecting')}><span aria-hidden="true"/></span>}
    <Action className="button quiet" label={t('shareResource')} disabled={!s.current?.page.capabilities?.some(value=>['manage','invite'].includes(value))||s.busy||s.loading} onClick={h.openResourceSharing}>{t('shareResource')}</Action>
    {s.current?.page.capabilities?.includes('read')&&<a href={'/backlinks?workspace='+encodeURIComponent(workspaceId)+'&page='+encodeURIComponent(s.current.page.id)} className="button toolbar-backlinks">{t('backlinks')}</a>}
    {s.current&&<Action label={t(s.current.page.favorite?'pageTools.removeFavorite':'pageTools.addFavorite')} icon="star" aria-pressed={!!s.current.page.favorite} className="icon-button toolbar-favorite" disabled={!!model.room||s.busy||s.loading||s.locked||s.collection?.dirty} onClick={h.toggleFavorite}/>}

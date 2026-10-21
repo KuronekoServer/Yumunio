@@ -1,5 +1,5 @@
-import { Y, CollaborationError, ROOM_LIMITS, editableRoomKeys, loadRoomDocument, validateRoomDocument, inspectUpdate, inspectStateVector, toBase64, fromBase64,
- loadStructuredRoom,validateStructuredRoom,structuredRoomKeys,structuredRoomOperation,structuredRoomPaste,structuredRoomFormat,structuredRoomText,structuredRoomTableEdit,structuredRoomTableKey,structuredRoomTablePosition,structuredRoomConflicts,structuredRoomFeatures,structuredRoomSelection,resolveStructuredRoomSelection,STRUCTURED_ROOM_FEATURES } from './index.js';
+import { Y, CollaborationError, ROOM_LIMITS, editableRoomKeys, loadRoomDocument, validateRoomDocument, validateReferenceTargets, inspectUpdate, inspectStateVector, toBase64, fromBase64,
+ loadStructuredRoom,validateStructuredRoom,structuredRoomKeys,structuredRoomOperation,structuredRoomPaste,structuredRoomReferences,structuredRoomFormat,structuredRoomText,structuredRoomTableEdit,structuredRoomTableKey,structuredRoomTablePosition,structuredRoomConflicts,structuredRoomFeatures,structuredRoomSelection,resolveStructuredRoomSelection,STRUCTURED_ROOM_FEATURES } from './index.js';
 import {PRESENCE_LIMITS,validPresenceClientId,validatePresenceCursor,validatePresenceSnapshot} from './presence.js';
 
 function readonlyCopy(value) {
@@ -22,13 +22,13 @@ export class HttpRoomClient {
     if(![1,2].includes(protocol))throw new TypeError('INVALID_ROOM_CLIENT');this.protocol=protocol;this.seed=null;this.localOrigin=Object.freeze({});this.undoManager=null;
     if(features===undefined)features=protocol===2?[...STRUCTURED_ROOM_FEATURES]:[];
     if(!Array.isArray(features)||new Set(features).size!==features.length||features.some(feature=>!STRUCTURED_ROOM_FEATURES.includes(feature))||protocol!==2&&features.length)throw new TypeError('INVALID_ROOM_CLIENT');
-    this.features=Object.freeze([...features]);this.serverFeatures=Object.freeze([]);
+    this.features=Object.freeze([...features]);this.serverFeatures=Object.freeze([]);this.serverTargets={};
     this.presenceClientId=presenceClientId;
     this.accountId=accountId;this.workspaceId=workspaceId;this.pageId=pageId;this.baseline=structuredClone(draft);this.allowed=new Set(editableRoomKeys(draft));
     this.request=request;this.doc=null;this.epoch=null;this.ticket=null;this.status='closed';this.pending=false;this.generation=0;this.busy=false;this.sequence=0;
     this.path='/api/content/workspaces/'+encodeURIComponent(workspaceId)+'/pages/'+encodeURIComponent(pageId)+'/room';
   }
-  requestHeaders(extra={}){return{'X-Yumunio-Expected-Account':this.accountId,...(this.protocol===2?{'X-Yumunio-Room-Protocol':'2'}:{}),...(this.features.includes('check-state')?{'X-Yumunio-Room-Features':'check-state'}:{}),...(this.features.includes('block-transforms')?{'X-Yumunio-Room-Extensions':'block-transforms'}:{}),...(this.features.includes('content-blocks')?{'X-Yumunio-Room-Content':'content-blocks'}:{}),...(this.features.includes('block-layout')?{'X-Yumunio-Room-Layout':'block-layout'}:{}),...extra};}
+  requestHeaders(extra={}){return{'X-Yumunio-Expected-Account':this.accountId,...(this.protocol===2?{'X-Yumunio-Room-Protocol':'2'}:{}),...(this.features.includes('check-state')?{'X-Yumunio-Room-Features':'check-state'}:{}),...(this.features.includes('block-transforms')?{'X-Yumunio-Room-Extensions':'block-transforms'}:{}),...(this.features.includes('content-blocks')?{'X-Yumunio-Room-Content':'content-blocks'}:{}),...(this.features.includes('block-layout')?{'X-Yumunio-Room-Layout':'block-layout'}:{}),...(this.features.includes('block-settings')?{'X-Yumunio-Room-Settings':'block-settings'}:{}),...(this.features.includes('rich-references')?{'X-Yumunio-Room-References':'rich-references'}:{}),...extra};}
   async #request(suffix,method,body,extra={}) {
     const lifecycle=this.#lifecycle;
     try{return await this.request({path:this.path+suffix,method,headers:this.requestHeaders(extra),...(body===undefined?{}:{body})});}
@@ -36,7 +36,8 @@ export class HttpRoomClient {
   }
   #prepare(value,{opening=false}={}) {
     if(this.protocol===2?value?.protocol!==2:value?.protocol===2){this.status='stale';throw new CollaborationError('ROOM_PROTOCOL_UNSUPPORTED',409);}
-    const seed=this.protocol===2?(opening?value.seed:this.seed):null;if(this.protocol===2&&(!seed||typeof seed.title!=='string'||!Array.isArray(seed.blocks)))throw new CollaborationError('INVALID_ROOM_RESPONSE');
+    let seed=this.protocol===2?(opening?value.seed:this.seed):null;if(this.protocol===2&&(!seed||typeof seed.title!=='string'||!Array.isArray(seed.blocks)))throw new CollaborationError('INVALID_ROOM_RESPONSE');
+    if(this.protocol===2&&Object.hasOwn(value,'referenceTargets')){validateReferenceTargets(value.referenceTargets);const pending=Object.fromEntries(Object.entries(this.seed?.references??{}).filter(([token])=>!Object.hasOwn(this.serverTargets,token)));seed={...seed,references:{...value.referenceTargets,...pending}};}
     const serverFeatures=opening?(Object.hasOwn(value,'supportedFeatures')?value.supportedFeatures:[]):this.serverFeatures;
     if(!Array.isArray(serverFeatures)||new Set(serverFeatures).size!==serverFeatures.length||serverFeatures.some(feature=>!STRUCTURED_ROOM_FEATURES.includes(feature))||this.protocol!==2&&Object.hasOwn(value,'supportedFeatures'))throw new CollaborationError('INVALID_ROOM_RESPONSE');
     if(!value||value.pageId!==this.pageId||typeof value.epoch!=='string'||!Number.isSafeInteger(value.sequence)||value.sequence<1||
@@ -64,6 +65,7 @@ export class HttpRoomClient {
     try {
       if(this.doc){Y.applyUpdate(this.doc,update,'remote');this.#assertOperation(marker);}else this.doc=candidate;
       this.baseline=serverDraft;this.serverState=serverState;
+      if(this.protocol===2){this.seed=structuredClone(seed);if(Object.hasOwn(value,'referenceTargets'))this.serverTargets=structuredClone(value.referenceTargets);}
       this.epoch=value.epoch;this.sequence=value.sequence;this.revision=value.revision;this.documentVersion=value.documentVersion;this.editable=value.editable;this.serverVector=vector;
       if(opening){this.ticket=value.ticket;this.expiresAt=value.expiresAt;this.serverFeatures=Object.freeze([...serverFeatures]);if(this.protocol===2){this.seed=structuredClone(seed);this.undoManager=new Y.UndoManager([this.doc.getArray('operations'),...structuredRoomKeys(this.doc,this.seed).map(key=>this.doc.getText(key))],{trackedOrigins:new Set([this.localOrigin]),captureTimeout:500});}}
       if(this.protocol===2){this.allowed=new Set(structuredRoomKeys(this.doc,this.seed));for(const key of this.allowed)this.undoManager?.addToScope(this.doc.getText(key));}
@@ -116,7 +118,7 @@ export class HttpRoomClient {
   tableCellKey(position){return structuredRoomTableKey(this.doc,this.seed,position);}
   pasteTree(blocks){
    if(!this.doc||this.status!=='ready'||!this.editable||!this.supportsFeature('content-blocks'))throw new CollaborationError('ROOM_NOT_EDITABLE');const candidate=loadStructuredRoom(Y.encodeStateAsUpdate(this.doc),this.seed),ids=[];let at=0;
-   try{candidate.clientID=this.doc.clientID;structuredRoomPaste(candidate,this.seed,blocks,{createId:()=>{const id=crypto.randomUUID();ids.push(id);return id;}});inspectUpdate(Y.encodeStateAsUpdate(candidate,this.serverVector),{protocol:2});}finally{candidate.destroy();}
+   try{candidate.clientID=this.doc.clientID;const basis=structuredClone(this.seed);structuredRoomPaste(candidate,basis,blocks,{createId:()=>{const id=crypto.randomUUID();ids.push(id);return id;}});if(structuredRoomFeatures(candidate,basis).some(feature=>!this.supportsFeature(feature)))throw new CollaborationError('ROOM_FEATURE_UNSUPPORTED',409);inspectUpdate(Y.encodeStateAsUpdate(candidate,this.serverVector),{protocol:2});}finally{candidate.destroy();}
    this.undoManager.stopCapturing();const result=structuredRoomPaste(this.doc,this.seed,blocks,{origin:this.localOrigin,createId:()=>ids[at++],onField:key=>this.undoManager.addToScope(this.doc.getText(key))});this.allowed=new Set(structuredRoomKeys(this.doc,this.seed));this.undoManager.stopCapturing();this.pending=true;this.generation++;return result;
   }
   tableCellPosition(key){return structuredRoomTablePosition(this.doc,this.seed,key);}
@@ -130,11 +132,17 @@ export class HttpRoomClient {
   }
   operation(operation,{text,marks=[]}={}){
     if(this.protocol!==2||!this.doc||this.status!=='ready'||!this.editable)throw new CollaborationError('ROOM_NOT_EDITABLE');
-    const layout=['column-widths','attachment-layout','database-presentation','columns-arrange'].includes(operation?.kind),transform=['split','merge','convert'].includes(operation?.kind);
-    if(operation?.kind==='check'&&!this.supportsFeature('check-state')||transform&&!this.supportsFeature('block-transforms')||layout&&!this.supportsFeature('block-layout')||(layout||transform||operation?.kind==='check')&&text!==undefined)throw new CollaborationError('ROOM_FEATURE_UNSUPPORTED',409);
+    const layout=['column-widths','attachment-layout','database-presentation','columns-arrange'].includes(operation?.kind),settings=['database-view','block-presentation'].includes(operation?.kind),transform=['split','merge','convert'].includes(operation?.kind);
+    if(operation?.kind==='check'&&!this.supportsFeature('check-state')||transform&&!this.supportsFeature('block-transforms')||layout&&!this.supportsFeature('block-layout')||settings&&!this.supportsFeature('block-settings')||(layout||settings||transform||operation?.kind==='check')&&text!==undefined)throw new CollaborationError('ROOM_FEATURE_UNSUPPORTED',409);
     const id=crypto.randomUUID(),candidate=loadStructuredRoom(Y.encodeStateAsUpdate(this.doc),this.seed);let noOp=false;
     try{candidate.clientID=this.doc.clientID;structuredRoomOperation(candidate,this.seed,operation,{createId:()=>id});noOp=operation.kind==='check'&&candidate.getArray('operations').length===this.doc.getArray('operations').length;if(text!==undefined)structuredRoomText(candidate,'block:'+operation.blockId,text,{marks,base:this.seed});validateStructuredRoom(candidate,this.seed);inspectUpdate(Y.encodeStateAsUpdate(candidate,this.serverVector),{protocol:2});}finally{candidate.destroy();}
     if(noOp)return this.snapshot();this.undoManager.stopCapturing();structuredRoomOperation(this.doc,this.seed,operation,{origin:this.localOrigin,createId:()=>id});this.allowed=new Set(structuredRoomKeys(this.doc,this.seed));for(const key of this.allowed)this.undoManager.addToScope(this.doc.getText(key));if(text!==undefined)this.setText('block:'+operation.blockId,text,{marks});this.undoManager.stopCapturing();this.pending=true;this.generation++;return this.snapshot();
+  }
+  setReferences(command){
+   if(!this.doc||this.status!=='ready'||!this.editable||!this.supportsFeature('rich-references'))throw new CollaborationError('ROOM_NOT_EDITABLE');
+   const candidate=loadStructuredRoom(Y.encodeStateAsUpdate(this.doc),this.seed),ids=[];let at=0;
+   try{candidate.clientID=this.doc.clientID;structuredRoomReferences(candidate,structuredClone(this.seed),command,{createId:()=>{const id=crypto.randomUUID();ids.push(id);return id;}});inspectUpdate(Y.encodeStateAsUpdate(candidate,this.serverVector),{protocol:2});}finally{candidate.destroy();}
+   this.undoManager.stopCapturing();const result=structuredRoomReferences(this.doc,this.seed,command,{origin:this.localOrigin,createId:()=>ids[at++]});this.undoManager.stopCapturing();this.pending=true;this.generation++;return result;
   }
   setMarks({blockId,start,end,marks}){if(this.protocol!==2||!this.doc||this.status!=='ready'||!this.editable)throw new CollaborationError('ROOM_NOT_EDITABLE');const candidate=loadStructuredRoom(Y.encodeStateAsUpdate(this.doc),this.seed);try{candidate.clientID=this.doc.clientID;structuredRoomFormat(candidate,this.seed,{blockId,start,end,marks});inspectUpdate(Y.encodeStateAsUpdate(candidate,this.serverVector),{protocol:2});}finally{candidate.destroy();}this.undoManager.stopCapturing();structuredRoomFormat(this.doc,this.seed,{blockId,start,end,marks},{origin:this.localOrigin});this.undoManager.stopCapturing();this.pending=true;this.generation++;return this.snapshot();}
   history(direction){if(this.protocol!==2||!this.doc||this.status!=='ready'||!this.editable||!['undo','redo'].includes(direction))throw new CollaborationError('ROOM_NOT_EDITABLE');this.undoManager.stopCapturing();const result=this.undoManager[direction]();if(result){this.pending=true;this.generation++;}return this.snapshot();}
@@ -192,17 +200,24 @@ export class HttpRoomClient {
     }finally{if(prepared.candidate!==this.doc&&!prepared.candidate.isDestroyed)prepared.candidate.destroy();}
   }
   /** Hooks run synchronously in the same turn as acceptance; returning a Promise is unsupported. */
-  async sync({canApply,onApply}={}) {
+  async sync({canApply,onApply,pushFirst=false}={}) {
     if(canApply!==undefined&&typeof canApply!=='function'||onApply!==undefined&&typeof onApply!=='function')throw new TypeError('INVALID_ROOM_SYNC_OPTIONS');
     if(!this.doc||this.busy||this.status!=='ready')throw new CollaborationError('ROOM_CLIENT_STOPPED',409);
     const marker=this.#operation();this.busy=true;
     try {
-      const pulled=await this.#request('','GET',undefined,{'X-Yumunio-Room-Ticket':this.ticket,'X-Yumunio-State-Vector':toBase64(this.serverVector)});this.#assertOperation(marker);
-      if(!this.#applySync(pulled,{phase:'pull',canApply,onApply,marker}))return this.#syncResult(true);
+      // Yjs updates merge against the acknowledged vector. Sending pending edits
+      // first avoids a full request round trip per keystroke. The acknowledgement
+      // contains the current merged state, including concurrent remote updates.
+      // On a lost response the same CRDT structs can be sent again idempotently.
+      if(!pushFirst||!this.pending){
+        const pulled=await this.#request('','GET',undefined,{'X-Yumunio-Room-Ticket':this.ticket,'X-Yumunio-State-Vector':toBase64(this.serverVector)});this.#assertOperation(marker);
+        if(!this.#applySync(pulled,{phase:'pull',canApply,onApply,marker}))return this.#syncResult(true);
+      }
       if(this.pending) {
         if(!this.editable)throw new CollaborationError('ROOM_NOT_EDITABLE');
         const generation=this.generation,update=Y.encodeStateAsUpdate(this.doc,this.serverVector);inspectUpdate(update,{protocol:this.protocol});
-        const result=await this.#request('/updates','POST',{epoch:this.epoch,ticket:this.ticket,update:toBase64(update)});this.#assertOperation(marker);
+        const targets=Object.fromEntries(Object.entries(this.seed?.references??{}).filter(([token])=>!Object.hasOwn(this.serverTargets,token)));
+        const result=await this.#request('/updates','POST',{epoch:this.epoch,ticket:this.ticket,update:toBase64(update),...(Object.keys(targets).length?{references:targets}:{})});this.#assertOperation(marker);
         if(result?.acknowledged!==true)throw new CollaborationError('INVALID_ROOM_RESPONSE');
         if(!this.#applySync(result,{phase:'ack',canApply,onApply,marker,ackGeneration:generation}))return this.#syncResult(true);
       }
@@ -210,6 +225,15 @@ export class HttpRoomClient {
     }finally{this.busy=false;}
   }
   #clearPresence(){this.#presenceVersion++;this.#presence=null;this.#presenceReceivedAt=0;}
+  /** Accept an authenticated full state pushed by the existing room connection.
+   * In-flight RPCs and IME may defer this without dropping the newest state. */
+  receive(value,{canApply,onApply}={}){
+    if(!this.doc||this.status!=='ready')throw new CollaborationError('ROOM_CLIENT_STOPPED',409);
+    if(this.busy)return this.#syncResult(true);
+    if(value?.epoch===this.epoch&&value.sequence<=this.sequence&&value.documentVersion<=this.documentVersion&&value.revision<=this.revision)return this.#syncResult();
+    const marker=this.#operation();
+    return this.#applySync(value,{phase:'push',canApply,onApply,marker})?this.#syncResult():this.#syncResult(true);
+  }
   #queuePresence(task){const result=this.#presenceTail.catch(()=>{}).then(task);this.#presenceTail=result.catch(()=>{});return result;}
   /** Local expiry is relative to the received server clock, never a guessed account name. */
   presenceSnapshot({now=Date.now()}={}){

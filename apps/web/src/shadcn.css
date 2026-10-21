@@ -1,0 +1,31 @@
+/* shadcn/ui utilities share Yumunio's saved palette. Preflight is deliberately
+   excluded: the independent editor owns its editable DOM and element defaults. */
+@layer theme, utilities;
+@import 'tailwindcss/theme.css' layer(theme);
+@import 'tailwindcss/utilities.css' layer(utilities);
+@source './components';
+@theme inline {
+ --color-background:var(--canvas);
+ --color-foreground:var(--text);
+ --color-primary:var(--accent);
+ --color-primary-foreground:var(--on-accent);
+ --color-secondary:var(--soft);
+ --color-secondary-foreground:var(--text);
+ --color-accent:var(--soft);
+ --color-accent-foreground:var(--text);
+ --color-popover:var(--surface);
+ --color-popover-foreground:var(--text);
+ --color-muted:var(--soft);
+ --color-muted-foreground:var(--muted);
+ --color-border:var(--border);
+ --color-ring:var(--focus);
+ --color-input:var(--control-border);
+ --color-destructive:#c34646;
+}
+[data-slot="dropdown-menu-content"]{z-index:1000;min-width:220px;border:1px solid var(--border);background:var(--surface);color:var(--text);box-shadow:0 8px 24px #0002;border-radius:7px;padding:4px;max-height:var(--radix-dropdown-menu-content-available-height);overflow:auto;outline:none}
+[data-slot="dropdown-menu-item"]{display:flex;align-items:center;gap:8px;min-height:30px;padding:5px 9px;border:0;border-radius:4px;background:transparent;color:var(--text);font-size:13px;line-height:1.45;outline:none;text-decoration:none;cursor:default;width:100%;text-align:start}
+[data-slot="dropdown-menu-item"][data-highlighted]{background:var(--soft)}
+[data-slot="dropdown-menu-item"][data-disabled]{opacity:.45;pointer-events:none}
+[data-slot="tooltip-content"]{z-index:1100;padding:5px 8px;border-radius:5px;background:var(--text);color:var(--canvas);font-size:12px;line-height:1.4;box-shadow:0 3px 10px #0002;pointer-events:none;animation:ui-tooltip-in 120ms ease-out}
+@keyframes ui-tooltip-in{from{opacity:0;transform:translateY(2px)}to{opacity:1;transform:none}}
+@media(prefers-reduced-motion:reduce){[data-slot="tooltip-content"]{animation:none}[data-slot="button"]{transition:none}}

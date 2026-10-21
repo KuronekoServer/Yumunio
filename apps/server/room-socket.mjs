@@ -1,5 +1,5 @@
 import {WebSocketServer} from 'ws';
-import {authorizeRoomSocket,roomSocketScope,processRoomSocketFrame,checkRoomSocketPeer,leaveRoomSocket,ROOM_SOCKET_LIMITS} from '../../packages/identity/src/room-socket.js';
+import {authorizeRoomSocket,roomSocketScope,processRoomSocketFrame,readRoomSocketPeer,leaveRoomSocket,ROOM_SOCKET_LIMITS} from '../../packages/identity/src/room-socket.js';
 
 /** One Node process owns its page sockets. Persistence and authorization remain
  * in the configured SQLite/Postgres/MySQL content service. */
@@ -10,9 +10,16 @@ export function attachRoomSockets(server,{acquire,assertReady=async()=>{}}){
  const dispatch=request=>use(runtime=>runtime.identity.content(request));
  const send=(peer,message)=>{const text=JSON.stringify(message);if(peer.socket.readyState!==1)return;if(Buffer.byteLength(text)>ROOM_SOCKET_LIMITS.responseBytes||peer.socket.bufferedAmount>ROOM_SOCKET_LIMITS.responseBytes){peer.socket.close(1013);return;}peer.socket.send(text);};
  async function notify(room,kind,source){
-  for(const peer of [...room.peers])if(peer!==source&&peer.state.joined&&peer.socket.readyState===1){
-   try{if(await checkRoomSocketPeer(peer.state,dispatch))send(peer,{type:'changed',kind});else peer.socket.close(4003);}catch{peer.socket.close(1011);}
-  }
+  await Promise.all([...room.peers].filter(peer=>peer!==source&&peer.state.joined&&peer.socket.readyState===1).map(async peer=>{
+   try{const body=await readRoomSocketPeer(peer.state,dispatch);if(body)send(peer,kind==='content'&&peer.state.push?{type:'state',body}:{type:'changed',kind});else peer.socket.close(4003);}catch{peer.socket.close(1011);}
+  }));
+ }
+ function queueNotify(room,kind,source){
+  room.notifications??=new Map();const sources=room.notifications.get(kind)??new Set();sources.add(source);room.notifications.set(kind,sources);
+  if(room.notifyTimer)return;
+  // A short burst shares one fresh authorized fan-out. The next writer need
+  // not wait for an intermediate state to be read back for every peer.
+  room.notifyTimer=setTimeout(()=>{room.notifyTimer=null;room.tail=room.tail.catch(()=>{}).then(async()=>{const pending=room.notifications;room.notifications=new Map();for(const[kind,sources]of pending)await notify(room,kind,sources.size===1?[...sources][0]:null);});},4);room.notifyTimer.unref();
  }
  server.on('upgrade',async(request,socket,head)=>{
   try{if(!roomSocketScope(new URL(request.url,'http://localhost').pathname))return;}catch{return;}
@@ -36,7 +43,7 @@ export function attachRoomSockets(server,{acquire,assertReady=async()=>{}}){
      if(binary||++peer.queued>ROOM_SOCKET_LIMITS.queued){websocket.close(1008);return;}
      room.tail=room.tail.catch(()=>{}).then(async()=>{
       if(websocket.readyState!==1)return;
-      try{const result=await processRoomSocketFrame(state,bytes.toString('utf8'),dispatch);send(peer,result.reply);if(result.denied)websocket.close(4003);else if(result.changed)await notify(room,result.changed,peer);}
+      try{const result=await processRoomSocketFrame(state,bytes.toString('utf8'),dispatch);send(peer,result.reply);if(result.denied)websocket.close(4003);else if(result.changed)queueNotify(room,result.changed,peer);}
       catch(error){if(error.code!=='ROOM_SOCKET_PROTOCOL')console.warn('Room socket request failed:',error.code||error.name);websocket.close(error.code==='ROOM_SOCKET_PROTOCOL'?1008:1011);}
      }).finally(()=>peer.queued--);
     });
@@ -48,6 +55,6 @@ export function attachRoomSockets(server,{acquire,assertReady=async()=>{}}){
   }catch{reject(503);}
  });
  const timer=setInterval(()=>{for(const room of rooms.values())for(const peer of room.peers)if(Date.now()-peer.state.lastSeen>ROOM_SOCKET_LIMITS.idleMs)peer.socket.close(1001);else if(!peer.state.joined&&Date.now()-peer.state.createdAt>10000)peer.socket.close(1008);},10000);timer.unref();
- server.once('close',()=>{clearInterval(timer);for(const room of rooms.values())for(const peer of room.peers)peer.socket.close(1001);sockets.close();});
+ server.once('close',()=>{clearInterval(timer);for(const room of rooms.values()){clearTimeout(room.notifyTimer);for(const peer of room.peers)peer.socket.close(1001);}sockets.close();});
  return{async notify(path,kind='content'){const page=/^(\/api\/content\/workspaces\/[A-Za-z0-9._:-]+\/pages\/[A-Za-z0-9._:-]+)(?:\/|$)/.exec(path),scope=page&&roomSocketScope(page[1]+'/room'),room=scope&&rooms.get(scope.path);if(room)await notify(room,kind);}};
 }

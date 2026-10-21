@@ -2438,6 +2438,8 @@ paths:
       - $ref: "#/components/parameters/RoomExtensions"
       - $ref: "#/components/parameters/RoomContent"
       - $ref: "#/components/parameters/RoomLayout"
+      - $ref: "#/components/parameters/RoomSettings"
+      - $ref: "#/components/parameters/RoomReferences"
     get:
       operationId: readPageRoomState
       summary: Read current room text state or a state-vector delta
@@ -2506,7 +2508,9 @@ paths:
         Frame bodies and returned DTOs use the corresponding HTTP room schemas.
         Response frames contain type=response, id, status and body. Authorized peers
         receive type=changed with kind=content or presence and fetch the current delta
-        through the same WebSocket. Every request and notification rechecks current
+        through the same WebSocket. Clients opting into X-Yumunio-Room-Push: 1 on the
+        first GET state frame instead receive type=state with body=RoomStateResponse
+        for content updates, avoiding the extra client read. Every request and push rechecks current
         authorization; updates are acknowledged only after durable commit. Mutations
         are not automatically replayed by the transport after a disconnect. Input frames
         are bounded to 100000 UTF-8 bytes. No credentials or tickets belong in the URL.
@@ -2533,6 +2537,8 @@ paths:
       - $ref: "#/components/parameters/RoomExtensions"
       - $ref: "#/components/parameters/RoomContent"
       - $ref: "#/components/parameters/RoomLayout"
+      - $ref: "#/components/parameters/RoomSettings"
+      - $ref: "#/components/parameters/RoomReferences"
     post:
       operationId: openPageRoom
       summary: Explicitly create or join the current page room
@@ -2615,6 +2621,8 @@ paths:
       - $ref: "#/components/parameters/RoomExtensions"
       - $ref: "#/components/parameters/RoomContent"
       - $ref: "#/components/parameters/RoomLayout"
+      - $ref: "#/components/parameters/RoomSettings"
+      - $ref: "#/components/parameters/RoomReferences"
     post:
       operationId: updatePageRoomText
       summary: Apply a bounded text-only Yjs update and acknowledge durable persistence
@@ -2676,6 +2684,8 @@ paths:
       - $ref: "#/components/parameters/RoomExtensions"
       - $ref: "#/components/parameters/RoomContent"
       - $ref: "#/components/parameters/RoomLayout"
+      - $ref: "#/components/parameters/RoomSettings"
+      - $ref: "#/components/parameters/RoomReferences"
     post:
       operationId: renewPageRoomTicket
       summary: Renew a room ticket under the same current membership and epoch
@@ -2732,6 +2742,8 @@ paths:
       - $ref: "#/components/parameters/RoomExtensions"
       - $ref: "#/components/parameters/RoomContent"
       - $ref: "#/components/parameters/RoomLayout"
+      - $ref: "#/components/parameters/RoomSettings"
+      - $ref: "#/components/parameters/RoomReferences"
     get:
       operationId: readPageRoomPresence
       summary: Read current authenticated participants and valid cursors
@@ -5080,7 +5092,7 @@ components:
         content-blocks advertisement. A seed table or first rich content operation fences the epoch;
         all room/open/renew/presence/socket requests must retain this header, including after Undo.
         Missing support returns 409 without state or ACK. This flag does not grant attachment, source
-        page or database access. New person/page references in pasted room blocks remain literal text.
+        page or database access. Rich references require the separately negotiated RoomReferences flag.
     RoomLayout:
       name: X-Yumunio-Room-Layout
       in: header
@@ -5092,6 +5104,25 @@ components:
         block-layout. An epoch with layout metadata or operations requires this header on every room,
         renewal, presence and socket request, including after Undo. Missing support returns 409 without
         state or ACK. No source references, attachment access or database permissions can change.
+    RoomSettings:
+      name: X-Yumunio-Room-Settings
+      in: header
+      required: false
+      schema:
+        const: block-settings
+      description: Negotiates local database views and textual block presentation commands.
+        Required on every room route after the first such command, including after Undo.
+        These operations cannot change a database source ID or its permissions.
+    RoomReferences:
+      name: X-Yumunio-Room-References
+      in: header
+      required: false
+      schema:
+        const: rich-references
+      description: Negotiates immutable opaque references in shared CRDT records and an
+        independently authorized target registry. Required on every route after activation.
+        New registrations and content updates commit in the same CAS. Each recipient gets
+        current-ACL projected referenceTargets; private target IDs never enter shared CRDT bytes.
   responses:
     RoomState:
       description: Current text-only room state or requested delta; no ticket is returned.
@@ -6330,12 +6361,67 @@ components:
         - ticket
         - update
       properties:
+        references:
+          $ref: "#/components/schemas/RoomReferenceTargets"
         epoch:
           $ref: "#/components/schemas/Id"
         ticket:
           $ref: "#/components/schemas/RoomTicket"
         update:
           $ref: "#/components/schemas/RoomEncodedUpdate"
+    RoomReferenceTargets:
+      type: object
+      maxProperties: 1000
+      propertyNames:
+        pattern: '^(reference:[A-Za-z0-9._:-]{1,128}|(links|mentions):[A-Za-z0-9._:-]{1,128}:[0-9]{1,4})$'
+      additionalProperties:
+        type: object
+        additionalProperties: false
+        required: [kind, text, entry]
+        properties:
+          kind:
+            enum: [links, mentions]
+          text:
+            type: string
+            maxLength: 100000
+          entry:
+            type: object
+            additionalProperties: false
+            required: [start, end]
+            properties:
+              start:
+                const: 0
+              end:
+                type: integer
+                minimum: 1
+                maximum: 100000
+              label:
+                type: string
+                maxLength: 100000
+              kind:
+                enum: [person, page, date]
+              pageId:
+                $ref: "#/components/schemas/Id"
+              accountId:
+                $ref: "#/components/schemas/Id"
+              membershipId:
+                $ref: "#/components/schemas/Id"
+              attachmentId:
+                $ref: "#/components/schemas/Id"
+              fragment:
+                type: string
+                maxLength: 512
+              date:
+                type: string
+                format: date
+              unavailable:
+                const: true
+      description: Opaque token to normalized reference target. The entry spans its full text.
+        Links require label plus pageId or unavailable. Mentions require kind and its matching
+        target or unavailable. Requests cannot introduce unavailable targets, overwrite a
+        recorded target, or reference an unreadable page/person. Responses remove private
+        targets and membership generation IDs using current permissions. Cross-field invariants
+        and total UTF-8 limits are checked by the server.
     RoomStateResponse:
       type: object
       additionalProperties: false
@@ -6349,6 +6435,8 @@ components:
         - update
         - stateVector
       properties:
+        referenceTargets:
+          $ref: "#/components/schemas/RoomReferenceTargets"
         revision:
           $ref: "#/components/schemas/Version"
         pageId:
@@ -6382,6 +6470,8 @@ components:
         - update
         - stateVector
       properties:
+        referenceTargets:
+          $ref: "#/components/schemas/RoomReferenceTargets"
         revision:
           $ref: "#/components/schemas/Version"
         pageId:
@@ -6409,10 +6499,10 @@ components:
         supportedFeatures:
           type: array
           minItems: 1
-          maxItems: 4
+          maxItems: 6
           uniqueItems: true
           items:
-            enum: [check-state, block-transforms, content-blocks, block-layout]
+            enum: [check-state, block-transforms, content-blocks, block-layout, block-settings, rich-references]
       dependentRequired:
         protocol:
           - seed
@@ -6466,6 +6556,8 @@ components:
         - stateVector
         - acknowledged
       properties:
+        referenceTargets:
+          $ref: "#/components/schemas/RoomReferenceTargets"
         revision:
           $ref: "#/components/schemas/Version"
         pageId:
@@ -8943,6 +9035,12 @@ x-structured-room:
     - check-state
     - block-transforms
     - content-blocks
+    - block-layout
+    - block-settings
+    - rich-references
+  settingsCommands: "database-view {blockId,view,visiblePropertyIds} assigns a validated local view;
+    block-presentation {blockId,presentation} assigns only color/background/icon. Every operation
+    has an immutable id and kind. Database collectionId and reference permissions cannot change."
   transformCommands: "Exact bounded split {id,kind:split,blockId,newBlockId}, merge
     {id,kind:merge,blockId,previousId}, and convert {id,kind:convert,blockId,type,data}.
     Split descriptors add immutable split:{source,cut}, a canonical relative-position boundary.

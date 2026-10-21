@@ -1,5 +1,5 @@
 import { assertId, assertPlainObject, assertTitle,validateBlocks,createPageAccessEvaluator, validateDocument, validatePage } from '@yumunio/domain';
-import { Y,CollaborationError, ROOM_LIMITS, createRoomDocument, encodeRoomState, applyRoomUpdate, roomDiff, toBase64, fromBase64,
+import { Y,CollaborationError, ROOM_LIMITS, validateReferenceTargets, createRoomDocument, encodeRoomState, applyRoomUpdate, roomDiff, toBase64, fromBase64,
  structuredRoomFeatures,createStructuredRoom,applyStructuredUpdate,structuredRoomDiff,STRUCTURED_ROOM_FEATURES } from '@yumunio/collaboration';
 import { rememberPage, trimHistory } from './content-history.js';
 import {preparePageLinkBlocks} from './content-page-links.js';
@@ -7,6 +7,7 @@ import {prepareSyncedBlocks} from './content-synced.js';
 import {prepareMentionBlocks} from './content-mentions.js';
 import {handleRoomPresence} from './content-room-presence.js';
 import {RoomPresenceStoreError} from './room-presence-store.js';
+import {mergeRoomReferenceTargets,projectRoomReferenceTargets} from './content-room-references.js';
 
 const encoder = new TextEncoder();
 const TICKET_TTL_MS=15*60*1000,TICKET_RENEW_GRACE_MS=5*60*1000;
@@ -26,12 +27,14 @@ export function invalidateRooms(payload,pageIds) {
 }
 export function validateRooms(payload,pages) {
   if (!Object.hasOwn(payload,'rooms'))return;
-  if (!Array.isArray(payload.rooms)||payload.rooms.length>8)fail();
+  // Every persisted room belongs to one page. The shared storage byte limit
+  // bounds CRDT state; visiting a ninth page must not disable collaboration.
+  if (!Array.isArray(payload.rooms)||payload.rooms.length>pages.size)fail();
   const ids=new Set();
   for(const room of payload.rooms) {
     exact(room,['pageId','epoch','sequence','documentVersion','state','checkpointed',...(room.protocol===2?['protocol','seed',...(Object.hasOwn(room,'features')?['features']:[])]:[])]);assertId(room.pageId);assertId(room.epoch);
     if(Object.hasOwn(room,'features')&&(!Array.isArray(room.features)||!room.features.length||new Set(room.features).size!==room.features.length||room.features.some(feature=>!STRUCTURED_ROOM_FEATURES.includes(feature))))fail();
-    if(room.protocol===2){exact(room.seed,['title','blocks']);assertTitle(room.seed.title);validateBlocks(room.seed.blocks);if(encoder.encode(JSON.stringify(room.seed)).length>ROOM_LIMITS.documentBytes)fail();}
+    if(room.protocol===2){exact(room.seed,['title','blocks',...(Object.hasOwn(room.seed,'references')?['references']:[])]);assertTitle(room.seed.title);validateBlocks(room.seed.blocks);if(Object.hasOwn(room.seed,'references'))validateReferenceTargets(room.seed.references);if(encoder.encode(JSON.stringify(room.seed)).length>ROOM_LIMITS.documentBytes)fail();}
     if(ids.has(room.pageId)||!pages.has(room.pageId)||!Number.isSafeInteger(room.sequence)||room.sequence<1||room.sequence>=Number.MAX_SAFE_INTEGER||
       !Number.isSafeInteger(room.documentVersion)||room.documentVersion<1||room.documentVersion>pages.get(room.pageId).document.version||typeof room.checkpointed!=='boolean')fail();
     fromBase64(room.state);ids.add(room.pageId);
@@ -70,7 +73,8 @@ async function verifyTicket(token,{secret,accountId,actor,workspaceId,pageId,roo
   return value;
 }
 function currentRoom(payload,item) {return payload.rooms?.find(room=>room.pageId===item.page.id&&room.documentVersion===item.document.version);}
-const requireFeatures=(request,room)=>{if(room?.features?.includes('check-state')&&request.headers.get('x-yumunio-room-features')!=='check-state'||room?.features?.includes('block-transforms')&&request.headers.get('x-yumunio-room-extensions')!=='block-transforms'||room?.features?.includes('content-blocks')&&request.headers.get('x-yumunio-room-content')!=='content-blocks'||room?.features?.includes('block-layout')&&request.headers.get('x-yumunio-room-layout')!=='block-layout')fail('ROOM_PROTOCOL_UNSUPPORTED',409);};
+const featureHeaders={'check-state':'x-yumunio-room-features','block-transforms':'x-yumunio-room-extensions','content-blocks':'x-yumunio-room-content','block-layout':'x-yumunio-room-layout','block-settings':'x-yumunio-room-settings','rich-references':'x-yumunio-room-references'};
+const requireFeatures=(request,room)=>{if(room?.features?.some(feature=>request.headers.get(featureHeaders[feature])!==feature))fail('ROOM_PROTOCOL_UNSUPPORTED',409);};
 const diff=(room,item,vector=null)=>{const result=room.protocol===2?structuredRoomDiff(fromBase64(room.state),room.seed,vector,{expectedDraft:baseline(item)}):roomDiff(fromBase64(room.state),baseline(item),vector);if(result.features?.some(feature=>!room.features?.includes(feature)))fail('ROOM_UNAVAILABLE',503);return result;};
 
 /** Called only after central exact-Origin, expected-account, verified-session and fresh membership guards. */
@@ -97,7 +101,7 @@ export async function handleRoom(ctx) {
       const doc=protocol===2?createStructuredRoom(baseline(item)):createRoomDocument(baseline(item));let state,features=[];try{if(protocol===2)features=structuredRoomFeatures(doc,baseline(item));requireFeatures(request,{features});state=protocol===2?Y.encodeStateAsUpdate(doc):encodeRoomState(doc);}finally{doc.destroy();}
       room={pageId,epoch:assertId(createId()),sequence:1,documentVersion:item.document.version,state:toBase64(state),checkpointed:false,...(protocol===2?{protocol:2,seed:baseline(item),...(features.length?{features}:{})}:{})};
       invalidateRooms(payload,[pageId]);payload.rooms??=[];
-      if(payload.rooms.length>=8)fail('ROOM_CAPACITY',409);payload.rooms.push(room);
+      payload.rooms.push(room);
       const captured=validatePayload(payload,workspaceId);
       try {
         const written=await store.write(workspaceId,accountId,{expectedRevision:saved.revision,payload:captured,actorMembershipId:actor.id,actorRole:actor.role,guardMemberships:[]});
@@ -134,11 +138,12 @@ export async function handleRoom(ctx) {
     const scoped=await verifyTicket(request.headers.get('x-yumunio-room-ticket'),{secret:roomSecret,accountId,actor,workspaceId,pageId,room,stamp,write:false});
     const vector=request.headers.has('x-yumunio-state-vector')?fromBase64(request.headers.get('x-yumunio-state-vector'),1024):null;
     const sync=diff(room,item,vector);
-    return json({revision:saved.revision,pageId,epoch:room.epoch,sequence:room.sequence,documentVersion:room.documentVersion,editable:editable&&scoped.editable,update:toBase64(sync.update),stateVector:toBase64(sync.stateVector),...(room.protocol===2?{protocol:2}:{})});
+    return json({revision:saved.revision,pageId,epoch:room.epoch,sequence:room.sequence,documentVersion:room.documentVersion,editable:editable&&scoped.editable,update:toBase64(sync.update),stateVector:toBase64(sync.stateVector),...(room.protocol===2?{protocol:2,...referenceMetadata(room,payload,saved)}:{})});
   }
   if(action!=='updates'||request.method!=='POST')fail('METHOD_NOT_ALLOWED',405);
   if(!editable)missing();
-  const data=await readJson(request);exact(data,['epoch','ticket','update']);assertId(data.epoch);
+  const data=await readJson(request);exact(data,['epoch','ticket','update',...(Object.hasOwn(data,'references')?['references']:[])]);assertId(data.epoch);
+  if(Object.hasOwn(data,'references')&&(room.protocol!==2||request.headers.get('x-yumunio-room-references')!=='rich-references'))fail('ROOM_PROTOCOL_UNSUPPORTED',409);
   const update=fromBase64(data.update,ROOM_LIMITS.updateBytes);
   const initialMembership=actor.id;
   let current={saved,payload,actor,item,room};
@@ -147,13 +152,16 @@ export async function handleRoom(ctx) {
     requireFeatures(request,currentRoom);
     if(data.epoch!==currentRoom.epoch)fail('ROOM_EPOCH_CHANGED',409);
     await verifyTicket(data.ticket,{secret:roomSecret,accountId,actor:currentActor,workspaceId,pageId,room:currentRoom,stamp:Date.parse(now()),write:true});
-    const previous=fromBase64(currentRoom.state),applied=currentRoom.protocol===2?applyStructuredUpdate(previous,update,currentRoom.seed,{expectedDraft:baseline(currentItem)}):applyRoomUpdate(previous,update,baseline(currentItem));
+    const registered=currentRoom.protocol===2?mergeRoomReferenceTargets({seed:currentRoom.seed,targets:data.references,payload:currentPayload,saved:currentSaved,policy,workspaceId,accountId,pageId}):{guards:[]};
+    const previous=fromBase64(currentRoom.state),applied=currentRoom.protocol===2?applyStructuredUpdate(previous,update,registered.seed,{expectedDraft:baseline(currentItem)}):applyRoomUpdate(previous,update,baseline(currentItem));
+    if(applied.requiredReferences?.some(token=>!Object.hasOwn(registered.seed.references??{},token)))fail();
+    if(currentRoom.protocol===2)currentRoom.seed=registered.seed;
     if(applied.features?.length){requireFeatures(request,{features:applied.features});currentRoom.features=STRUCTURED_ROOM_FEATURES.filter(feature=>currentRoom.features?.includes(feature)||applied.features.includes(feature));}
-    if(same(previous,applied.state))return response(currentSaved.revision,currentRoom,applied);
+    if(same(previous,applied.state))return response(currentSaved.revision,currentRoom,applied,currentPayload,currentSaved);
     if(currentRoom.sequence>=Number.MAX_SAFE_INTEGER-1||currentItem.document.version>=Number.MAX_SAFE_INTEGER-1)fail('ROOM_CAPACITY',409);
-    const stamp=now(),changed=JSON.stringify(applied.draft)!==JSON.stringify(baseline(currentItem));let guards=[];
-    if(changed&&applied.features?.includes('content-blocks')){const evaluate=createPageAccessEvaluator(policy(currentPayload,currentSaved.principals,workspaceId)),referenceAccess=id=>evaluate({accountId,workspaceId,pageId:id}).capabilities;
-      const checked=prepareMentionBlocks({blocks:preparePageLinkBlocks({blocks:prepareSyncedBlocks({blocks:applied.draft.blocks,previousBlocks:currentItem.document.blocks,access:referenceAccess,pageId}),previousBlocks:currentItem.document.blocks,access:referenceAccess,attachments:currentPayload.attachments??[],pageId}),previousBlocks:currentItem.document.blocks,access:referenceAccess,principals:currentSaved.principals,personCanRead:(accountId,pageId)=>evaluate({accountId,workspaceId,pageId}).capabilities.includes('read'),pageId});guards=checked.guards;
+    const stamp=now(),changed=JSON.stringify(applied.draft)!==JSON.stringify(baseline(currentItem));let guards=registered.guards;
+    if(changed&&(applied.features?.includes('content-blocks')||applied.features?.includes('rich-references'))){const evaluate=createPageAccessEvaluator(policy(currentPayload,currentSaved.principals,workspaceId)),referenceAccess=id=>evaluate({accountId,workspaceId,pageId:id}).capabilities;
+      const checked=prepareMentionBlocks({blocks:preparePageLinkBlocks({blocks:prepareSyncedBlocks({blocks:applied.draft.blocks,previousBlocks:currentItem.document.blocks,access:referenceAccess,pageId}),previousBlocks:currentItem.document.blocks,access:referenceAccess,attachments:currentPayload.attachments??[],pageId}),previousBlocks:currentItem.document.blocks,access:referenceAccess,principals:currentSaved.principals,personCanRead:(accountId,pageId)=>evaluate({accountId,workspaceId,pageId}).capabilities.includes('read'),pageId});guards=[...new Map([...guards,...checked.guards].map(guard=>[guard.id,guard])).values()];
     }
     if(changed) {
       if(!currentRoom.checkpointed){rememberPage(currentPayload,currentItem,{actorId:accountId,now,createId});currentRoom.checkpointed=true;}
@@ -165,7 +173,7 @@ export async function handleRoom(ctx) {
     const captured=validatePayload(currentPayload,workspaceId);
     try {
       const written=await store.write(workspaceId,accountId,{expectedRevision:currentSaved.revision,payload:captured,actorMembershipId:currentActor.id,actorRole:currentActor.role,guardMemberships:guards});
-      return response(written.revision,currentRoom,applied);
+      return response(written.revision,currentRoom,applied,currentPayload,currentSaved);
     }catch(error) {
       if(error?.code!=='CONTENT_CONFLICT')throw error;
       const fresh=await freshAccess(ctx,'editBody',initialMembership),nextItem=fresh.payload.pages.find(row=>row.page.id===pageId),nextRoom=currentRoomFor(fresh.payload,nextItem);
@@ -175,8 +183,9 @@ export async function handleRoom(ctx) {
     }
   }
   fail('CONTENT_CONFLICT',409);
-  function response(revision,room,applied) {return json({revision,pageId,epoch:room.epoch,sequence:room.sequence,documentVersion:room.documentVersion,editable:true,update:toBase64(applied.state),stateVector:toBase64(applied.stateVector),acknowledged:true,...(room.protocol===2?{protocol:2}:{})});}
-  function openingMetadata(){if(room.protocol!==2)return{};if(typeof ctx.projectDocument!=='function')fail('ROOM_UNAVAILABLE',503);const visible=new Set(payload.pages.filter(row=>access(row.page.id).includes('read')).map(row=>row.page.id));return{protocol:2,supportedFeatures:STRUCTURED_ROOM_FEATURES.filter(feature=>(feature!=='block-transforms'||request.headers.get('x-yumunio-room-extensions')==='block-transforms')&&(feature!=='content-blocks'||request.headers.get('x-yumunio-room-content')==='content-blocks')&&(feature!=='block-layout'||request.headers.get('x-yumunio-room-layout')==='block-layout')),seed:{title:room.seed.title,blocks:ctx.projectDocument({...item.document,blocks:room.seed.blocks},visible).blocks}};}
+  function referenceMetadata(room,payload,saved){return room.seed?.references?{referenceTargets:projectRoomReferenceTargets({seed:room.seed,payload,saved,policy,workspaceId,accountId,pageId})}:{};}
+  function response(revision,room,applied,payload,saved) {return json({revision,pageId,epoch:room.epoch,sequence:room.sequence,documentVersion:room.documentVersion,editable:true,update:toBase64(applied.state),stateVector:toBase64(applied.stateVector),acknowledged:true,...(room.protocol===2?{protocol:2,...referenceMetadata(room,payload,saved)}:{})});}
+  function openingMetadata(){if(room.protocol!==2)return{};if(typeof ctx.projectDocument!=='function')fail('ROOM_UNAVAILABLE',503);const visible=new Set(payload.pages.filter(row=>access(row.page.id).includes('read')).map(row=>row.page.id));return{protocol:2,supportedFeatures:STRUCTURED_ROOM_FEATURES.filter(feature=>feature==='check-state'||request.headers.get(featureHeaders[feature])===feature),seed:{title:room.seed.title,blocks:ctx.projectDocument({...item.document,blocks:room.seed.blocks},visible).blocks},...referenceMetadata(room,payload,saved)};}
 }
 const currentRoomFor=currentRoom;
 async function freshAccess(ctx,capability,membershipId=ctx.actor.id) {

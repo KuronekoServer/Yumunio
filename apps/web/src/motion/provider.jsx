@@ -2,6 +2,7 @@
 
 import {useCallback, useEffect, useLayoutEffect, useRef} from 'react';
 import {MotionConfig} from 'motion/react';
+import {TooltipProvider} from '../components/ui/tooltip.jsx';
 import {MOTION_SURFACE_EVENT} from '../../public/motion-bridge.js';
 import {blockPlacementChanges, surfaceTransition} from '../../public/ui-motion-policy.js';
 import {useReducedMotionPreference, useSurfaceAnimate} from './hooks.js';
@@ -77,6 +78,6 @@ export function MotionUI({children}) {
   }, [animate, clearPlacements]);
 
   return <MotionConfig reducedMotion="user" transition={surfaceTransition('menu', reduced)}>
-    {children}
+    <TooltipProvider delayDuration={450} skipDelayDuration={150}>{children}</TooltipProvider>
   </MotionConfig>;
 }

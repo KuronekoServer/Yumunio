@@ -1,4 +1,5 @@
 import '../src/app.css';
+import '../../../.build/ui/shadcn.css';
 
 export const metadata = {
   title: { default: 'Yumunio', template: 'Yumunio — %s' },

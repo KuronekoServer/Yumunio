@@ -1,0 +1,41 @@
+/* Compact navigation and quiet document chrome. Editable DOM stays independent. */
+.workspace-brand{font-size:14px;font-weight:600;letter-spacing:0}
+.workspace-sidebar .page-link{min-height:30px;padding-block:4px;font-size:13px;line-height:1.45;border-radius:5px}
+.workspace-sidebar .sidebar-page-row{min-height:30px}
+.workspace-sidebar .sidebar-section-title{font-size:11px;letter-spacing:.01em}
+.workspace-sidebar .sidebar-menu-trigger{font-size:13px}
+.workspace-topbar{min-height:44px;padding-inline:14px;gap:12px}
+.workspace-topbar .breadcrumb{font-size:13px;line-height:1.4}
+.topbar-actions{gap:3px}
+.topbar-actions [data-slot="button"]{min-height:28px;height:28px;border:0;border-radius:5px;box-shadow:none}
+.topbar-actions .button.quiet{padding-inline:9px;font-size:13px}
+.collaboration-presence{display:flex;align-items:center;max-width:180px}
+.collaboration-presence .room-participants{display:flex;align-items:center;gap:0;padding:0;margin:0;list-style:none}
+.collaboration-presence .room-person{border-radius:50%;height:25px;width:25px;margin-inline-start:-5px;border:2px solid var(--canvas);padding:0;overflow:hidden;background:var(--soft);position:relative}
+.collaboration-presence .room-person:first-child{margin-inline-start:0}
+.collaboration-presence .room-person-name{display:none}
+.collaboration-presence .room-person-color{display:flex;align-items:center;justify-content:center;width:100%;height:100%;border-radius:50%;background:var(--participant-color);color:#fff;font-size:11px;font-weight:600}
+.collaboration-presence .hint{display:none}
+.connection-indicator{display:flex;align-items:center;padding:6px;flex:none}
+.connection-indicator>span{width:6px;height:6px;border-radius:50%;background:var(--muted)}
+.connection-indicator.connected>span{background:#5b9c72}
+.connection-notice{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 12px;border:1px solid var(--border);border-radius:6px;font-size:13px;background:var(--surface)}
+.database-placement table th,.database-placement table td{padding:7px 9px;font-size:13px;border-color:var(--border)}
+.database-placement table th{font-weight:400;color:var(--muted)}
+.database-placement table tbody tr:hover{background:var(--soft)}
+.database-placement table tbody button{padding:2px 0;border:0;box-shadow:none;min-height:24px;text-align:start;font-weight:500}
+.database-placement .collection-scroll{border-radius:0}
+.record-detail-panel .workspace-topbar{min-height:40px}
+.detail-editor .record-properties{border:0;padding:0;gap:5px}
+.detail-editor .record-property{grid-template-columns:105px minmax(0,1fr);gap:12px;align-items:start;margin:0}
+.detail-editor .record-property>span{padding-block:7px;font-size:13px;color:var(--muted)}
+.detail-editor .record-field-content .collection-value-input{min-height:32px;padding:5px 8px;border-color:transparent;background:transparent;font-size:13px}
+.detail-editor .record-field-content .collection-value-input:hover{background:var(--soft)}
+.detail-editor .record-field-content .collection-value-input:focus-visible{border-color:var(--accent);background:var(--surface)}
+.detail-editor .record-field-content>.hint{display:none}
+.detail-editor .record-field-content:focus-within>.hint{display:block;font-size:11px}
+.detail-editor .record-actions .button{min-height:26px;padding:3px 0;border:0;color:var(--muted);font-size:11px}
+.detail-editor .child-page-create{justify-self:start;min-height:26px;padding:3px 0;border:0;box-shadow:none;font-size:12px}
+@media(max-width:380px){.detail-editor .record-property{grid-template-columns:1fr;gap:2px}.detail-editor .record-property>span{padding-bottom:0}}
+@media(max-width:760px){.collaboration-presence{max-width:80px}.collaboration-presence .room-person:nth-child(n+4){display:none}.workspace-topbar{padding-inline:8px;gap:6px}.connection-indicator{padding:3px}}
+.collaboration-presence .room-person-color::before { content: attr(data-initial); }

@@ -1,4 +1,8 @@
 {
+  "realtime.connected": "リアルタイムで接続中",
+  "realtime.connecting": "接続を準備しています",
+  "realtime.connectionFailed": "共同編集に接続できませんでした。入力を守るため、接続してから編集を再開します。",
+  "realtime.retry": "再接続する",
   "synced.insert": "同期ブロックを挿入",
   "synced.label": "同期されている内容",
   "synced.edit": "同期した内容を編集",

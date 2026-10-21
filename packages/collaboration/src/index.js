@@ -2,6 +2,7 @@ import * as Y from 'yjs';
 import { assertTitle, validateBlocks, rebaseInlineMarks, rebasePageLinks, rebaseMentions, TEXT_BLOCK_TYPES, BLOCK_PARENT_TYPES } from '@yumunio/domain';
 
 export { Y };
+export {validateReferenceTargets} from './reference-targets.js';
 export const ROOM_LIMITS = Object.freeze({ updateBytes: 64000, stateBytes: 160000, documentBytes: 240000,
   structs: 12000, updateStructs: 2000, clients: 64, logicalLength: 240000, blockCount: 1000 });
 const encoder = new TextEncoder();
@@ -173,7 +174,7 @@ export function roomDiff(state, baseline, stateVector = null) {
   try { if (stateVector) inspectStateVector(stateVector); return {update:Y.encodeStateAsUpdate(doc,stateVector ?? undefined),stateVector:Y.encodeStateVector(doc)}; }
   finally { doc.destroy(); }
 }
-export {createStructuredRoom,loadStructuredRoom,validateStructuredRoom,applyStructuredUpdate,structuredRoomDiff,structuredRoomOperation,structuredRoomPaste,structuredRoomFormat,structuredRoomText,structuredRoomTableKey,structuredRoomTablePosition,structuredRoomTableEdit,structuredRoomKeys,structuredRoomConflicts,structuredRoomFeatures,structuredRoomSelection,resolveStructuredRoomSelection,STRUCTURED_ROOM_LIMITS,STRUCTURED_ROOM_FEATURES} from './structure.js';
+export {createStructuredRoom,loadStructuredRoom,validateStructuredRoom,applyStructuredUpdate,structuredRoomDiff,structuredRoomOperation,structuredRoomPaste,structuredRoomFormat,structuredRoomText,structuredRoomReferences,structuredRoomTableKey,structuredRoomTablePosition,structuredRoomTableEdit,structuredRoomKeys,structuredRoomConflicts,structuredRoomFeatures,structuredRoomSelection,resolveStructuredRoomSelection,STRUCTURED_ROOM_LIMITS,STRUCTURED_ROOM_FEATURES} from './structure.js';
 export function toBase64(bytes) {
   if (!(bytes instanceof Uint8Array)) fail(); let result='';
   for(let i=0;i<bytes.length;i+=8192) result += String.fromCharCode(...bytes.subarray(i,i+8192));

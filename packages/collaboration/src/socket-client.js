@@ -2,9 +2,9 @@ const unavailable=()=>Object.assign(new Error('Room connection interrupted.'),{c
 /** Multiplexes the existing Yjs protocol over a page-scoped WebSocket. Mutations
  * are never replayed by this transport; the Yjs client reconciles after reconnect. */
 export class RoomSocketTransport{
- constructor({url,headers,onChange=()=>{},onReady=()=>{},onDisconnect=()=>{},WebSocket:Socket=globalThis.WebSocket,timeoutMs=10000}){
+ constructor({url,headers,onChange=()=>{},onState=null,onReady=()=>{},onDisconnect=()=>{},WebSocket:Socket=globalThis.WebSocket,timeoutMs=10000}){
   const address=new URL(url);if(!['ws:','wss:'].includes(address.protocol)||address.search||address.hash||typeof headers!=='function'||typeof Socket!=='function')throw new TypeError('INVALID_ROOM_SOCKET');
-  Object.assign(this,{url,headers,onChange,onReady,onDisconnect,Socket,timeoutMs});this.pending=new Map();this.socket=null;this.opening=null;this.ready=false;this.closed=false;this.nextId=0;this.attempt=0;this.retry=null;
+  Object.assign(this,{url,headers,onChange,onState,onReady,onDisconnect,Socket,timeoutMs});this.pending=new Map();this.socket=null;this.opening=null;this.ready=false;this.closed=false;this.nextId=0;this.attempt=0;this.retry=null;
  }
  connect(){
   if(this.closed)return Promise.reject(unavailable());if(this.ready)return Promise.resolve();if(this.opening)return this.opening;
@@ -12,11 +12,12 @@ export class RoomSocketTransport{
    let settled=false;const settle=(error)=>{if(settled)return;settled=true;clearTimeout(timer);error?reject(error):resolve();};
    const socket=new this.Socket(this.url);this.socket=socket;this.nextId=0;
    const timer=setTimeout(()=>{settle(unavailable());socket.close();},this.timeoutMs);
-   socket.addEventListener('open',()=>{if(this.socket!==socket||this.closed)return;void this.rpc({suffix:'',method:'GET',headers:this.headers()},socket).then(()=>{if(this.socket!==socket||this.closed)return;this.ready=true;this.attempt=0;settle();this.onReady();},error=>{settle(error);if([401,403,404,409].includes(error.status))this.closed=true;socket.close();});});
+   socket.addEventListener('open',()=>{if(this.socket!==socket||this.closed)return;void this.rpc({suffix:'',method:'GET',headers:this.headers()},socket).then(value=>{if(this.socket!==socket||this.closed)return;this.ready=true;this.attempt=0;settle();if(typeof this.onState==='function')this.onState(value);this.onReady();},error=>{settle(error);if([401,403,404,409].includes(error.status))this.closed=true;socket.close();});});
    socket.addEventListener('message',event=>{
     if(this.socket!==socket||this.closed)return;
     let message;try{if(typeof event.data!=='string'||event.data.length>400000)throw Error();message=JSON.parse(event.data);}catch{socket.close(1002);return;}
     if(message?.type==='changed'&&['content','presence'].includes(message.kind)){this.onChange(message.kind);return;}
+    if(message?.type==='state'&&typeof this.onState==='function'&&message.body&&typeof message.body==='object'){this.onState(message.body);return;}
     const pending=message?.type==='response'&&this.pending.get(message.id);if(!pending||!Number.isInteger(message.status)||message.status<200||message.status>599||!message.body||typeof message.body!=='object'){socket.close(1002);return;}
     this.pending.delete(message.id);clearTimeout(pending.timer);
     if(message.status>=400)pending.reject(Object.assign(new Error('Room request rejected.'),{code:message.body.error?.code??'ROOM_SOCKET_REJECTED',status:message.status}));else pending.resolve(message.body);

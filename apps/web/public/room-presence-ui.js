@@ -3,7 +3,7 @@ export function participantColor(id){let value=0;for(const char of String(id))va
 export function participantRoster(doc,participants,{label='Coediting participants',you='You',waiting=''}={}){
  const list=doc.createElement('div');list.className='room-participants';list.setAttribute('role','list');list.setAttribute('aria-label',label);
  for(const person of participants){
-  const item=doc.createElement('span'),color=doc.createElement('span'),name=doc.createElement('span');item.className='room-person';item.setAttribute('role','listitem');item.style.setProperty('--participant-color',participantColor(person.id));color.className='room-person-color';color.setAttribute('aria-hidden','true');name.textContent=person.displayName+(person.self?' ('+you+')':'');name.setAttribute('translate','no');name.setAttribute('dir','auto');item.append(color,name);list.append(item);
+  const item=doc.createElement('span'),color=doc.createElement('span'),name=doc.createElement('span');item.className='room-person';item.setAttribute('role','listitem');item.style.setProperty('--participant-color',participantColor(person.id));color.className='room-person-color';color.setAttribute('aria-hidden','true');name.textContent=person.displayName+(person.self?' ('+you+')':'');item.title=name.textContent;item.setAttribute('aria-label',name.textContent);color.setAttribute('data-initial',Array.from(person.displayName||'?')[0]);name.className='room-person-name';name.setAttribute('translate','no');name.setAttribute('dir','auto');item.append(color,name);list.append(item);
  }
  if(!participants.length&&waiting){const message=doc.createElement('span');message.className='hint';message.textContent=waiting;list.append(message);}
  return list;

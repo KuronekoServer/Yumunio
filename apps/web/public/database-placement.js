@@ -20,7 +20,7 @@ function validatePlacementQuery(value,workspaceId,collectionId,view){const resul
 /** Settings belong to the block, never to a saved view on the source collection. */
 export function createDatabaseViewSettings({document,properties,view,visiblePropertyIds,people=[],pages=[],t}){
  const node=(tag,attrs={},children=[])=>{const element=document.createElement(tag);for(const [key,value]of Object.entries(attrs)){if(key==='value'||key==='checked')element[key]=value;else element.setAttribute(key,value);}for(const child of Array.isArray(children)?children:[children])element.append(child?.nodeType?child:document.createTextNode(String(child)));return element;};
- const field=(label,input)=>node('label',{class:'field'},[label,input]);
+ const field=(label,input)=>{input.setAttribute('aria-label',label);return node('label',{class:'field'},[label,input]);};
  const select=(options,value)=>{const input=node('select',{},options.map(([id,label])=>node('option',{value:id},label)));input.value=value??'';return input;};
  const state=structuredClone(view),root=node('div',{class:'database-view-settings'}),name=node('input',{type:'text',maxlength:'128',required:'',value:state.name}),type=select(VIEW_TYPES.map(id=>[id,t(id)]),state.type);
  const group=select([['',t('none')],...properties.filter(p=>!['multi_select','relation'].includes(effectivePropertyType(p))).map(p=>[p.id,p.name])],state.groupBy),dates=[['',t('none')],...properties.filter(p=>effectivePropertyType(p)==='date').map(p=>[p.id,p.name])],start=select(dates,state.datePropertyId),end=select(dates,state.endDatePropertyId);
