@@ -64,3 +64,5 @@ Reactと編集エンジンが同じ子要素を更新しないよう、編集領
 右側の詳細パネルは読み込み先を設定したiframeを表示領域へ接続します。ReactのMotionプロバイダーはその既存DOMをアニメーションし、状態表示や親画面の更新で本文の閲覧コンテキストを作り直しません。
 
 Reactの共通ボタン・サイドバーメニュー・ツールチップはshadcn/uiとRadixを使います。既存の表示設定の色をCSS変数へ接続し、Tailwindのユーティリティを専用のCSSとして生成します。本文エディターへPreflightのリセットを適用しません。部品は `apps/web/src/components/ui/`、生成処理は `packages/tooling/build-ui.mjs` にあります。アプリ版も同じサーバーのNext.js画面を開くため、YjsやUIの別実装を重ねません。
+
+CSS生成はビルド時だけ公式PostCSSプラグインを使い、shadcn用の入力1ファイルへ適用します。Next.js全体へTailwindの変換を追加せず、既存エディターのCSSの読み込み順を維持します。ファイル監視用CLIは依存関係へ含めません。
