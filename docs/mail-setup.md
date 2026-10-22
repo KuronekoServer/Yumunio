@@ -7,6 +7,8 @@
 | Cloudflare Workers | Cloudflare Email Service、暗号化したSMTP接続、HTTPS中継 |
 | Docker / Node.js | 暗号化したSMTP接続、HTTPS中継 |
 
+Cloudflareでホストする場合は、**Cloudflare Email Service**（送信バインディング、推奨）か**SMTP**のどちらかを設定してください。SMTPにはCloudflare Email ServiceのSMTPも使えます。Docker / Node.jsでは、SMTPかHTTPS中継のどちらかを設定します。
+
 ## Cloudflareから直接送信する
 
 1. Cloudflareの **Compute → Email Service → Email Sending** で、送信元に使うドメインを追加します。Cloudflare DNSの利用と、案内されたDNS設定の確認が必要です。受信を転送するEmail Routingとは別の送信設定です。

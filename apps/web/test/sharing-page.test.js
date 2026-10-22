@@ -28,6 +28,7 @@ function environment(t,{community=false,locale='ja'}={}){
   else if(text.endsWith('/invitations'))data={revision,invitations:[{id:'invite-a',pageId:'page-a',recipientEmail:'invited-'+current+'@private.invalid',purpose:'page-guest',role:'viewer',status:'pending',expiresAt:'2027-01-01T00:00:00.000Z'}]};
   else if(text.endsWith('/members'))data={revision,members:[{id:'membership-a',accountId:current,email:current+'@private.invalid',emailVerified:true,role:'owner',currentUser:true},{id:'membership-b',accountId:'member-b',email:'peer@private.invalid',emailVerified:true,role:'member',currentUser:false}]};
   else if(text.endsWith('/grants'))data={revision,grants:[{id:'grant-a',accountId:current,permission:'full',includeDescendants:false}]};
+  else if(text.endsWith('/publication'))data={revision:9,pageId:'page-a',mode:'snapshot',active:false,needsRepublish:false,sourceVersion:null,currentSourceVersion:3,publishedAt:null,publicPath:null};
   else throw new Error('Unexpected route '+text);
   const suffix=[...held.keys()].find(value=>(method+':'+text).endsWith(value)||text===value);
   if(suffix){const gate=held.get(suffix);held.delete(suffix);gate.started.resolve();await gate.promise;}
@@ -139,3 +140,20 @@ test('individual grant and revoke confirmations name the captured resource, reci
  const f=environment(t),controller=f.mount({resourceOnly:true,resourceKind:'collection'});await controller.ready;f.input('grant-account','member-b');f.input('grant-role','editor');const scope=f.root.querySelector('[data-focus="grant-descendants"]');scope.checked=true;scope.dispatch('change');f.root.querySelector('[data-focus="grant-account"]').closest('form').dispatch('submit');const child=f.root.querySelector('#share-modal');assert.ok(child.textContent.includes('Page account-a'));assert.ok(child.textContent.includes('peer@private.invalid'));assert.ok(child.textContent.includes(ja.role_editor));assert.ok(child.textContent.includes(ja.descendantGrantReview));child.querySelectorAll('button')[0].dispatch('click');assert.equal(controller.closeState.dirty,true);assert.equal(f.calls.some(call=>call.options.method==='POST'),false);
  f.root.querySelectorAll('button').find(button=>button.textContent===ja.revokeAccess).dispatch('click');assert.ok(child.textContent.includes('Page account-a'));assert.ok(child.textContent.includes('account-a@private.invalid'));assert.ok(child.textContent.includes(ja.role_full));assert.ok(child.textContent.includes(ja.revokeAccessNote));child.querySelectorAll('button')[0].dispatch('click');controller.destroy();
 });
+
+test('the sharing tabs switch between membership controls and the web publication panel',async t=>{
+ const f=environment(t),controller=f.mount();await controller.ready;
+ assert.equal(f.root.querySelector('[data-focus="tab-web"]').getAttribute('aria-selected'),'false');
+ assert.ok(f.root.querySelector('[data-focus="invite-email"]'));
+ f.root.querySelector('[data-focus="tab-web"]').dispatch('click');await flush();
+ assert.equal(f.root.querySelector('[data-focus="tab-web"]').getAttribute('aria-selected'),'true');
+ assert.equal(f.root.querySelector('[data-focus="invite-email"]'),null);
+ assert.ok(f.calls.some(call=>call.path.endsWith('/publication')));
+ assert.ok(f.root.textContent.includes(ja.inactive));
+ assert.ok(f.root.textContent.includes(ja.webIntro));
+ assert.ok(f.root.querySelector('[data-focus="tab-share"]'));
+ f.root.querySelector('[data-focus="tab-share"]').dispatch('click');await flush();
+ assert.ok(f.root.querySelector('[data-focus="invite-email"]'));
+ controller.destroy();assert.equal(f.listenerCount(),0);
+});
+

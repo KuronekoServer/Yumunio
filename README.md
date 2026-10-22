@@ -25,7 +25,8 @@ Yumunioは、文章と情報をひとつにまとめるMITライセンスのワ�
 - コレクションのTable／Board／List／Gallery／Calendar／Timeline／Chart／Feedビュー
 - 本文内のデータベースとリンク済みビュー、一覧を残した右側の詳細編集、本文・初期値をまとめるDBテンプレート
 - 元の権限を守って複数ページに配置できる同期ブロック
-- 複数ワークスペース、チームスペース、個人・ロール単位の共有、ゲスト、コメント、メンション、共同編集
+- 複数ワークスペース、チームスペース、個人・ロール単位の共有、ゲスト、コメント、メンション、共同編集。ログイン後は最後に開いたワークスペースへ自動で入り、初回や複数の場合はSlackのような一覧から選べます
+- 共有画面の「共有」「Web公開」タブで、メール招待、一般のアクセス、リンクのコピー、公開内容の確認と停止をまとめて操作
 - フォーム、検索、履歴、ごみ箱、ワークスペースのエクスポート、Notion／AppFlowyデータのインポート
 - 6種類のテーマ、個人カラー・フォント設定、日本語／英語のJSON翻訳、インスタンスのロゴ・ブランド設定
 - 任意で有効化できるGoogle／GitHub／Discord／OIDC認証、API、MCPサーバー、Webhook、暗号化バックアップ
@@ -119,6 +120,9 @@ npm start
 ## Cloudflare Workersで動かす
 
 [Workers導入ガイド](docs/hosting/cloudflare.md)に、Web初期設定・独自ドメイン・メール・更新時の保存領域をまとめています。
+メール送信は、サイト設定で**Cloudflare Email Service**（Workerの`EMAIL`送信バインディング）か**SMTP**（Cloudflare Email ServiceのSMTPを含む）のどちらかを設定します。手順は[メール送信の設定](docs/mail-setup.md)を参照してください。
+
+
 
 上の**Deploy to Cloudflare**ボタンから、Cloudflareアカウントへ構築できます。CloudflareとGitHub／GitLabのアカウントが必要です。先にCloudflare側でR2を有効にしてください。
 
@@ -140,7 +144,7 @@ npm run deploy
 
 ## 設定と連携
 
-初期設定後は、管理者でログインし、サーバー管理画面の**サイト設定**（`/setup`）から表示名・言語・テーマ・登録方針・ドメイン制限・メール・外部ログインを変更できます。WorkersではCloudflare Email Service、SMTP、HTTPS中継、Node.jsではSMTPとHTTPS中継を選べます。設定画面に接続の手順を表示します。詳細は[メール送信の設定](docs/mail-setup.md)を参照し、管理画面のメールテストと受信箱で接続・到着を確認してください。
+初期設定後は、管理者でログインし、サーバー管理画面の**サイト設定**（`/setup`）から表示名・言語・テーマ・登録方針・ドメイン制限・メール・外部ログインを変更できます。Cloudflareでホストする場合はCloudflare Email ServiceかSMTPを、Node.jsではSMTPかHTTPS中継を選びます。WorkersではHTTPS中継も利用できます。設定画面に接続の手順を表示します。詳細は[メール送信の設定](docs/mail-setup.md)を参照し、管理画面のメールテストと受信箱で接続・到着を確認してください。
 
 Webで保存した設定はDBへ暗号化して保存され、対応する環境変数より優先されます。パスワードの読み戻しはできません。空欄で保存すると現在の値を保持します。Node／Dockerは`.data/instance-secret`を含む保存領域を維持してください。Workersはデプロイ時に自動登録された`YUMUNIO_INSTANCE_SECRET`を保持します。更新時に再生成されることはありません。
 

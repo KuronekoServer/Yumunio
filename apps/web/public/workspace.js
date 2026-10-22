@@ -50,6 +50,7 @@ import {connectContentStream} from './content-stream.js';
 import {CoalescedReads} from './coalesced-reads.js';
 import {prepareLivePagePatch} from './live-page-patch.js';
 import {claimInitialWorkspaceReads} from './initial-workspace-reads.js';
+import {rememberWorkspace} from './workspace-chooser-model.js';
 import {bundledLocaleManifest,workspaceCatalogs,collectionsCatalogs} from './bundled-catalogs.js';
 import {defaultDatabaseView,createDatabaseViewSettings,mountDatabasePlacement} from './database-placement.js';
 import {renderOutline,renderBreadcrumb,renderBookmark,createBookmarkBlock} from './block-features.js';
@@ -2521,6 +2522,7 @@ try {
       if (!session?.user?.id) state.fatal = 'unauthorized';
       else {
         state.user = { id: session.user.id, name: session.user.name };
+        try{rememberWorkspace(globalThis.localStorage,session.user.id,workspaceId);}catch{}
         preferences = new PreferencesStore({ profileId: state.user.id });applyInstanceDefaults(preferences,instanceConfig);
         await Promise.all([i18n.switchLocale(preferences.snapshot().locale),fieldI18n.switchLocale(preferences.snapshot().locale)]);applyPreferences();
         if (session.user.emailVerified !== true) state.fatal = 'unverified';

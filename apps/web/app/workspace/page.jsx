@@ -1,6 +1,7 @@
 import {PageFrame} from '../../src/page-frame.jsx';
 import {WorkspacePage} from '../../src/workspace-page.jsx';
 import '../../src/workspace-styles.css';
+import '../../src/workspace-chooser.css';
 
 export const metadata={title:"ワークスペース"};
 

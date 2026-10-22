@@ -9,6 +9,7 @@ import {sidebarSiblingPositions,sidebarAncestors,sidebarLayoutKey} from '../publ
 import {Button} from './components/ui/button.jsx';
 import {Tooltip,TooltipTrigger,TooltipContent} from './components/ui/tooltip.jsx';
 import {SidebarSizeHandle,useSidebarSize} from './sidebar-size.jsx';
+import {WorkspaceChooser} from './workspace-chooser.jsx';
 
 function Action({label,icon,onClick,disabled=false,className='',children,...props}){
  const button=<Button type="button" variant="ghost" size={children?'sm':'icon-sm'} className={className||'icon-button'} aria-label={label} disabled={!!disabled} onClick={onClick} {...props}>{icon&&<Icon name={icon}/>} {children}</Button>;
@@ -94,7 +95,7 @@ function Toolbar({model,controls,sidebarCollapsed,onExpandSidebar}){
 }
 
 /** The editor engine owns the content host; React owns navigation, toolbar and route lifecycle. */
-export function WorkspacePage(){
+function WorkspaceEditor(){
  const reduced=useReducedMotionPreference(),[desktop,setDesktop]=useState(true);
  useEffect(()=>{const media=matchMedia('(min-width:761px)'),change=()=>setDesktop(media.matches);change();media.addEventListener('change',change);return()=>media.removeEventListener('change',change);},[]);
  const root=useRef(null),modal=useRef(null),content=useRef(null),lastControls=useRef(''),[model,setModel]=useState(null),[controls,setControls]=useState({}),[failed,setFailed]=useState(false),[sidebarCollapsed,setSidebarCollapsed]=useState(false);
@@ -116,3 +117,13 @@ export function WorkspacePage(){
   {model?<><Sidebar model={model} onCollapse={collapseSidebar} desktop={desktop} collapsed={sidebarCollapsed}/>{desktop&&!sidebarCollapsed&&<SidebarSizeHandle sizing={sidebarSize} t={model.t}/>}<button type="button" className="nav-scrim" aria-label={model.t('closeMenu')} tabIndex={-1} onClick={()=>model.handlers.setNavigation(false)}/><main className="workspace-main"><Toolbar model={model} controls={controls} sidebarCollapsed={sidebarCollapsed} onExpandSidebar={expandSidebar}/><div className="workspace-scroll" data-locale-notice-host="" ref={content}/></main><p id="block-dnd-instructions" className="sr-only">{model.t('blockDnd.instructions')}</p><p id="block-dnd-status" className="sr-only" role="status" aria-live="polite" aria-atomic="true"/></>:<><aside className="workspace-sidebar workspace-loading-nav"><div className="workspace-brand"><Icon name="notebook"/>Yumunio</div></aside><main className="workspace-main"><p className="startup" role={failed?'alert':'status'}>{failed?'画面を読み込めませんでした。再読み込みしてください。':'ワークスペースを確認しています…'}</p></main></>}
  </motion.div><MotionDialog id="workspace-modal" ref={modal} aria-labelledby="workspace-modal-heading"/><noscript>この画面を利用するには JavaScript を有効にしてください。</noscript></>;
 }
+
+/** A missing workspace id shows the Slack-like chooser; the editor mounts only when one is known. */
+export function WorkspacePage(){
+ const[mode,setMode]=useState('pending');
+ useEffect(()=>{setMode(new URL(location.href).searchParams.get('workspace')?'editor':'chooser');},[]);
+ if(mode==='chooser')return <WorkspaceChooser/>;
+ if(mode==='pending')return <div className="workspace-shell" aria-busy="true"><main className="workspace-main"><p className="startup" role="status">ワークスペースを確認しています…</p></main></div>;
+ return <WorkspaceEditor/>;
+}
+

@@ -19,6 +19,7 @@ Next.jsが出力するインラインの起動スクリプトとFlightデータ�
 - `apps/web/app/`: URLごとのページ、共通レイアウト、エラー・404画面。
 - `apps/web/src/setup-page.jsx`: 初期設定とサイト設定のフォーム・手順・言語切替。
 - `apps/web/src/workspace-page.jsx`: サイドバー、ページ一覧、チームスペース、操作バー、確認が必要な状態の通知。
+- `apps/web/src/workspace-chooser.jsx`: ワークスペースIDのない `/workspace` で、参加中のワークスペース一覧、最後に開いたワークスペースへの自動入室、新規作成を表示。
 - `apps/web/src/motion/`: パネル、サイドバーメニュー、モーダルと共通のMotionフック。`ui-motion.jsx`から公開。
 - `apps/web/public/record-panel.js`: 詳細の保存確認、送信元・アカウント照合、権限喪失時の破棄、一覧へのフォーカス復帰。
 - `apps/web/public/record-panel-dom.js`: Reactのホストがない場合に使うDOM表示。通常画面はReactのパネルを使用。
@@ -39,13 +40,15 @@ Reactと編集エンジンが同じ子要素を更新しないよう、編集領
 
 公開ソースだけで開発する場合は、この文書の寸法、[テーマの検証用データ](../apps/web/test/fixtures/themes.json)、[動きの基準](ui-motion.md)を参照してください。`Yumunio.pen`はローカルで管理する共有デザイン原本で、Gitとコンテナーの公開対象から除外しています。UI提案には架空データのスクリーンショットと操作手順を添えられます。
 
-`Yumunio.pen` の「64 — Focused editor and familiar navigation」「Component / Compact sidebar」「138 — Neutral dark document」「139 — Neutral dark workspace hub」「140 — Light workspace hub」「141 — Neutral dark collection table」「142 — Neutral dark hub / contextual link controls」を基準とします。デスクトップのサイドバーは初期256pxで200〜480pxの範囲を調整でき、ページの行は30px、操作バーは40px、標準本文は720px・上余白88pxです。全幅のページでは複数列のリンク、コールアウト、表を広く配置できます。本文のアイコンと見出しを大きくし、通常の操作と表の罫線は控えめにしています。カラムの追加操作やリンク先の補助表示はホバー・キーボードフォーカス時に表示し、本文のバージョンなどは編集オプション内にまとめます。
+`Yumunio.pen` の「64 — Focused editor and familiar navigation」「Component / Compact sidebar」「138 — Neutral dark document」「139 — Neutral dark workspace hub」「140 — Light workspace hub」「141 — Neutral dark collection table」「142 — Neutral dark hub / contextual link controls」「05b — Sharing Web publishing」「44 — Workspace chooser」を基準とします。デスクトップのサイドバーは初期256pxで200〜480pxの範囲を調整でき、ページの行は30px、操作バーは40px、標準本文は720px・上余白88pxです。全幅のページでは複数列のリンク、コールアウト、表を広く配置できます。本文のアイコンと見出しを大きくし、通常の操作と表の罫線は控えめにしています。カラムの追加操作やリンク先の補助表示はホバー・キーボードフォーカス時に表示し、本文のバージョンなどは編集オプション内にまとめます。
 
 サイドバーの幅は`src/sidebar-size.jsx`が管理します。`public/sidebar-resize.js`がPointer Capture、キャンセル、キーボード操作、幅の制約、ローカル設定の読み書きを担当します。ドラッグはフレーム単位で反映し、保存は確定時に一度だけ行います。個人の画面配置なのでYjsの共有文書や本文のUndo履歴には含めません。ウィンドウが狭くなっても保存した希望幅を上書きしません。
 
 添付されたNotionの参考画面から、情報の階層、ページツリーの密度、標準幅と全幅の使い分けを取り入れています。Midnightテーマはチャコール系の背景と中立色の選択表示に揃えました。既定のLight、保存済みのテーマ選択、六つのテーマと個人の配色は維持します。配色はブラウザー・サーバー・テーマの検証用データ・Penの変数を一致させます。デザインを変更するときは同じ作業内で対応する `Yumunio.pen` の画面と共通部品も更新し、スクリーンショットで確認します。
 
 [Notionのサイドバーの案内](https://www.notion.com/help/navigate-with-the-sidebar)を参考に、検索・ホーム・受信トレイ・お気に入り・自分用ページ・チームスペース・設定を整理しています。サイドバーの開閉と上部のお気に入り操作は本文の編集状態を保ったまま使えます。実装済みの機能だけを表示します。モバイルは「09 — Mobile editor」を基準にサイドバーをドロワーにし、本文の余白と操作の大きさを調整します。
+
+ログイン後は `/workspace` が参加中のワークスペースを確認します。1件だけの場合、または前回開いたワークスペースが残っている場合はそのまま入室し、複数の初回だけ「44 — Workspace chooser」の一覧を表示します。一覧では各ワークスペースの「参加する」と「別のワークスペースを作成する」を並べ、表示されない場合は別のメールアドレスでのログインを案内します。共有画面は「共有」「Web公開」のタブに分け、招待メール、一般のアクセス、リンクのコピー、公開内容の確認と停止を同じ場所で扱います。
 
 初期設定で内部の認証情報を手入力させません。生成した開始リンクのフラグメントから読み取り、初期化時にアドレス欄から消去します。利用者が決めるのはアカウント、ワークスペース名、表示設定です。通常機能の対応範囲と残る差分は[機能対応表](feature-coverage.md)を参照してください。AI機能は対象外です。
 

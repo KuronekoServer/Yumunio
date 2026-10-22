@@ -84,6 +84,8 @@
   "theme_lavender": "ラベンダー",
   "theme_forest": "フォレスト",
   "theme_midnight": "ミッドナイト",
+  "workerMailChoice": "Cloudflareでホストする場合は、Cloudflare Email Service（送信バインディング）かSMTP（Cloudflare Email ServiceのSMTPを含む）のどちらかを設定してください。",
+
   "cloudflare": "Cloudflare メール送信（推奨）",
   "cloudflareIntro": "Cloudflareから直接メールを送れます。この画面で接続用パスワードを入力する必要はありません。",
   "cloudflareDomain": "Cloudflareの「Email Service」→「Email Sending」で、送信元に使うドメインを追加します。",

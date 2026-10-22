@@ -84,6 +84,8 @@
   "theme_lavender": "Lavender",
   "theme_forest": "Forest",
   "theme_midnight": "Midnight",
+  "workerMailChoice": "When Yumunio runs on Cloudflare, configure either Cloudflare Email Service (a send binding) or SMTP (including Cloudflare's SMTP endpoint).",
+
   "cloudflare": "Cloudflare Email Service (recommended)",
   "cloudflareIntro": "Send directly through Cloudflare without entering a connection password on this screen.",
   "cloudflareDomain": "Add your sender domain under Email Service → Email Sending in Cloudflare.",

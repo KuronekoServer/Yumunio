@@ -3,6 +3,7 @@ import { PreferencesStore, THEMES, FONT_OPTIONS, validateCustomColors, contrastR
 import {createI18n,loadCatalogs,createLocaleOptions,applyLocaleDocument} from './i18n.js';
 import {loadInstanceConfig,applyInstanceDefaults,createInstanceBrand} from './instance.js';
 import {InvitationFlow,readInvitationLink} from './invitation-flow.js';
+import {workspaceMonogram} from './workspace-chooser-model.js';
 
 const main = document.getElementById('account-main');
 const language = document.getElementById('language');
@@ -120,7 +121,9 @@ function render() {
     else {
       await api('/sign-in/email', { email: email.value, password: password.value }); password.value = '';
       session = await api('/get-session'); if (!session?.user) throw new Error('failed');
-      preferences = new PreferencesStore({ profileId: session.user.id }); applyInstanceDefaults(preferences,instanceConfig); await i18n.switchLocale(preferences.snapshot().locale); applyPreferences(); render();
+      preferences = new PreferencesStore({ profileId: session.user.id }); applyInstanceDefaults(preferences,instanceConfig); await i18n.switchLocale(preferences.snapshot().locale); applyPreferences();
+      if (!invitationFlow.present && session.user.emailVerified === true) { location.assign('/workspace'); return; }
+      render();
     }
   }); });
   if (signup) { const providers = providerButtons(true); if (providers) main.append(providers); }
@@ -180,7 +183,7 @@ function providerButtons(signup) {
   if(invitationFlow.valid)section.append(node('p',{class:'hint'},t('inviteExternalNote')));
   for (const provider of providers) grid.append(node('button', { type: 'button', class: 'button oauth-button', onClick: () => {
     void perform(section, message, async () => {
-      const data = await api('/sign-in/social', { provider: provider.id, callbackURL: '/account', requestSignUp: signup });
+      const data = await api('/sign-in/social', { provider: provider.id, callbackURL: invitationFlow.valid ? '/account' : '/workspace', requestSignUp: signup });
       let target; try { target = new URL(data?.url); } catch { throw new Error('oauthFailed'); }
       if (target.protocol !== 'https:' || target.username || target.password) throw new Error('oauthFailed');
       message.textContent = t('oauthOpening'); location.assign(target.href);
@@ -203,15 +206,22 @@ function renderAccount() {
     if (marker !== generation) return;
     list.replaceChildren();
     if (!Array.isArray(items) || !items.length) list.append(node('li', {}, t('empty')));
-    else for (const workspace of items) list.append(node('li', { translate: 'no' }, [node('strong', {}, workspace.name), node('span', { class: 'workspace-slug' }, workspace.slug), node('a', { href: '/workspace?workspace=' + encodeURIComponent(workspace.id), class: 'workspace-open' }, t('openWorkspace')), node('a', { href: '/templates?workspace=' + encodeURIComponent(workspace.id), class: 'workspace-open' }, t('personalTemplates'))]));
+    else for (const workspace of items) list.append(node('li', { class: 'workspace-row', translate: 'no' }, [
+      node('span', { class: 'workspace-tile', 'aria-hidden': 'true' }, workspaceMonogram(workspace.name)),
+      node('span', { class: 'workspace-identity' }, [node('strong', {}, workspace.name), node('span', { class: 'workspace-slug' }, workspace.slug)]),
+      node('span', { class: 'workspace-actions' }, [
+        node('a', { href: '/workspace?workspace=' + encodeURIComponent(workspace.id), class: 'workspace-open' }, t('openWorkspace')),
+        node('a', { href: '/templates?workspace=' + encodeURIComponent(workspace.id), class: 'workspace-templates' }, t('personalTemplates'))
+      ])
+    ]));
   }).catch(() => { if (marker === generation) list.replaceChildren(node('li', {}, t('workspaceError'))); });
   const form = node('form', { class: 'account-form' }); const [nameField, name] = field('workspaceName', 'text', 'off', { maxlength: '100' });
   const [slugField, slug] = field('workspaceSlug', 'text', 'off', { maxlength: '100', pattern: '[a-z0-9]+(?:-[a-z0-9]+)*' }); const message = status();
   form.append(nameField, slugField, node('button', { class: 'button primary', type: 'submit' }, t('createWorkspace')), message);
   form.addEventListener('submit', event => { event.preventDefault(); void perform(form, message, async () => {
-    await api('/organization/create', { name: name.value, slug: slug.value }); render();
+    const workspace = await api('/organization/create', { name: name.value, slug: slug.value }); if (workspace?.id) { location.assign('/workspace?workspace=' + encodeURIComponent(workspace.id)); return; } render();
   }); });
-  main.append(form, node('p', { class: 'hint boundary' }, t('boundary')), node('a', { class: 'migration-preview-link', href: '/import' }, t('importPreview')),node('p',{},node('a',{href:'/integrations'},t('integrations'))));
+  main.append(node('details', { class: 'workspace-create' }, [node('summary', {}, t('chooserCreate')), form]), node('p', { class: 'hint boundary' }, t('boundary')), node('a', { class: 'migration-preview-link', href: '/import' }, t('importPreview')),node('p',{},node('a',{href:'/integrations'},t('integrations'))));
 }
 window.addEventListener('beforeunload',event=>{if(invitationFlow.valid){event.preventDefault();event.returnValue='';}});
 language.addEventListener('change', async () => { try { const nextLocale=language.value;if(!await i18n.switchLocale(nextLocale))return;preferences.update({locale:nextLocale}); applyPreferences(); render(); } catch {} });
