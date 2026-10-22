@@ -45,6 +45,22 @@ npm run deploy
 
 メールは [Cloudflare Email ServiceまたはSMTP](../mail-setup.md)、外部アプリは [API・MCP・Webhook](../integrations.md) を参照してください。初期状態では新規登録を閉じています。
 
-標準テンプレートには1分ごとの定期処理を設定し、メール・Webhookの再送などを進めます。バインディングや定期処理を手動で変更した場合は、CloudflareのWorker設定とログも確認してください。
+標準テンプレートには1分ごとの定期処理を設定し、メール・Webhookの再送などを進めます。
+
+
+## 読み込みが遅いとき
+
+ページを開くときの待ち時間は、Cloudflareの障害ではなく、Workerの起動とD1への往復が積み重なって増えることがあります。まずブラウザーの開発者ツールで確認します。
+
+1. **Network**で`bootstrap`（`/api/content/workspaces/…/bootstrap`）を選び、**Waiting for server response（TTFB）**を見ます。
+2. 応答ヘッダの`Server-Timing`に、`setup`・`services`・`handler`の内訳が出ます。`setup`と`services`が大きい場合は設定と認証の準備、`handler`が大きい場合は本文と権限の読み取りが中心です。
+3. 同じページを続けて再読み込みします。**初回だけ遅く2回目以降が速い**場合はコールドスタート、**毎回同じくらい遅い**場合はD1の往復か本文の件数が原因です。
+4. `cf-ray`の末尾（コロンの後ろ）が実際に実行された場所です。D1のプライマリリージョンと離れていると、クエリごとの往復が増えます。
+
+このリポジトリは`wrangler.jsonc`で**Smart Placement**（`"placement": {"mode": "smart"}`）を有効にしています。既存のデプロイへ反映するには、最新の設定で再デプロイしてください。`observability`も有効にしているため、Cloudflareダッシュボードの**Workers Logs**で遅いリクエストと例外を確認できます。
+
+`npx wrangler tail yumunio`を実行すると、リクエストごとのログをその場で確認できます。本文が非常に大きいワークスペースでは、`handler`の時間と転送量が増えます。ページを分割するか、添付を別のページへ移すことで改善できます。
+
+バインディングや定期処理を手動で変更した場合は、CloudflareのWorker設定とログも確認してください。
 
 導入用SQLは [install-migrations](../../apps/worker/install-migrations/) にあります。以前の環境変数方式で作ったDBを初期化するためのSQLではありません。既存DBの変更は、リリースの案内と [従来のマイグレーション](../../apps/worker/migrations/)を確認します。D1・R2・内部の認証情報を同じ構成のまま保持してください。

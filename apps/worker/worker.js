@@ -76,6 +76,7 @@ export default {
             return services?.identity.auth.api.getSession({ headers: request.headers });
           } });
         const state = await setup.load();
+        timings.push(['setup', Date.now() - apiStartedAt]);
         env = state.env;
         if (state.data && url.pathname === '/') return new Response(null, { status: 302, headers: { ...policy, 'Cache-Control': 'no-store', Location: '/account' } });
         if (url.pathname === '/api/setup' || url.pathname === '/api/admin/settings') {
@@ -119,6 +120,7 @@ export default {
       return new Response(request.method === 'HEAD' ? null : JSON.stringify(body), { status: valid ? 200 : 503, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', ...policy } });
     }
     if (url.pathname === '/api' || url.pathname.startsWith('/api/')) {
+      const apiStartedAt = Date.now(), timings = [];
       try {
         if (!valid) throw new Error('Invalid deployment configuration');
         try { if (env.DB) await assertRecoveryReady(createD1RecoveryStore(env.DB)); }
@@ -133,6 +135,7 @@ export default {
         }
         const accountPath = /^\/api\/(?:auth|content|collaboration|preferences|admin|public|integrations|v1|webhooks|mcp)(?:\/|$)/.test(url.pathname);
         const services = identityConfig.enabled && accountPath ? await createWorkerAccountServices(env, identityConfig, context) : null;
+        timings.push(['services', Date.now() - apiStartedAt]);
         const identity = services?.identity;
         let result;
         if (url.pathname === '/api/instance') {
@@ -179,6 +182,8 @@ export default {
           if(page){const notify=env.ROOMS.get(env.ROOMS.idFromName(page[1]+':'+page[2])).fetch(new Request('https://room.internal/changed',{method:'POST'})).catch(()=>{});if(context?.waitUntil)context.waitUntil(notify);else await notify;}
         }
         for (const [name, value] of Object.entries(policy)) if (!result.headers.has(name)) result.headers.set(name, value);
+        timings.push(['handler', Date.now() - apiStartedAt]);
+        if (!result.headers.has('Server-Timing')) result.headers.set('Server-Timing', timings.map(([name, duration]) => name + ';dur=' + duration).join(', '));
         return result;
       } catch {
         return Response.json({ error: { code: 'SERVER_CONFIGURATION', message: 'Check the D1 binding, exact public origin, access key and account configuration.' } }, { status: 503, headers: { 'Cache-Control': 'no-store', ...policy } });
