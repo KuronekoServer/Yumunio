@@ -67,6 +67,22 @@ for(const d1 of [false,true])test((d1?'D1-shaped':'SQLite')+' room initializatio
   if(!d1){f.reopen();const state=await f.read();assert.deepEqual(state,saved);const fresh=await f.open();assert.equal(fresh.epoch,opened.epoch);assert.equal(fresh.sequence,2);}
 });
 
+for(const d1 of [false,true])test((d1?'D1-shaped':'SQLite')+' room acknowledgements carry only the Yjs structs the client is missing',async t=>{
+  const f=await fixture(t,{d1}),open=await f.request('owner','/room/open','POST',{expectedRevision:(await f.read()).revision,protocol:2},{'X-Yumunio-Room-Protocol':'2'});
+  assert.ok([200,201].includes(open.status),await open.clone().text());
+  const opened=await open.json(),doc=loadStructuredRoom(fromBase64(opened.update),opened.seed);
+  t.after(()=>doc.destroy());
+  const vector=Y.encodeStateVector(doc),before=toBase64(vector);
+  structuredRoomText(doc,'block:block','Hello diff',{base:opened.seed});
+  const update=toBase64(Y.encodeStateAsUpdate(doc,vector));
+  const response=await f.request('owner','/room/updates','POST',{epoch:opened.epoch,ticket:opened.ticket,update},{'X-Yumunio-Room-Protocol':'2','X-Yumunio-State-Vector':before});
+  assert.equal(response.status,200,await response.clone().text());
+  const ack=await response.json();
+  const clientDoc=loadStructuredRoom(fromBase64(opened.update),opened.seed);
+  try{Y.applyUpdate(clientDoc,fromBase64(ack.update));assert.equal(clientDoc.getText('block:block').toString(),'Hello diff');assert.equal(toBase64(Y.encodeStateVector(clientDoc)),ack.stateVector);}finally{clientDoc.destroy();}
+  assert.ok(ack.update.length<toBase64(Y.encodeStateAsUpdate(doc)).length,'acknowledgements must carry a diff, not the full room state');
+});
+
 test('concurrent same-epoch writers retry CAS against current state and preserve both edits with one history checkpoint',async t=>{
   const f=await fixture(t),a=await f.open(),b=await f.open('editor');
   const [au,bu]=await Promise.all([update(f,a,doc=>doc.getText('block:block').insert(5,' A')),update(f,b,doc=>doc.getText('block:block').insert(5,' B'))]);

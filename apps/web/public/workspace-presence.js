@@ -3,16 +3,21 @@ import {participantRoster,remoteCursorLayer} from './room-presence-ui.js';
 export function createWorkspacePresence({app,getRoom,getCurrent,isComposing,isModalOpen,translate:t,onAuthorizationFailure,signal}){
  const lifetime=new AbortController(),listen=(target,type,handler,options={})=>target.addEventListener(type,handler,{...options,signal:lifetime.signal});
  signal?.addEventListener('abort',()=>lifetime.abort(),{once:true});
- let frame=0;
+ let frame=0,painted='';
  function refresh(){
-  app.querySelector('.room-cursor-layer')?.remove();
   const host=app.querySelector('[data-room-presence]'),active=getRoom();
-  if(!host||!active||active.phase!=='ready'||document.hidden){host?.replaceChildren();return;}
+  if(!host||!active||active.phase!=='ready'||document.hidden){app.querySelector('.room-cursor-layer')?.remove();host?.replaceChildren();painted='';return;}
   const participants=active.client?.presenceSnapshot()?.participants||[];
+  const stamp=JSON.stringify([participants.map(item=>[item.id,item.displayName,item.self,item.cursor?.blockId??null,item.cursor?.start??null,item.cursor?.end??null,item.expiresAt])]);
+  // Typing changes only the local caret; rebuilding the roster for every key
+  // would repaint the whole presence UI without changing what is shown.
+  if(stamp===painted&&app.querySelector('.room-cursor-layer')?.isConnected)return;
+  app.querySelector('.room-cursor-layer')?.remove();
+  painted=stamp;
   host.replaceChildren(participantRoster(document,participants,{label:t('roomPresence.label'),you:t('roomPresence.you'),waiting:active.presenceError?t(active.presenceError):t('roomPresence.waiting')}));
   if(!isModalOpen())app.append(remoteCursorLayer(document,app,participants,{pageId:getCurrent()?.page.id}));
  }
- function paint(){if(frame)return;frame=requestAnimationFrame(()=>{frame=0;refresh();});}
+ function paint(){if(frame)return;frame=requestAnimationFrame(()=>{frame=0;painted='';refresh();});}
  function cursor(){
   const input=document.activeElement;
   if(isComposing()||isModalOpen()||!input?.classList.contains('inline-editor')||input.dataset.pageId!==getCurrent()?.page.id)return null;
@@ -29,7 +34,7 @@ export function createWorkspacePresence({app,getRoom,getCurrent,isComposing,isMo
   catch(error){if(getRoom()!==active)return;if(active.client.status==='stale'||[401,403,404].includes(error.status)||error.code==='ROOM_EPOCH_CHANGED'){onAuthorizationFailure(active);return;}active.presenceError=error.code==='ROOM_PRESENCE_UNAVAILABLE'?'roomPresence.schema':'roomPresence.unavailable';}
   finally{active.presenceBusy=false;if(getRoom()===active)refresh();}
  }
- function changed(){const active=getRoom();if(!active||active.phase!=='ready')return;clearTimeout(active.presenceTimer);active.presenceTimer=setTimeout(()=>void publish(active),700);paint();}
+ function changed(){const active=getRoom();if(!active||active.phase!=='ready')return;clearTimeout(active.presenceTimer);active.presenceTimer=setTimeout(()=>void publish(active),1500);if(frame)return;frame=requestAnimationFrame(()=>{frame=0;refresh();});}
  function leave(active){if(!active)return;clearTimeout(active.presenceTimer);void active.client?.leavePresence().catch(()=>{});app.querySelector('.room-cursor-layer')?.remove();app.querySelector('[data-room-presence]')?.replaceChildren();}
  listen(document,'selectionchange',changed);listen(window,'resize',paint);listen(app,'scroll',paint,{capture:true});
  listen(document,'visibilitychange',()=>{const active=getRoom();if(!active)return;if(document.hidden){leave(active);refresh();}else void publish(active,{force:true});});

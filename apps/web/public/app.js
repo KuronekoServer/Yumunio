@@ -461,13 +461,13 @@ function openWorkspaceExport() {
 }
 
 function serverSaveLabel() {
-  if (server.status === 'saved') return server.lastAction === 'import' ? 'サーバーから読込済み' : 'サーバーに手動保存済み';
-  return { signin: 'サーバー: 接続が必要', ready: 'サーバー: 手動保存', loading: 'サーバーを確認中…', review: 'サーバー: 手動保存', saving: 'サーバーに保存中…', dirty: 'サーバー: 未保存の変更', conflict: 'サーバー: 保存競合', error: 'サーバー: 接続を確認' }[server.status] ?? '';
+  if (server.status === 'saved') return server.lastAction === 'import' ? 'サーバーから読込済み' : 'サーバーに自動保存済み';
+  return { signin: 'サーバー: 接続が必要', ready: 'サーバー: 初回の保存方法を選択', loading: 'サーバーを確認中…', review: 'サーバー: 初回の保存方法を選択', saving: 'サーバーに保存中…', dirty: 'サーバーに自動保存中…', conflict: 'サーバー: 保存競合', error: 'サーバー: 接続を確認' }[server.status] ?? '';
 }
 
 function openServerPersistence() {
   if (!server.enabled) return;
-  openModal('このサーバーに手動で保存', body => {
+  openModal('サーバーへの保存', body => {
     const generation = ui.modalGeneration;
     let phase = 'overview';
     let expectedRevision = null;
@@ -492,7 +492,7 @@ function openServerPersistence() {
     function draw() {
       body.replaceChildren();
       body.setAttribute('aria-busy', String(server.busy));
-      body.append(element('p', { class: 'subtitle' }, `保存先: ${target}`), element('p', {}, '端末には自動保存します。サーバーへの保存と読み込みは、この画面から手動で行います。自動同期や共同編集はありません。'));
+      body.append(element('p', { class: 'subtitle' }, `保存先: ${target}`), element('p', {}, '端末には自動保存します。初回だけサーバーの内容を確認して保存方法を選ぶと、以後の変更はサーバーへも自動保存します。'));
       if (server.error) body.append(element('div', { class: 'notice', role: 'alert' }, element('p', {}, server.error)));
       if (!server.authenticated) {
         const input = element('input', { class: 'field-input', type: 'password', name: 'access-key', autocomplete: 'off', required: true, disabled: server.busy, 'aria-label': 'サーバーのアクセスキー' });
@@ -742,7 +742,7 @@ function openSettings() {
 
 function openHelp() {
   openModal('この端末内デモについて', body => {
-    body.append(element('p', {}, 'ページとコレクションの操作を試すためのデモです。変更はこのブラウザーの localStorage に保存します。'), element('p', {}, server.enabled ? 'この環境はサーバーへの手動保存にも対応しています。保存する内容と読み込む内容を、その都度確認して選びます。自動同期、共同編集、ページの共有は未実装です。' : 'この環境では端末内に保存します。共同編集、ページの共有、サーバーへの保存は利用できません。'), button('ワークスペースを書き出す', openWorkspaceExport, { class: 'quiet', icon: 'download' }), button('JSONバックアップと読込み', openJSONBackup, { class: 'quiet' }), server.enabled ? button('このサーバーに保存', openServerPersistence, { class: 'primary' }) : null, element('p', {}, 'ページ名と本文はプレーンテキストとして扱います。サンプルのページと担当者は架空の内容です。'), element('a', { class: 'button quiet', href: './LICENSE.txt', target: '_blank', rel: 'noopener' }, 'MITライセンスを読む'));
+    body.append(element('p', {}, 'ページとコレクションの操作を試すためのデモです。変更はこのブラウザーの localStorage に保存します。'), element('p', {}, server.enabled ? 'この環境はサーバー保存にも対応しています。初回だけ保存方法を確認し、以後の変更は自動で保存します。共同編集とページの共有は未実装です。' : 'この環境では端末内に保存します。共同編集、ページの共有、サーバーへの保存は利用できません。'), button('ワークスペースを書き出す', openWorkspaceExport, { class: 'quiet', icon: 'download' }), button('JSONバックアップと読込み', openJSONBackup, { class: 'quiet' }), server.enabled ? button('サーバー保存の設定', openServerPersistence, { class: 'primary' }) : null, element('p', {}, 'ページ名と本文はプレーンテキストとして扱います。サンプルのページと担当者は架空の内容です。'), element('a', { class: 'button quiet', href: './LICENSE.txt', target: '_blank', rel: 'noopener' }, 'MITライセンスを読む'));
   });
 }
 
@@ -798,9 +798,7 @@ function renderHeader(current) {
     return control;
   })) : null;
   const serverStatus = element('span', { class: 'demo-badge server-save-status', hidden: !server.enabled, role: 'status', 'aria-live': 'polite' }, serverSaveLabel());
-  const serverButton = button('このサーバーに保存', openServerPersistence, { class: 'quiet server-save-button', title: serverSaveLabel() });
-  serverButton.hidden = !server.enabled;
-  const header = element('header', { class: 'topbar' }, [iconButton('ページナビゲーションを開閉', 'panel', () => { if (window.matchMedia('(max-width: 959px)').matches) ui.navOpen = !ui.navOpen; else ui.navCollapsed = !ui.navCollapsed; updateNavState(); }, { class: 'mobile-nav-toggle quiet' }), breadcrumbs, historyActions, element('span', { class: 'demo-badge' }, '端末内デモ'), element('span', { class: `save-status ${store.status === 'error' ? 'error' : ''}`, role: 'status', 'aria-live': 'polite' }, saveLabel()), serverStatus, serverButton, button('共有', null, { class: 'quiet share-button', icon: 'share', disabled: true, title: '共有と共同編集は準備中です。' }), page ? pageMenu(page) : null]);
+  const header = element('header', { class: 'topbar' }, [iconButton('ページナビゲーションを開閉', 'panel', () => { if (window.matchMedia('(max-width: 959px)').matches) ui.navOpen = !ui.navOpen; else ui.navCollapsed = !ui.navCollapsed; updateNavState(); }, { class: 'mobile-nav-toggle quiet' }), breadcrumbs, historyActions, element('span', { class: 'demo-badge' }, '端末内デモ'), element('span', { class: `save-status ${store.status === 'error' ? 'error' : ''}`, role: 'status', 'aria-live': 'polite' }, saveLabel()), serverStatus, button('共有', null, { class: 'quiet share-button', icon: 'share', disabled: true, title: '共有と共同編集は準備中です。' }), page ? pageMenu(page) : null]);
   header.querySelector('.mobile-nav-toggle').setAttribute('aria-expanded', String(window.matchMedia('(max-width: 959px)').matches ? ui.navOpen : !ui.navCollapsed));
   header.querySelector('.mobile-nav-toggle').setAttribute('aria-controls', 'page-navigation');
   return header;
@@ -1108,12 +1106,6 @@ function updateSaveStatus() {
 function updateServerStatus() {
   const status = app.querySelector('.server-save-status');
   if (status) { status.hidden = !server.enabled; status.textContent = i18n.text(serverSaveLabel()); }
-  const control = app.querySelector('.server-save-button');
-  if (control) {
-    control.hidden = !server.enabled;
-    control.title = serverSaveLabel();
-    control.setAttribute('aria-label', `${i18n.text('このサーバーに保存')} · ${i18n.text(serverSaveLabel())}`);
-  }
 }
 
 function updatePageLabels(id) {
@@ -1180,7 +1172,20 @@ store.subscribe(event => {
   else render({ focusKey: event.focusKey });
   updateLocalHistoryControls();
 });
-server.subscribe(updateServerStatus);
+let serverAutoTimer=null;
+function autoSaveServer(){
+  if(serverAutoTimer||server.busy||!server.enabled||!server.authenticated||!server.remoteLoaded||server.savedContentRevision===null||server.status!=='dirty')return;
+  if(!Number.isSafeInteger(server.remote?.revision))return;
+  serverAutoTimer=setTimeout(()=>{
+    serverAutoTimer=null;
+    const expected=server.remote?.revision;
+    if(server.busy||server.status!=='dirty'||!Number.isSafeInteger(expected))return;
+    // The bridge keeps the terminal copy on failure; only a confirmed save
+    // advances the revision, so a later keystroke retries from a fresh basis.
+    void server.saveCurrent(expected).catch(()=>{}).finally(()=>{if(server.status==='dirty')autoSaveServer();});
+  },1200);
+}
+server.subscribe(()=>{updateServerStatus();autoSaveServer();});
 preferences.subscribe(() => { applyPreferences(); render(); });
 
 window.addEventListener('hashchange', () => {

@@ -39,6 +39,11 @@ export async function processRoomSocketFrame(state,raw,dispatch){
   if(suffix===''&&headers['x-yumunio-room-push']==='1')state.push=true;
   if(suffix===''||suffix==='/renew')state.joined={...headers,'x-yumunio-room-ticket':value.ticket??headers['x-yumunio-room-ticket']};
   if(state.joined)delete state.joined['x-yumunio-state-vector'];
+  // The vector the client claims to have lets the next push carry only its
+  // missing Yjs structs. It is the request vector, not the response vector: a
+  // lost response must never make a later push omit structs the client lacks.
+  if(suffix==='')state.vector=headers['x-yumunio-state-vector']??null;
+  else if(headers['x-yumunio-state-vector'])state.vector=headers['x-yumunio-state-vector'];
   if(suffix==='/presence'&&method==='POST')state.presence=body;
   if(suffix==='/presence'&&method==='DELETE')state.presence=null;
  }
@@ -52,7 +57,8 @@ export async function checkRoomSocketPeer(state,dispatch){
  * avoiding a second client request after a content-change notification. */
 export async function readRoomSocketPeer(state,dispatch){
  if(!state.joined||Date.now()-state.lastSeen>ROOM_SOCKET_LIMITS.idleMs)return null;
- const response=await dispatch(roomSocketRequest(state,{headers:state.joined}));
+ const headers={...state.joined,...(state.vector?{'x-yumunio-state-vector':state.vector}:{})};
+ const response=await dispatch(roomSocketRequest(state,{headers}));
  return response.ok?response.json():null;
 }
 export async function leaveRoomSocket(state,dispatch){

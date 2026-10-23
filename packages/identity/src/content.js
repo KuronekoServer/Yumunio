@@ -30,6 +30,7 @@ import { ContentBlocksError, handleBlockMove } from './content-blocks.js';
 import { ContentPagesError, validateTrashGroups, handlePageLifecycle, listTrash, searchPages, exportPages } from './content-pages.js';
 import { ContentBacklinksError, handleBacklinks } from './content-backlinks.js';
 import { PersonalTemplatesError, validatePersonalTemplates, handlePersonalTemplates } from './personal-templates.js';
+import {isValidatedPayload,markValidatedPayload} from './content-cache-marker.js';
 
 const MAX_REQUEST_BYTES = 256000;
 const MAX_CONTENT_BYTES = CONTENT_STORAGE_LIMITS.logicalBytes;
@@ -168,9 +169,16 @@ function projectDocument(document, visible, mentionContext = {}) {
 const policy=accountContentPolicy;
 
 function readPayload(saved, workspaceId) {
+  // A Durable Object room cache holds a payload that this API already
+  // validated and that the write path committed. Only that exact object is
+  // trusted. Marking happens after validation and replaces the cache's
+  // payload reference with the validated clone.
+  if (isValidatedPayload(saved.payload)) return saved.payload;
   try {
-    return validateContentPayload(saved.revision === 0 && saved.payload === null ?
-      { schemaVersion: 1, pages: [], grants: [], grantBindings: [] } : saved.payload, workspaceId);
+    const value = markValidatedPayload(validateContentPayload(saved.revision === 0 && saved.payload === null ?
+      { schemaVersion: 1, pages: [], grants: [], grantBindings: [] } : saved.payload, workspaceId));
+    saved.payload = value;
+    return value;
   } catch { fail('CONTENT_UNAVAILABLE', 503); }
 }
 
@@ -512,7 +520,7 @@ export function createAccountContentApi({ store, resolveSession, origin, blobSto
         if (discussing?.[4] === 'resolve' && discussing[5] || discussing?.[4] === 'messages' && !discussing[5]) missing();
         return await handleDiscussion({request,action:people?'people':notifying?'notifications':discussing[4]==='resolve'?'resolve':'comments',threadId:discussing?.[3],messageId:discussing?.[5],pageId,store,saved,payload,actor,accountId,workspaceId,access,policy,readJson,readPayload,validatePayload:validateContentPayload,now,createId});
       }
-      if (rooming) return await handleRoom({request,action:rooming[3] || 'state',pageId,store,saved,payload,actor,accountId,workspaceId,access,policy,readJson,readPayload,validatePayload:validateContentPayload,projectDocument:projectAccountDocument,now,createId,roomSecret,roomPresenceStore,session});
+      if (rooming) return await handleRoom({request,action:rooming[3] || 'state',pageId,store,saved,payload,actor,accountId,workspaceId,access,policy,readJson,readPayload,validatePayload:(value,targetWorkspace)=>isValidatedPayload(value)?value:validateContentPayload(value,targetWorkspace),projectDocument:projectAccountDocument,now,createId,roomSecret,roomPresenceStore,session});
       if (historical) return await handleHistory({request,historyId:historical[3],pageId,store,saved,payload,actor,accountId,workspaceId,access,policy,readJson,readPayload,validatePayload:validateContentPayload,projectDocument:projectAccountDocument,visible,now,createId});
       if (movingBlock) return await handleBlockMove({request,pageId,store,saved,payload,actor,accountId,workspaceId,access,policy,readJson,readPayload,validatePayload:validateContentPayload,now,createId});
       if (lifecycleAction) return await handlePageLifecycle({request,action:lifecycleAction,pageId,store,saved,payload,actor,accountId,workspaceId,access,
@@ -640,6 +648,8 @@ export function createAccountContentApi({ store, resolveSession, origin, blobSto
       return json({ revision: written.revision, ...result }, pageId ? 200 : 201);
     } catch (cause) {
       const code = cause?.code;
+      // The Durable Object must flush/replay its journal before this read.
+      if (code === 'CONTENT_CACHE_STALE') throw cause;
       if (isRoomError(cause) || cause instanceof ContentGroupsError || cause instanceof PersonalTemplatesError || cause instanceof ContentMentionsError || cause instanceof ContentPageLinksError || cause instanceof ContentBacklinksError || cause instanceof ContentPublicationError || cause instanceof ContentFormsError || cause instanceof ContentCommentsError || cause instanceof ContentActivityError || cause instanceof ContentCollectionsError || cause instanceof ContentError || cause instanceof ContentAssetError || cause instanceof ContentPagesError || cause instanceof ContentTeamspaceError || cause instanceof ContentBlocksError || cause instanceof ContentHistoryError) return json({ error: { code, message: code === 'CONTENT_CONFLICT' ? 'Content changed. Reload before saving.' : 'The content request could not be completed.' } }, cause.status);
       if (code === 'CONTENT_CONFLICT') return json({ error: { code, message: 'Content changed. Reload before saving.' } }, 409);
       if (code === 'CONTENT_NOT_FOUND') return json({ error: { code, message: 'The content request could not be completed.' } }, 404);

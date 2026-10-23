@@ -16,6 +16,8 @@ export class HttpRoomClient {
   #presenceReceivedAt=0;
   #presenceVersion=0;
   #presenceTail=Promise.resolve();
+  #snapshot=null;
+  #watchingDoc=false;
   constructor({accountId,workspaceId,pageId,draft,request,presenceClientId=crypto.randomUUID(),protocol=1,features}) {
     const id=value=>typeof value==='string'&&/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(value);
     if(![accountId,workspaceId,pageId].every(id)||typeof request!=='function'||!validPresenceClientId(presenceClientId))throw new TypeError('INVALID_ROOM_CLIENT');
@@ -64,6 +66,8 @@ export class HttpRoomClient {
     const{value,update,vector,serverDraft,serverState,candidate,seed,serverFeatures}=prepared,marker=this.#operation();
     try {
       if(this.doc){Y.applyUpdate(this.doc,update,'remote');this.#assertOperation(marker);}else this.doc=candidate;
+      this.#snapshot=null;
+      if(!this.#watchingDoc){this.#watchingDoc=true;const watched=this.doc;watched.on('update',()=>{if(this.doc===watched)this.#snapshot=null;});}
       this.baseline=serverDraft;this.serverState=serverState;
       if(this.protocol===2){this.seed=structuredClone(seed);if(Object.hasOwn(value,'referenceTargets'))this.serverTargets=structuredClone(value.referenceTargets);}
       this.epoch=value.epoch;this.sequence=value.sequence;this.revision=value.revision;this.documentVersion=value.documentVersion;this.editable=value.editable;this.serverVector=vector;
@@ -109,7 +113,8 @@ export class HttpRoomClient {
       return{expiresAt:value.expiresAt,editable:value.editable,needsSync,server:{sequence:value.sequence,revision:value.revision,documentVersion:value.documentVersion}};
     }finally{this.busy=false;}
   }
-  snapshot(){if(!this.doc)return null;return this.protocol===2?validateStructuredRoom(this.doc,this.seed):validateRoomDocument(this.doc,this.baseline);}
+  /** Cached projection. Callers treat it as read-only; any Yjs update invalidates it. */
+  snapshot(){if(!this.doc)return null;if(this.#snapshot)return this.#snapshot;const value=this.protocol===2?validateStructuredRoom(this.doc,this.seed):validateRoomDocument(this.doc,this.baseline);this.#snapshot=value;return value;}
   get canUndo(){return this.protocol===2&&!!this.undoManager?.canUndo();}
   get canRedo(){return this.protocol===2&&!!this.undoManager?.canRedo();}
   get operationConflicts(){return this.protocol===2&&this.doc?structuredRoomConflicts(this.doc,this.seed):[];}
@@ -148,7 +153,16 @@ export class HttpRoomClient {
   history(direction){if(this.protocol!==2||!this.doc||this.status!=='ready'||!this.editable||!['undo','redo'].includes(direction))throw new CollaborationError('ROOM_NOT_EDITABLE');this.undoManager.stopCapturing();const result=this.undoManager[direction]();if(result){this.pending=true;this.generation++;}return this.snapshot();}
   setText(key,value,{marks=[]}={}) {
     if(!this.doc||this.status!=='ready'||!this.editable||!this.allowed.has(key)||typeof value!=='string'||value.length>(key==='title'?240:100000))throw new CollaborationError('ROOM_NOT_EDITABLE');
-    const text=this.doc.getText(key),previous=this.protocol===2&&!key.startsWith('cell/')?(key==='title'?this.snapshot().title:(()=>{const visit=blocks=>blocks.flatMap(block=>[block,...visit(block.children??[])]);return visit(this.snapshot().blocks).find(block=>'block:'+block.id===key)?.data?.text;})()):text.toString();if(previous===value)return;
+    if(this.protocol===2&&!key.startsWith('cell/')){
+      // Typing path: apply the smallest Yjs text change and send only those
+      // structs. The server still validates the complete document before it
+      // acknowledges, so the editor no longer rebuilds it on every keystroke.
+      const change=structuredRoomText(this.doc,key,value,{origin:this.localOrigin,marks,base:this.seed});
+      if(!change?.changed)return;
+      inspectUpdate(Y.encodeStateAsUpdate(this.doc,this.serverVector),{protocol:2});
+      this.pending=true;this.generation++;return;
+    }
+    const text=this.doc.getText(key),previous=text.toString();if(previous===value)return;
     if(this.protocol===2){const candidate=loadStructuredRoom(Y.encodeStateAsUpdate(this.doc),this.seed);try{candidate.clientID=this.doc.clientID;structuredRoomText(candidate,key,value,{marks,base:this.seed});validateStructuredRoom(candidate,this.seed);inspectUpdate(Y.encodeStateAsUpdate(candidate,this.serverVector),{protocol:2});}finally{candidate.destroy();}structuredRoomText(this.doc,key,value,{origin:this.localOrigin,marks,base:this.seed});this.pending=true;this.generation++;return;}
     let start=0;while(start<previous.length&&start<value.length&&previous[start]===value[start])start++;
     let end=0;while(end<previous.length-start&&end<value.length-start&&previous[previous.length-1-end]===value[value.length-1-end])end++;
@@ -217,7 +231,7 @@ export class HttpRoomClient {
         if(!this.editable)throw new CollaborationError('ROOM_NOT_EDITABLE');
         const generation=this.generation,update=Y.encodeStateAsUpdate(this.doc,this.serverVector);inspectUpdate(update,{protocol:this.protocol});
         const targets=Object.fromEntries(Object.entries(this.seed?.references??{}).filter(([token])=>!Object.hasOwn(this.serverTargets,token)));
-        const result=await this.#request('/updates','POST',{epoch:this.epoch,ticket:this.ticket,update:toBase64(update),...(Object.keys(targets).length?{references:targets}:{})});this.#assertOperation(marker);
+        const result=await this.#request('/updates','POST',{epoch:this.epoch,ticket:this.ticket,update:toBase64(update),...(Object.keys(targets).length?{references:targets}:{})},{'X-Yumunio-State-Vector':toBase64(this.serverVector)});this.#assertOperation(marker);
         if(result?.acknowledged!==true)throw new CollaborationError('INVALID_ROOM_RESPONSE');
         if(!this.#applySync(result,{phase:'ack',canApply,onApply,marker,ackGeneration:generation}))return this.#syncResult(true);
       }
@@ -267,7 +281,7 @@ export class HttpRoomClient {
     if(!result||Object.keys(result).length!==1||result.left!==true)throw new CollaborationError('INVALID_ROOM_RESPONSE');return result;
   }
   stop(){this.#lifecycle++;this.#clearPresence();this.status='stale';}
-  destroy(){this.#lifecycle++;this.#clearPresence();this.undoManager?.destroy();this.undoManager=null;this.doc?.destroy();this.doc=null;this.status='closed';}
+  destroy(){this.#lifecycle++;this.#clearPresence();this.undoManager?.destroy();this.undoManager=null;this.doc?.destroy();this.doc=null;this.#snapshot=null;this.status='closed';}
 }
 export { ROOM_LIMITS, PRESENCE_LIMITS };
 export {RoomSocketTransport} from './socket-client.js';

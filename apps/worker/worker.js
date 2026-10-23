@@ -1,22 +1,5 @@
 import {webPageRoute} from '../../packages/prototype/src/web-routes.js';
-import {readApiTokenConfig} from '@yumunio/identity/api-tokens';
-import {readMcpConfig} from '@yumunio/identity/mcp';
-import {readWebhookConfig} from '@yumunio/identity/webhooks-model';
-import {createWorkerBackupOperations} from './backup.js';
-import {readBackupConfig} from '@yumunio/backup/config';
-import {backupBlobEnvironment} from '@yumunio/backup/operations';
-import {readBlobConfig} from '../../packages/adapters/src/blob.js';
-import { createWorkspaceApi } from '@yumunio/prototype';
-import { D1SnapshotStore } from './snapshot-store.js';
 import { isValidAccessKey, validatePublicOrigin } from '../../packages/prototype/src/config.js';
-import { readIdentityConfig, disabledIdentityResponse } from '@yumunio/identity';
-import {readWorkerMailConfig} from './mail.js';
-import { createWorkerAccountServices, drainWorkerMail } from './identity.js';
-import { createInstanceApi } from '@yumunio/identity/instance';
-import { createPwaManifestApi } from '@yumunio/identity/pwa';
-import { createD1RecoveryStore, assertRecoveryReady } from '@yumunio/backup';
-import { createInstanceSetup } from '../../packages/identity/src/setup.js';
-import { createD1SetupStore } from '../../packages/identity/src/setup-store.js';
 import {roomSocketRoute} from '../../packages/identity/src/room-socket.js';
 import {contentChangesPath} from '../../packages/identity/src/content-changes.js';
 export {PageRoom} from './room.js';
@@ -30,6 +13,13 @@ const basePolicy = {
 /** Shared UI, separate account identity and the legacy manual snapshot API. */
 export default {
   async scheduled(_event, env, context) {
+    const [{createInstanceSetup},{createD1SetupStore},{createD1RecoveryStore,assertRecoveryReady},{createWorkerBackupOperations},{drainWorkerMail}]=await Promise.all([
+      import('../../packages/identity/src/setup.js'),
+      import('../../packages/identity/src/setup-store.js'),
+      import('@yumunio/backup'),
+      import('./backup.js'),
+      import('./identity.js')
+    ]);
     if (env.YUMUNIO_SETUP_TOKEN || env.YUMUNIO_INSTANCE_SECRET) {
       const setup = await createInstanceSetup({ env, store: createD1SetupStore(env.DB), runtime: 'worker' });
       const state = await setup.load();
@@ -42,6 +32,7 @@ export default {
   },
   async fetch(request, env, context) {
     const url = new URL(request.url);
+    const apiStartedAt = Date.now(), timings = [];
     const isDetail=url.pathname==='/workspace-detail',frameAncestors=isDetail?"frame-ancestors 'self'":"frame-ancestors 'none'";
     const policy={...basePolicy,'Content-Security-Policy':basePolicy['Content-Security-Policy'].replace("connect-src 'self'","connect-src 'self' "+url.origin.replace(/^http/,'ws')).replace("frame-ancestors 'none'",frameAncestors)};
     const pageRoute=webPageRoute(url.pathname);
@@ -68,6 +59,12 @@ export default {
     if (env.YUMUNIO_SETUP_TOKEN || env.YUMUNIO_INSTANCE_SECRET) {
       try {
         if (!env.DB) throw new Error('Setup requires D1.');
+        const [{createInstanceSetup},{createD1SetupStore},{createD1RecoveryStore,assertRecoveryReady},{createWorkerAccountServices}]=await Promise.all([
+          import('../../packages/identity/src/setup.js'),
+          import('../../packages/identity/src/setup-store.js'),
+          import('@yumunio/backup'),
+          import('./identity.js')
+        ]);
         const setup = await createInstanceSetup({ env, store: createD1SetupStore(env.DB), origin: url.origin, runtime: 'worker',
           assertReady: () => assertRecoveryReady(createD1RecoveryStore(env.DB)),
           resolveSession: async request => {
@@ -94,6 +91,17 @@ export default {
     let origin, identityConfig, mailConfig;
     let valid = true;
     try {
+      const [{readBackupConfig},{backupBlobEnvironment},{createD1RecoveryStore},{readBlobConfig},{readIdentityConfig},{readApiTokenConfig},{readMcpConfig},{readWebhookConfig},{readWorkerMailConfig}]=await Promise.all([
+        import('@yumunio/backup/config'),
+        import('@yumunio/backup/operations'),
+        import('@yumunio/backup'),
+        import('../../packages/adapters/src/blob.js'),
+        import('@yumunio/identity'),
+        import('@yumunio/identity/api-tokens'),
+        import('@yumunio/identity/mcp'),
+        import('@yumunio/identity/webhooks-model'),
+        import('./mail.js')
+      ]);
       origin = validatePublicOrigin(env.YUMUNIO_PUBLIC_ORIGIN || (configured ? '' : url.origin));
       if (configured && !isValidAccessKey(env.YUMUNIO_ACCESS_KEY)) valid = false;
       const backupConfig=readBackupConfig(env);
@@ -111,10 +119,10 @@ export default {
         if (identityConfig.registrationMode === 'open' && mailConfig.driver === 'disabled') throw new Error('Unsupported account email configuration.');
       }
     } catch { valid = false; }
-    if (url.pathname === '/manifest.webmanifest') return createPwaManifestApi({env,origin:origin??url.origin})(request);
+    if (url.pathname === '/manifest.webmanifest') { const {createPwaManifestApi}=await import('@yumunio/identity/pwa'); return createPwaManifestApi({env,origin:origin??url.origin})(request); }
     if (url.pathname === '/health') {
       if (!['GET', 'HEAD'].includes(request.method)) return Response.json({ error: { code: 'METHOD_NOT_ALLOWED', message: 'Use GET or HEAD.' } }, { status: 405, headers: { Allow: 'GET, HEAD', 'Cache-Control': 'no-store', ...policy } });
-      try { if (env.DB) await assertRecoveryReady(createD1RecoveryStore(env.DB)); }
+      try { const {createD1RecoveryStore,assertRecoveryReady}=await import('@yumunio/backup'); if (env.DB) await assertRecoveryReady(createD1RecoveryStore(env.DB)); }
       catch { return new Response(request.method === 'HEAD' ? null : JSON.stringify({ status: 'recovery-unavailable', runtime: 'worker', storage }), { status: 503, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', ...policy } }); }
       const body = { status: valid ? 'ok' : 'configuration-required', runtime: 'worker', prototype: true, storage };
       return new Response(request.method === 'HEAD' ? null : JSON.stringify(body), { status: valid ? 200 : 503, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', ...policy } });
@@ -123,7 +131,7 @@ export default {
       const apiStartedAt = Date.now(), timings = [];
       try {
         if (!valid) throw new Error('Invalid deployment configuration');
-        try { if (env.DB) await assertRecoveryReady(createD1RecoveryStore(env.DB)); }
+        try { const {createD1RecoveryStore,assertRecoveryReady}=await import('@yumunio/backup'); if (env.DB) await assertRecoveryReady(createD1RecoveryStore(env.DB)); }
         catch (error) { return Response.json({ error: { code: error?.code === 'RECOVERY_IN_PROGRESS' ? 'RECOVERY_IN_PROGRESS' : 'RECOVERY_UNAVAILABLE' } }, { status: 503, headers: { 'Cache-Control': 'no-store', ...policy } }); }
         const changesSocket=contentChangesPath(url.pathname);
         if(changesSocket&&url.pathname.endsWith('/ws')&&env.ROOMS){return env.ROOMS.get(env.ROOMS.idFromName('events:'+changesSocket[1])).fetch(request);}
@@ -134,16 +142,16 @@ export default {
           const result=new Response(incoming.body,incoming);for(const[name,value]of Object.entries(policy))result.headers.set(name,value);return result;
         }
         const accountPath = /^\/api\/(?:auth|content|collaboration|preferences|admin|public|integrations|v1|webhooks|mcp)(?:\/|$)/.test(url.pathname);
-        const services = identityConfig.enabled && accountPath ? await createWorkerAccountServices(env, identityConfig, context) : null;
+        const services = identityConfig.enabled && accountPath ? await (await import('./identity.js')).createWorkerAccountServices(env, identityConfig, context) : null;
         timings.push(['services', Date.now() - apiStartedAt]);
         const identity = services?.identity;
         let result;
         if (url.pathname === '/api/instance') {
-          result = await createInstanceApi({ env, origin })(request);
+          result = await (await import('@yumunio/identity/instance')).createInstanceApi({ env, origin })(request);
         } else if (url.pathname === '/api/auth' || url.pathname.startsWith('/api/auth/')) {
           if (identity) {
             result = await identity.handle(request, { peerAddress: request.headers.get('cf-connecting-ip') || 'unknown' });
-          } else result = url.pathname === '/api/auth/config' && request.method === 'GET' ? disabledIdentityResponse() :
+          } else result = url.pathname === '/api/auth/config' && request.method === 'GET' ? (await import('@yumunio/identity')).disabledIdentityResponse() :
             Response.json({ error: { code: 'ACCOUNTS_DISABLED', message: 'Account access is not configured.' } }, { status: 503, headers: { 'Cache-Control': 'no-store' } });
         } else if (url.pathname === '/api/mcp' || url.pathname === '/api/integrations/mcp') {
           result=services?.mcp?await services.mcp(request):Response.json({error:{code:'MCP_DISABLED'}},{status:503,headers:{'Cache-Control':'no-store'}});
@@ -166,6 +174,7 @@ export default {
           result = services ? await services.content(request) :
             Response.json({ error: { code: 'CONTENT_UNAVAILABLE', message: 'Account content is not configured.' } }, { status: 503, headers: { 'Cache-Control': 'no-store' } });
         } else {
+          const [{createWorkspaceApi},{D1SnapshotStore}]=await Promise.all([import('@yumunio/prototype'),import('./snapshot-store.js')]);
           const api = createWorkspaceApi({
             store: configured ? new D1SnapshotStore(env.DB) : null, storage,
             accessKey: configured ? (env.YUMUNIO_ACCESS_KEY || '') : '', allowAnonymous: false, origin

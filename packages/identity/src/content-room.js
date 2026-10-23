@@ -1,5 +1,5 @@
 import { assertId, assertPlainObject, assertTitle,validateBlocks,createPageAccessEvaluator, validateDocument, validatePage } from '@yumunio/domain';
-import { Y,CollaborationError, ROOM_LIMITS, validateReferenceTargets, createRoomDocument, encodeRoomState, applyRoomUpdate, roomDiff, toBase64, fromBase64,
+import { Y,CollaborationError, ROOM_LIMITS, validateReferenceTargets, createRoomDocument, encodeRoomState, applyRoomUpdate, roomDiff, toBase64, fromBase64, inspectStateVector,
  structuredRoomFeatures,createStructuredRoom,applyStructuredUpdate,structuredRoomDiff,STRUCTURED_ROOM_FEATURES } from '@yumunio/collaboration';
 import { rememberPage, trimHistory } from './content-history.js';
 import {preparePageLinkBlocks} from './content-page-links.js';
@@ -145,6 +145,8 @@ export async function handleRoom(ctx) {
   const data=await readJson(request);exact(data,['epoch','ticket','update',...(Object.hasOwn(data,'references')?['references']:[])]);assertId(data.epoch);
   if(Object.hasOwn(data,'references')&&(room.protocol!==2||request.headers.get('x-yumunio-room-references')!=='rich-references'))fail('ROOM_PROTOCOL_UNSUPPORTED',409);
   const update=fromBase64(data.update,ROOM_LIMITS.updateBytes);
+  const vectorHeader=request.headers.get('x-yumunio-state-vector'),stateVector=vectorHeader?fromBase64(vectorHeader,1024):null;
+  if(stateVector)inspectStateVector(stateVector);
   const initialMembership=actor.id;
   let current={saved,payload,actor,item,room};
   for(let attempt=0;attempt<4;attempt++) {
@@ -153,7 +155,7 @@ export async function handleRoom(ctx) {
     if(data.epoch!==currentRoom.epoch)fail('ROOM_EPOCH_CHANGED',409);
     await verifyTicket(data.ticket,{secret:roomSecret,accountId,actor:currentActor,workspaceId,pageId,room:currentRoom,stamp:Date.parse(now()),write:true});
     const registered=currentRoom.protocol===2?mergeRoomReferenceTargets({seed:currentRoom.seed,targets:data.references,payload:currentPayload,saved:currentSaved,policy,workspaceId,accountId,pageId}):{guards:[]};
-    const previous=fromBase64(currentRoom.state),applied=currentRoom.protocol===2?applyStructuredUpdate(previous,update,registered.seed,{expectedDraft:baseline(currentItem)}):applyRoomUpdate(previous,update,baseline(currentItem));
+    const previous=fromBase64(currentRoom.state),applied=currentRoom.protocol===2?applyStructuredUpdate(previous,update,registered.seed,{expectedDraft:baseline(currentItem),...(stateVector?{stateVector}:{})}):applyRoomUpdate(previous,update,baseline(currentItem));
     if(applied.requiredReferences?.some(token=>!Object.hasOwn(registered.seed.references??{},token)))fail();
     if(currentRoom.protocol===2)currentRoom.seed=registered.seed;
     if(applied.features?.length){requireFeatures(request,{features:applied.features});currentRoom.features=STRUCTURED_ROOM_FEATURES.filter(feature=>currentRoom.features?.includes(feature)||applied.features.includes(feature));}
@@ -184,7 +186,7 @@ export async function handleRoom(ctx) {
   }
   fail('CONTENT_CONFLICT',409);
   function referenceMetadata(room,payload,saved){return room.seed?.references?{referenceTargets:projectRoomReferenceTargets({seed:room.seed,payload,saved,policy,workspaceId,accountId,pageId})}:{};}
-  function response(revision,room,applied,payload,saved) {return json({revision,pageId,epoch:room.epoch,sequence:room.sequence,documentVersion:room.documentVersion,editable:true,update:toBase64(applied.state),stateVector:toBase64(applied.stateVector),acknowledged:true,...(room.protocol===2?{protocol:2,...referenceMetadata(room,payload,saved)}:{})});}
+  function response(revision,room,applied,payload,saved) {return json({revision,pageId,epoch:room.epoch,sequence:room.sequence,documentVersion:room.documentVersion,editable:true,update:toBase64(applied.diff??applied.state),stateVector:toBase64(applied.stateVector),acknowledged:true,...(room.protocol===2?{protocol:2,...referenceMetadata(room,payload,saved)}:{})});}
   function openingMetadata(){if(room.protocol!==2)return{};if(typeof ctx.projectDocument!=='function')fail('ROOM_UNAVAILABLE',503);const visible=new Set(payload.pages.filter(row=>access(row.page.id).includes('read')).map(row=>row.page.id));return{protocol:2,supportedFeatures:STRUCTURED_ROOM_FEATURES.filter(feature=>feature==='check-state'||request.headers.get(featureHeaders[feature])===feature),seed:{title:room.seed.title,blocks:ctx.projectDocument({...item.document,blocks:room.seed.blocks},visible).blocks},...referenceMetadata(room,payload,saved)};}
 }
 const currentRoomFor=currentRoom;

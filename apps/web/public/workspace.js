@@ -184,6 +184,22 @@ function draftPending(){
 function draftSignature(){return JSON.stringify([state.draft,[...(state.collection?.drafts??[])],appearanceDraft]);}
 function updateDirty(historyGroup=null) {
   if(editorHistory && state.draft && !restoringHistory && !room) {try {editorHistory.record(state.draft,{group:historyGroup,selection:editorSelection() || editorHistory.current.selection});}catch {editorHistory=null;state.error='historyUnavailable';}}
+  // While the room owns the body, a keystroke only advances a CRDT generation.
+  // Serializing and diffing the whole draft here was the main typing cost.
+  if(room&&room.phase!=='stopped'){
+    const propertyDraft=state.collection?.dirty===true||appearanceDraft!==null;
+    state.dirty=propertyDraft||room.client?.pending===true;
+    // Property and appearance drafts still use the CAS autosave, but the body
+    // signature no longer includes the whole block tree on every keystroke.
+    if(propertyDraft){
+      const signature=JSON.stringify([[...(state.collection?.drafts??[])],appearanceDraft]);
+      if(signature!==observedDraft){observedDraft=signature;draftGeneration++;autosave.notify();}else autosave.refresh();
+    }
+    refreshSaveStatus();
+    refreshRoomStatus();
+    if(room.client?.pending||room.needsSync)queueRoomSync(room);
+    return;
+  }
   state.dirty = bodyDirty() || draftPending() || room?.client?.pending === true;
   const signature=draftSignature();
   if(signature!==observedDraft){observedDraft=signature;draftGeneration++;autosave.notify();}else autosave.refresh();
@@ -272,7 +288,6 @@ function roomStatusKey() {
  if(room.phase==='syncing')return 'roomSyncing';
  if(room.phase==='paused')return 'roomPaused';
  if(room.phase==='stopped')return 'roomStopped';
- if(room.phase==='ready'&&!room.transport?.ready&&!room.syncError)return 'roomOpening';
  if(room.renewing)return 'roomRenewing';
  if(room.renewalError)return 'roomRenewRetry';
  if(room.syncing)return 'roomSyncing';
@@ -316,21 +331,25 @@ async function renewRoom(active) {
  })();
  return active.renewPromise;
 }
-function queueRoomSync(active,delay=60){
+function queueRoomSync(active,delay=50){
  if(room!==active||active.phase!=='ready')return;active.needsSync=true;
- if(active.flushTimer||active.syncing||active.renewing||!active.transport?.ready||document.hidden||modalOpen()||state.busy||state.loading||state.listLoading||roomCompositions.size)return;
+ if(active.flushTimer||active.syncing||active.renewing||document.hidden||modalOpen()||state.busy||state.loading||state.listLoading||roomCompositions.size)return;
  active.flushTimer=setTimeout(()=>{active.flushTimer=null;if(room===active&&active.phase==='ready')void syncRoom(false);},delay);
 }
 async function connectRoomSocket(active){
- active.client.request=call=>active.transport?active.transport.request(call):Promise.reject(new ApiError(0,'ROOM_SOCKET_CLOSED'));
  const {RoomSocketTransport}=await import('./shared/collaboration-client.js');if(room!==active||active.phase!=='ready')return;
+ const httpRequest=active.client.request;
  const url=new URL(active.client.path+'/ws',location.href);url.protocol=url.protocol==='https:'?'wss:':'ws:';
  active.transport=new RoomSocketTransport({url:url.href,headers:()=>active.client.requestHeaders({'X-Yumunio-Room-Ticket':active.client.ticket,'X-Yumunio-Room-Push':'1'}),
   onState:value=>{if(room!==active)return;if(!active.pushedState||value.sequence>=active.pushedState.sequence){active.pushedState=value;queueRoomSync(active,0);}},
   onReady:()=>{if(room!==active)return;active.syncError=false;queueRoomSync(active,0);void presence.publish(active,{force:true});refreshRoomStatus();},
   onChange:kind=>{if(room!==active)return;if(kind==='content')queueRoomSync(active,0);else void presence.publish(active,{readOnly:true});},
   onDisconnect:({permanent})=>{if(room!==active||active.phase!=='ready')return;active.syncError=true;refreshRoomStatus();void verifyRoomAfterDisconnect(active,permanent);}
- });await active.transport.connect().catch(()=>{if(room===active){active.syncError=true;refreshRoomStatus();}});
+ });
+ // Keep authenticated HTTP as the fallback: a proxy that blocks WebSocket
+ // upgrades must not stop body persistence or strand unsent input.
+ active.client.request=call=>active.transport?.ready?active.transport.request(call):httpRequest(call);
+ await active.transport.connect().catch(()=>{if(room===active){active.syncError=true;refreshRoomStatus();}});
 }
 async function verifyRoomAfterDisconnect(active,permanent=false){
  try{const value=await request(active.client.path,{headers:active.client.requestHeaders({'X-Yumunio-Room-Ticket':active.client.ticket})});if(room===active&&(permanent||value.epoch!==active.client.epoch||value.editable!==active.client.editable))stopRoomInput(active);}
@@ -382,14 +401,6 @@ function applyRoomDraft(active,draft,{focus=false}={}) {
  });
 }
 function activateRoom(active) {if(room!==active)return;active.phase='ready';applyRoomDraft(active,active.client.snapshot());scheduleRoomHeartbeat();void connectRoomSocket(active);}
-async function showRoomStart() {
- if(!state.current||room||state.busy||!await prepareEditorDialog())return;
- const blocked=state.dirty || state.conflict;
- showModal('roomTitle',[node('p',{},t('roomIntro')),node('p',{class:'hint'},t('roomFocusPolicy')),node('p',{class:'hint'},t('roomPresenceIntro')),
-  ...(blocked?[node('p',{class:'message'},t('roomSaveFirst'))]:[]),node('div',{class:'dialog-actions'},[
-   button('cancel',()=>modal.close()),button('roomStart',()=>void startRoom(),{primary:true,disabled:blocked})
-  ])]);
-}
 async function startRoom({automatic=false}={}) {
  if(collectionActivities.size)return;
  if(!await settleBodySave())return;
@@ -496,7 +507,12 @@ function applyRoomInPlace(active,draft,plan) {
 async function syncRoom(manual=true,stopAfter=false) {
  const active=room;if(!active?.client || !['ready','paused'].includes(active.phase) || state.busy || recordWriteActive || roomCompositions.size)return;
  if(active.renewPromise)await active.renewPromise;
- if(room!==active || !['ready','paused'].includes(active.phase) || active.client.busy || state.busy || recordWriteActive || roomCompositions.size)return;
+ if(room!==active || !['ready','paused'].includes(active.phase) || active.client.busy || active.syncing || state.busy || recordWriteActive || roomCompositions.size)return;
+ // Coalesce rapid keystrokes into one persisted Yjs update. The delay only
+ // applies when a write just completed and never delays a remote pull.
+ const waited=active.client.pending&&active.lastWriteAt?Date.now()-active.lastWriteAt:0;
+ if(!document.hidden&&waited<50){queueRoomSync(active,50-waited);return;}
+ const pushing=active.client.pending;
  if(active.phase==='paused'){active.phase='ready';render();}
  clearTimeout(active.timer);clearTimeout(active.flushTimer);active.flushTimer=null;active.needsSync=false;active.syncing=true;active.syncError=false;active.deferred=false;refreshRoomStatus();
  try {
@@ -512,6 +528,7 @@ async function syncRoom(manual=true,stopAfter=false) {
    if(!active.client.pending){if(stopAfter)await finishRoomStop(active);return;}
   }
   const result=await active.client.sync({...hooks,pushFirst:true});
+  if(pushing)active.lastWriteAt=Date.now();
   if(room!==active)return;
   active.deferred=result.deferred===true;
   if(stopAfter && !active.deferred && !active.client.pending)await finishRoomStop(active);
@@ -522,7 +539,7 @@ async function syncRoom(manual=true,stopAfter=false) {
   else active.syncError=true;
  } finally {
   active.syncing=false;
-  if(room===active){refreshRoomStatus();scheduleRoomHeartbeat();if(active.needsSync||active.client.pending||active.deferred)queueRoomSync(active,active.deferred?500:60);}
+  if(room===active){refreshRoomStatus();scheduleRoomHeartbeat();if(active.needsSync||active.client.pending||active.deferred)queueRoomSync(active,active.syncError?1000:active.deferred?500:16);}
  }
 }
 async function finishRoomStop(active) {
@@ -559,14 +576,8 @@ function resetStructuredRoom(){
  },{primary:true})])]);
 }
 function renderRoomPanel() {
- if(!room)return document.createDocumentFragment();
- if(room.automatic&&room.phase!=='stopped')return document.createDocumentFragment();
- if(room.automatic&&room.openingError)return node('section',{class:'connection-notice',role:'status'},[node('span',{},t('realtime.connectionFailed')),button('realtime.retry',()=>{destroyRoom();state.error='';void startRoom({automatic:true});})]);
- const controls=[];
- if(room.phase==='ready' || room.phase==='paused')controls.push(button(room.phase==='paused'?'roomRetry':'roomSync',()=>void syncRoom(),{disabled:state.busy}),button('roomStop',stopRoom,{disabled:state.busy}));
- else if(room.phase==='stopped')controls.push(button('roomHeldInput',showRoomInput),button('roomReset',resetStructuredRoom,{disabled:state.busy||room.client?.protocol!==2}),button('roomReload',()=>void reloadPage(),{disabled:state.busy}));
- return node('section',{class:'room-panel','aria-label':t('roomTitle')},[node('div',{class:'room-panel-heading'},[node('strong',{},t('roomTitle')),node('span',{class:'room-status',role:'status','aria-live':'polite'},t(roomStatusKey()))]),node('p',{class:'hint'},t(['paused','stopped'].includes(room.phase)?'roomStoppedHint':'roomFocusPolicy')),
-  ...(room && ['paused','stopped'].includes(room.phase)?[node('p',{class:'room-error',role:'status'},t('roomInputStopped'))]:[]),node('div',{'data-room-presence':''}),node('div',{class:'room-controls'},controls)]);
+ if(!room||!room.openingError)return document.createDocumentFragment();
+ return node('section',{class:'connection-notice',role:'status'},[node('span',{},t('realtime.connectionFailed')),button('realtime.retry',()=>{destroyRoom();state.error='';void startRoom({automatic:true});})]);
 }
 
 const basePath = () => '/api/content/workspaces/' + encodeURIComponent(workspaceId) + '/pages';
@@ -652,7 +663,7 @@ function paintChrome(){
  const mounted=renderChrome({workspaceId,t,room:manualRoom(),collaboration:room?{phase:room.phase,connected:room.transport?.ready===true,automatic:room.automatic===true}:null,selectionMode:blockSelection.mode,state:{...state,current:state.current?{...state.current,page:{...state.current.page}}:null,draft:state.draft?{title:state.draft.title}:null},
   activeTeams,pageRows:sidebarPageRows(state.pages,expandedSidebarPages),collapsedTeams:[...collapsedTeamspaces],expandedPages:[...expandedSidebarPages],
   newDisabled:manualRoom()||!state.user||!!state.fatal||state.role==='guest'||state.busy||state.listLoading||state.locked,
-  handlers:{openWorkspacePicker,setNavigation,openSearch,openWorkspaceHome,openSettings,refreshList,openCreate,createSubpage,moveSidebarPage,openSidebarPageMove,openSidebarPageTrash,openSidebarTeamspaceMove,openCreateTeamspace,selectPage,prefetchPage,cancelPagePrefetch,startPageDrag,endPageDrag,overPageDrop,dropPage,openTrash,openExport,applyEditorHistory,openResourceSharing,openPageActions,reloadPage,showRoomStart,
+  handlers:{openWorkspacePicker,setNavigation,openSearch,openWorkspaceHome,openSettings,refreshList,openCreate,createSubpage,moveSidebarPage,openSidebarPageMove,openSidebarPageTrash,openSidebarTeamspaceMove,openCreateTeamspace,selectPage,prefetchPage,cancelPagePrefetch,startPageDrag,endPageDrag,overPageDrop,dropPage,openTrash,openExport,applyEditorHistory,openResourceSharing,openPageActions,reloadPage,
    toggleFavorite:()=>{if(state.current)void runPageTool('favorite',{favorite:!state.current.page.favorite});},
    toggleTeam:id=>{if(collapsedTeamspaces.has(id))collapsedTeamspaces.delete(id);else collapsedTeamspaces.add(id);persistSidebarDisclosure();paintChrome();},
    togglePage:id=>{if(expandedSidebarPages.has(id))expandedSidebarPages.delete(id);else expandedSidebarPages.add(id);persistSidebarDisclosure();paintChrome();}}});
@@ -2439,7 +2450,7 @@ if(detailMode){
  listen(window,'keydown',event=>{if(!event.isComposing&&event.keyCode!==229&&!roomCompositions.size&&event.key==='Escape'&&!modalOpen()&&!event.defaultPrevented){event.preventDefault();window.parent.postMessage({type:'yumunio:detail-close',workspaceId,accountId:state.user?.id,pageId:state.current?.page.id},location.origin);}});
 }
 listen(modal,'close',()=>{if(room?.phase==='review' && modal.dataset.view==='roomReviewTitle'){destroyRoom();render();}autosave.refresh();if(room?.needsSync)queueRoomSync(room);queueAutomaticRoom();});
-listen(document,'visibilitychange',()=>{if(document.hidden)void autosave.flush();else{if(room?.phase==='ready')queueRoomSync(room,0);scheduleLiveRefresh();}});
+listen(document,'visibilitychange',()=>{if(document.hidden){void autosave.flush();if(room?.phase==='ready'&&room.client?.pending)void syncRoom(false);}else{if(room?.phase==='ready')queueRoomSync(room,0);scheduleLiveRefresh();}});
 listen(window,'yumunio:content-changed',event=>{const change=event.detail;if(change?.remote&&change.workspaceId===workspaceId&&change.accountId===state.user?.id){concurrentReads.clear();initialPlacements.clear();initialSynced.clear();scheduleLiveRefresh();}});
 signal.addEventListener('abort',()=>{clearTimeout(liveTimer);contentStream?.destroy();},{once:true});
 listen(document,'focusin',()=>{if(room?.needsSync)queueRoomSync(room);});
@@ -2461,7 +2472,6 @@ listen(app,'paste',event=>{if(!event.target.closest?.('input:not(.block-select),
 listen(app,'focusout',()=>queueMicrotask(refreshCollectionAfterEditing));
 listen(app,'focusin',event=>{if(blockSelection.mode&&event.target.closest?.('.inline-editor')){clearBlockSelection();refreshBlockSelectionUi();}});
 listen(window,'keydown',event=> {
-  if((event.ctrlKey||event.metaKey)&&!event.altKey&&event.key.toLowerCase()==='s'){event.preventDefault();if(!event.isComposing&&!roomCompositions.size)void autosave.flush();return;}
   if(!modalOpen()&&!event.isComposing&&event.keyCode!==229&&state.draft&&!event.altKey){
    const editor=event.target.closest?.('.inline-editor[data-block-id]'),ids=selectedBlockRoots(),key=event.key.toLowerCase(),command=event.ctrlKey||event.metaKey;
    if(event.key==='Escape'&&blockClipboardEnabled()){

@@ -21,7 +21,7 @@ import { createPreferencesApi } from '@yumunio/identity/preferences';
 import { createD1PreferencesStore } from '@yumunio/identity/preferences-store';
 
 /** Request-scoped services; durable state and leases reside in D1. */
-export async function createWorkerAccountServices(env, identityConfig = readIdentityConfig(env), context) {
+export async function createWorkerAccountServices(env, identityConfig = readIdentityConfig(env), context, options = {}) {
   const apiTokenConfig=readApiTokenConfig(env);
   const mcpConfig=readMcpConfig(env);
   const webhookConfig=await readWebhookConfig(env),adminIds=readServerAdminIds(env);
@@ -46,7 +46,9 @@ export async function createWorkerAccountServices(env, identityConfig = readIden
     ...(context?.waitUntil ? { backgroundTask: task => context.waitUntil(task) } : {}) });
   const webhookStore=createD1WebhookStore(env.DB);
   if(webhookConfig.enabled)await webhookStore.checkSchema({eventTypes:webhookConfig.eventTypes,includeDescendants:webhookConfig.includeDescendants});
-  const contentStore=createD1ContentStore(env.DB,{webhookStore,webhookConfig,webhookAdminIds:adminIds,validatePayload:validateContentPayload,onCommit}),apiTokenStore=createD1ApiTokenStore(env.DB);
+  const baseContentStore=createD1ContentStore(env.DB,{webhookStore,webhookConfig,webhookAdminIds:adminIds,validatePayload:validateContentPayload,onCommit});
+  const contentStore=typeof options.contentStore==='function'?options.contentStore(baseContentStore):baseContentStore;
+  const apiTokenStore=createD1ApiTokenStore(env.DB);
   if(apiTokenConfig.enabled)await apiTokenStore.checkSchema();
   const actions=createExternalPageActions({store:apiTokenStore,contentStore,origin:identityConfig.origin,enabled:apiTokenConfig.enabled});
   const apiTokens=createApiTokenApi({store:apiTokenStore,contentStore,actions,origin:identityConfig.origin,enabled:apiTokenConfig.enabled,resolveSession});
