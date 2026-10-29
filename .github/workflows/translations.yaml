@@ -18,7 +18,7 @@ concurrency:
 jobs:
   sync:
     if: github.repository == 'KuronekoServer/Yumunio' && github.event_name == 'workflow_dispatch' && inputs.enable_sync
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64, build]
     timeout-minutes: 20
     permissions:
       contents: write

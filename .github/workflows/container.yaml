@@ -16,10 +16,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - {runner: ubuntu-latest, arch: amd64}
-          - {runner: ubuntu-24.04-arm, arch: arm64}
-    runs-on: ${{ matrix.runner }}
-    timeout-minutes: 30
+          - {arch: amd64}
+          - {arch: arm64}
+    runs-on: [self-hosted, Linux, X64, release]
+    timeout-minutes: 60
     permissions:
       contents: read
       packages: write
@@ -27,7 +27,12 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Build and push native image
+      - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
+        if: matrix.arch == 'arm64'
+        with:
+          platforms: arm64
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - name: Build and push image
         shell: bash
         env:
           REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -35,15 +40,19 @@ jobs:
         run: |
           set -euo pipefail
           image="ghcr.io/${GITHUB_REPOSITORY,,}"
+          smoke="yumunio-smoke-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${IMAGE_ARCH}"
+          docker_config=''
+          trap 'docker rm -f "$smoke" >/dev/null 2>&1 || true; if [[ -n "$docker_config" ]]; then rm -rf "$docker_config"; fi' EXIT
+          docker buildx build --load --platform "linux/$IMAGE_ARCH" --pull --label "org.opencontainers.image.source=https://github.com/$GITHUB_REPOSITORY" --label "org.opencontainers.image.revision=$GITHUB_SHA" --tag "$image:sha-$GITHUB_SHA-$IMAGE_ARCH" .
+          docker run --detach --platform "linux/$IMAGE_ARCH" --name "$smoke" "$image:sha-$GITHUB_SHA-$IMAGE_ARCH"
+          docker exec "$smoke" node --input-type=module -e 'for(let attempt=0;attempt<30;attempt++){try{const response=await fetch("http://127.0.0.1:8788/health");const body=await response.json();if(response.ok&&body.status==="setup-required")process.exit(0);}catch{}await new Promise(resolve=>setTimeout(resolve,1000));}process.exit(1);'
+          docker_config="$(mktemp -d "${RUNNER_TEMP}/yumunio-docker.XXXXXXXX")"
+          export DOCKER_CONFIG="$docker_config"
           printf '%s' "$REGISTRY_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
-          docker build --pull --label "org.opencontainers.image.source=https://github.com/$GITHUB_REPOSITORY" --label "org.opencontainers.image.revision=$GITHUB_SHA" --tag "$image:sha-$GITHUB_SHA-$IMAGE_ARCH" .
-          docker run --detach --name yumunio-smoke "$image:sha-$GITHUB_SHA-$IMAGE_ARCH"
-          trap 'docker rm -f yumunio-smoke >/dev/null 2>&1 || true' EXIT
-          docker exec yumunio-smoke node --input-type=module -e 'for(let attempt=0;attempt<30;attempt++){try{const response=await fetch("http://127.0.0.1:8788/health");const body=await response.json();if(response.ok&&body.status==="setup-required")process.exit(0);}catch{}await new Promise(resolve=>setTimeout(resolve,1000));}process.exit(1);'
           docker push "$image:sha-$GITHUB_SHA-$IMAGE_ARCH"
   manifest:
     needs: build
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64, release]
     timeout-minutes: 10
     permissions:
       packages: write
@@ -55,6 +64,8 @@ jobs:
         run: |
           set -euo pipefail
           image="ghcr.io/${GITHUB_REPOSITORY,,}"
+          export DOCKER_CONFIG="$(mktemp -d "${RUNNER_TEMP}/yumunio-docker.XXXXXXXX")"
+          trap 'rm -rf "$DOCKER_CONFIG"' EXIT
           tag=latest
           if [[ "$GITHUB_REF_TYPE" == tag ]]; then tag="${GITHUB_REF_NAME#v}"; fi
           printf '%s' "$REGISTRY_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
@@ -63,7 +74,7 @@ jobs:
   dockerhub:
     needs: manifest
     if: vars.DOCKERHUB_IMAGE != ''
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64, release]
     timeout-minutes: 20
     permissions:
       contents: read
