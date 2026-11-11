@@ -266,7 +266,9 @@ export class PageRoom{
   if(socket.deserializeAttachment()?.kind==='workspace'){try{socket.close(code,reason);}catch{}return;}
   try{socket.close(code,reason);}catch{}
   await this.enqueuePeer(socket,async()=>{const peer=await this.state(socket);if(!peer)return;this.states.delete(peer.id);await this.ctx.storage.delete('socket:'+peer.id);try{await leaveRoomSocket(peer.state,request=>this.dispatch(request));await this.notify('presence',socket);}catch{}});
-  if(!this.ctx.getWebSockets().some(peer=>peer.deserializeAttachment()?.id))await this.enqueue(()=>this.flushJournalLocked()).catch(()=>{});
+  // The closing socket can still be listed here; exclude it so the last editor
+  // leaving checkpoints D1 now instead of after the idle debounce.
+  if(!this.ctx.getWebSockets().some(peer=>peer!==socket&&peer.deserializeAttachment()?.id))await this.enqueue(()=>this.flushJournalLocked()).catch(()=>{});
  }
  async webSocketError(socket){try{socket.close(1011);}catch{}await this.webSocketClose(socket);}
  async alarm(){

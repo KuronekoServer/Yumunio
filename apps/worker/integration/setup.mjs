@@ -33,10 +33,10 @@ test('actual workerd installs D1/R2 from the deploy schema, atomically claims on
   assert.equal((await request('/notes')).status,200);
   assert.equal((await request('/setup')).status, 200);
   assert.equal((await request('/api/auth/get-session')).status, 503);
-  assert.equal((await request('/api/setup', { method: 'POST', key: 'wrong', body: owner })).status, 403);
   assert.equal((await request('/api/setup', { method: 'POST', key: token, body: owner, headers: { Origin: 'https://other.invalid' } })).status, 403);
   assert.equal((await request('/api/setup', { method: 'POST', key: token, body: { ...owner, settings: { YUMUNIO_MAIL_DRIVER: 'smtp' } } })).status, 400);
-  const claims = await Promise.all([1, 2].map(() => request('/api/setup', { method: 'POST', key: token, body: owner })));
+  // Without YUMUNIO_SETUP_TOKEN, opening /setup is enough; concurrent claims still yield one owner.
+  const claims = await Promise.all([1, 2].map(() => request('/api/setup', { method: 'POST', body: owner })));
   const claimStatuses=claims.map(response=>response.status).sort();
   assert.deepEqual(claimStatuses,[201,409],JSON.stringify(claimStatuses));
   assert.equal((await request('/')).headers.get('location'), '/account');

@@ -99,8 +99,10 @@ export function createIdentity({ database, origin, secret, registrationMode = 'c
       }
     } },
     account: { modelName: 'yumunio_auth_accounts', encryptOAuthTokens: true, storeStateStrategy: 'database', skipStateCookieCheck: false, accountLinking: { enabled: false, disableImplicitLinking: true } },
+    // Session and membership reads run on every page load; counting them cost a
+    // D1 write each. Credential and mail endpoints stay throttled.
     rateLimit: { enabled: true, storage: 'database', window: 60, max: 60, modelName: 'yumunio_auth_rate_limits',
-      customRules: { '/sign-in/social': { window: 60, max: 10 }, '/sign-in/email': { window: 60, max: 5 }, '/sign-up/email': { window: 60, max: 3 }, '/request-password-reset': { window: 60, max: 3 }, '/send-verification-email': { window: 60, max: 3 } } },
+      customRules: { '/get-session': false, '/organization/list': false, '/sign-in/social': { window: 60, max: 10 }, '/sign-in/email': { window: 60, max: 5 }, '/sign-up/email': { window: 60, max: 3 }, '/request-password-reset': { window: 60, max: 3 }, '/send-verification-email': { window: 60, max: 3 } } },
     advanced: {
       cookiePrefix: 'yumunio.account', defaultCookieAttributes: { httpOnly: true, sameSite: 'strict', secure: origin.startsWith('https:'), path: '/' },
       cookies: { state: { attributes: { sameSite: 'lax' } }, oauth_state: { attributes: { sameSite: 'lax' } } },

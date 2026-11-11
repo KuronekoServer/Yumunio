@@ -23,6 +23,11 @@ test('account changes and mutation invalidation discard old previews and late re
  const first=pool.load('one');actor='b';assert.equal(pool.preview('one'),null);pending.resolve(value('one'));await assert.rejects(first,{name:'AbortError'});
  pending=deferred();const second=pool.load('two');pool.clear();pending.resolve(value('two'));await assert.rejects(second,{name:'AbortError'});assert.equal(pool.preview('two'),null);
 });
+test('an unrelated write keeps a waiting navigation read but does not cache it',async()=>{
+ let pending=deferred(),calls=0;const pool=new PageReadPool({scope:()=> 'a',read:()=>{calls++;return pending.promise;},validate});
+ const waiting=pool.load('one');pool.invalidate();pending.resolve(value('one'));assert.deepEqual(await waiting,value('one'));assert.equal(pool.preview('one'),null);
+ pending=deferred();const fresh=pool.load('one');pending.resolve({...value('one'),title:'new'});assert.equal((await fresh).title,'new');assert.equal(calls,2);assert.equal(pool.preview('one').title,'new');
+});
 test('memory and speculative traffic are bounded',async()=>{
  const gates=new Map(['one','two','three'].map(id=>[id,deferred()]));const pool=new PageReadPool({scope:()=> 'a',read:id=>gates.get(id).promise,validate,maxEntries:1});
  const one=pool.load('one',{prefetch:true}),two=pool.load('two',{prefetch:true});assert.equal(await pool.load('three',{prefetch:true}),null);gates.get('one').resolve(value('one'));await one;gates.get('two').resolve(value('two'));await two;assert.equal(pool.preview('one'),null);assert.equal(pool.preview('two').id,'two');

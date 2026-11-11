@@ -96,6 +96,10 @@ const modalOpen=()=>modal.open||settingsDialog?.open===true||workspacePicker?.op
 const policyRefreshActive=()=>policyRefresh?.accountId===state.user?.id&&policyRefresh?.selection===state.selection&&policyRefresh?.pageId===state.current?.page.id;
 let room=null,roomOpeningRetry=null,roomReadAttempt=null; const roomCompositions=new Set();
 const manualRoom=()=>!!room&&!room.automatic;
+/** An editable page whose automatic room is still opening should look and
+ * respond like an editor; a click or template choice is applied once ready. */
+const roomConnecting=()=>!!room&&room.automatic&&room.phase==='opening'&&canEdit();
+let pendingStarter=null;
 function queueAutomaticRoom(){
  if(room||state.loading||state.busy||modalOpen()||!state.current||!state.user||state.conflict||state.locked||bodySaveBlocked)return;
  const key=JSON.stringify([state.user.id,state.current.page.id,state.current.revision]);
@@ -215,7 +219,7 @@ function refreshSaveStatus() {
   if(signal.aborted)return;
   detailStatus();
   const roomStatus=roomStatusKey();
-  const quietRoom=['roomSynced','roomPending','roomSyncing','roomWaitingInput'].includes(roomStatus);
+  const quietRoom=['roomSynced','roomPending','roomSyncing','roomWaitingInput','roomOpening'].includes(roomStatus);
   let status='';
   if(state.loading||policyRefreshActive())status=t('loading');
   else if(state.current){
@@ -271,7 +275,7 @@ async function request(path,options={}){
  concurrentReads.clear();initialPlacements.clear();initialSynced.clear();return requestRaw(path,options);
 }
 async function requestRaw(path, { method = 'GET', body, signal, headers: extraHeaders = {} } = {}) {
-  if(method!=='GET'&&!path.endsWith('/query'))pageReads.clear();
+  if(method!=='GET'&&!path.endsWith('/query'))pageReads.invalidate();
   const timeout = AbortSignal.timeout(15000);
   let response;
   try {
@@ -306,7 +310,7 @@ function refreshRoomStatus() {
  if(room)refreshSaveStatus();
  if(room && ['ready','paused'].includes(room.phase))for(const control of app.querySelectorAll('.room-controls button'))control.disabled=state.busy || room.client?.busy || room.renewing || room.syncing;
 }
-function destroyRoom() {clearTimeout(roomOpeningRetry);roomOpeningRetry=null;if(!room)return;presence.leave(room);clearTimeout(room.timer);clearTimeout(room.flushTimer);room.transport?.close();room.client?.destroy();room=null;roomCompositions.clear();}
+function destroyRoom() {clearTimeout(roomOpeningRetry);roomOpeningRetry=null;if(!room)return;presence.leave(room);clearTimeout(room.timer);clearTimeout(room.flushTimer);room.transport?.close();room.client?.destroy();room=null;roomCompositions.clear();pendingStarter=null;}
 function restartCleanAutomaticRoom(active){
  if(room!==active||!active.automatic||active.client?.pending||bodyDirty()||draftPending()||roomCompositions.size||modalOpen()||state.busy)return false;
  destroyRoom();state.dirty=false;state.notice='';queueAutomaticRoom();return true;
@@ -410,14 +414,15 @@ function applyRoomDraft(active,draft,{focus=false}={}) {
  * caret until the room is ready, unless the user has focused something else. */
 let entryFocus=null;
 function requestEntryFocus(pageId,selection){entryFocus={pageId,selection,until:Date.now()+15000};}
-function takeEntryFocus(pageId){const value=entryFocus;entryFocus=null;if(!value||value.pageId!==pageId||Date.now()>value.until)return null;const active=document.activeElement;return!active||active===document.body?value.selection:null;}
+function takeEntryFocus(pageId){const value=entryFocus;entryFocus=null;if(!value||value.pageId!==pageId||Date.now()>value.until)return null;const active=document.activeElement;return!active||active===document.body||active.id==='page-title'&&active.readOnly?value.selection:null;}
 /** Mirror the title being typed into the breadcrumb and sidebar row, as the
  * saved page list only catches up after the next save or room checkpoint. */
 function paintTitleChrome(title){
  const crumb=app.querySelector('.breadcrumb span:last-child');if(crumb)crumb.textContent=title||t('untitled');
  const selected=app.querySelector('.page-link.selected [data-sidebar-page-title]');if(selected)selected.textContent=title||t('untitled');
 }
-function activateRoom(active) {if(room!==active)return;active.phase='ready';const entry=takeEntryFocus(active.base?.page.id);if(entry)active.lastSelection=entry;applyRoomDraft(active,active.client.snapshot(),{focus:!!entry});scheduleRoomHeartbeat();void connectRoomSocket(active);}
+function activateRoom(active) {if(room!==active)return;active.phase='ready';const entry=takeEntryFocus(active.base?.page.id);if(entry)active.lastSelection=entry;applyRoomDraft(active,active.client.snapshot(),{focus:!!entry});scheduleRoomHeartbeat();void connectRoomSocket(active);
+ const starter=pendingStarter;pendingStarter=null;if(starter&&starter.pageId===active.base?.page.id)queueMicrotask(()=>{if(room===active&&active.phase==='ready')applyEmptyPageStarter(starter.item);});}
 async function startRoom({automatic=false}={}) {
  if(collectionActivities.size)return;
  if(!await settleBodySave())return;
@@ -735,7 +740,7 @@ function render() {
     if(cover)content.append(node('img',{class:'page-cover',src:attachmentPath(cover.id)+'/preview',alt:'',loading:'lazy'}));
     if(appearance.icon)content.append(node('div',{class:'page-icon',translate:'no','aria-hidden':'true'},appearance.icon));
     if(appearance.locked)content.append(node('p',{class:'page-lock-note'},[t('pageTools.locked'),...(state.current.page.capabilities.includes('editBody')?[button('pageTools.unlock',()=>void runPageTool('appearance',{appearance:{...appearance,locked:false}}),{disabled:manualRoom()||state.busy})]:[])]));
-    const title = node('textarea', { id: 'page-title', class: 'page-title', rows: '1', maxlength: '240', 'aria-label': t('pageTitle'), placeholder: t('untitled'), value: state.draft.title, onKeyDown: titleKeyDown, disabled: editingDisabled(), onBeforeInput:rememberEditorSelection,
+    const title = node('textarea', { id: 'page-title', class: 'page-title', rows: '1', maxlength: '240', 'aria-label': t('pageTitle'), placeholder: t('untitled'), value: state.draft.title, onKeyDown: titleKeyDown, disabled: editingDisabled()&&!roomConnecting(), readOnly: roomConnecting(), onBeforeInput:rememberEditorSelection,
       onInput: event => { state.draft.title = event.target.value.replace(/[\r\n]/g, ' '); if (event.target.value !== state.draft.title) event.target.value = state.draft.title; autoSize(event.target); recordRoomText('title',state.draft.title); updateDirty('title'); paintTitleChrome(state.draft.title); } });
     title.addEventListener('compositionstart',()=>{roomCompositions.add('title');updateDirty();});title.addEventListener('compositionend',()=>{roomCompositions.delete('title');updateDirty();});
     const metadata=node('div', { class: 'document-meta' }, [
@@ -751,7 +756,7 @@ function render() {
     if (state.collection) content.append(renderCollection());
     if (state.collectionError) content.append(node('p',{class:'message',role:'status'},t(state.collectionError)));
     if(canEdit()&&(!room||room.client?.protocol===2))content.append(node('details',{class:'document-tools',...(blockSelection.mode?{open:true}:{})},[node('summary',{},t('editorOptions')),metadata,renderBlockSelectionToolbar()]));
-    else if(canEdit())content.append(metadata);
+    else if(canEdit()&&!roomConnecting())content.append(metadata);
     const blocks = node('div', { class: 'document-blocks' });
     const locations=indexEditorBlocks(state.draft.blocks),nestingPlanner=createEditorNestingPlanner(state.draft.blocks);
     state.draft.blocks.forEach(block => blocks.append(renderBlock(block, locations,nestingPlanner)));
@@ -2297,7 +2302,7 @@ async function runPageTool(action,values){
 /** Like Notion's empty-page suggestions: a blank body offers text templates in place. */
 function emptyPageStarters(){
  const blocks=state.draft?.blocks;
- if(!blocks||blocks.length!==1||blocks[0].type!=='paragraph'||blocks[0].data?.text||blocks[0].children?.length||structureDisabled())return null;
+ if(!blocks||blocks.length!==1||blocks[0].type!=='paragraph'||blocks[0].data?.text||blocks[0].children?.length||structureDisabled()&&!roomConnecting())return null;
  let items;try{items=pageStarters(t).filter(item=>!item.starter&&item.id!=='starter:blank');}catch{return null;}
  if(!items.length)return null;
  const panel=node('div',{class:'empty-page-starters'},[node('p',{class:'empty-page-starters-label'},t('emptyPageStarters')),
@@ -2306,6 +2311,8 @@ function emptyPageStarters(){
  return panel;
 }
 function applyEmptyPageStarter(item){
+ // Picked while the room connects: apply it as soon as editing is possible.
+ if(roomConnecting()){pendingStarter={pageId:state.current.page.id,item};for(const choice of app.querySelectorAll('.empty-page-starter'))choice.disabled=true;return;}
  const blocks=state.draft?.blocks;
  if(structureDisabled()||!blocks||blocks.length!==1||blocks[0].data?.text)return;
  try{finishTreeChange(replaceEditorBlockSelection(blocks,[blocks[0].id],instantiatePageStarter(item.snapshot)));}
@@ -2562,6 +2569,15 @@ listen(modal,'toggle',presence.paint);
 listen(modal,'cancel',event=> { if(state.busy || operation?.pending)event.preventDefault(); });
 listen(window,'beforeunload', event => { if (state.dirty || state.busy || bodySaveTask || bodySaveBlocked || clipboardUpload || clipboardStarting) { event.preventDefault(); event.returnValue = ''; } });
 listen(window,'pagehide',()=>collectionView?.destroy());
+// A click into the title or body while the room connects keeps its place; the
+// caret lands there as soon as the page becomes editable.
+listen(app,'pointerdown',event=>{
+ if(!roomConnecting()||event.button!==0)return;const target=event.target,pageId=state.current.page.id;
+ if(target.closest?.('.page-title')){const end=state.draft.title.length;requestEntryFocus(pageId,{title:true,start:end,end});return;}
+ if(!target.closest?.('.document-content')||target.closest('button,a,input,select,summary,.empty-page-starters'))return;
+ const id=target.closest('.document-blocks [data-block-id]')?.dataset.blockId??state.draft.blocks.at(-1)?.id,text=blockLocation(id)?.block.data?.text;
+ if(typeof text==='string')requestEntryFocus(pageId,{blockId:id,start:text.length,end:text.length});
+},{capture:true});
 for(const kind of ['copy','cut'])listen(app,kind,event=>{
  if(kind==='copy'&&state.current&&state.user&&!roomCompositions.size){try{const selection=captureEditorTextSelection(app,state.draft.blocks);if(selection){writeEditorBlockClipboard(event.clipboardData,serializeEditorTextSelection(state.draft.blocks,selection,clipboardContext()));event.preventDefault();event.stopPropagation();return;}}catch{}}
  if(!blockSelection.mode||!selectedBlockRoots().length||!blockClipboardEnabled()||event.target.closest?.('input:not(.block-select),textarea,.inline-editor'))return;
@@ -2614,6 +2630,8 @@ listen(window,'popstate',()=>{
  void (async()=>{if(target)await selectPage(target.pageId,false,false,null,{...target,historyMode:'none'});else await openWorkspaceHome({historyMode:'none'});if(state.current?.page.id===before&&state.current?.page.id!==target?.pageId)pageHistory(before,{historyMode:'push'});})();
 });
 try {
+  // Every editable page opens a room; fetch its client while bootstrap reads.
+  void import('./shared/collaboration-client.js').catch(()=>{});
   const initialLocale=preferences.snapshot().locale;
   const requestedPage=new URL(location.href).searchParams.get('page');
   const bootQuery=new URLSearchParams();if(validId(requestedPage)){bootQuery.set('page',requestedPage);if(collectionViewId)bootQuery.set('view',collectionViewId);}
