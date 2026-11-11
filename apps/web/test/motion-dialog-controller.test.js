@@ -157,3 +157,17 @@ test('reduced motion can finish a pending exit and all native methods are restor
   assert.equal(f.dialog.closeImmediately, undefined);
   assert.equal(f.dialog.listeners.get('cancel').length, 0);
 });
+
+test('a press that starts and ends on the backdrop dismisses like Escape, but content presses do not', async t => {
+  const f = fixture(t);
+  const fire = (name, target) => { for (const listener of f.dialog.listeners.get(name) ?? []) listener({type: name, target, button: 0, clientX: NaN}); };
+  f.dialog.showModal();
+  await flush();
+  fire('pointerdown', f.input); fire('click', f.dialog);
+  assert.equal(f.animations.length, 1, 'a drag that starts inside never dismisses');
+  fire('pointerdown', f.dialog); fire('click', f.input);
+  assert.equal(f.animations.length, 1, 'a press that ends inside never dismisses');
+  fire('pointerdown', f.dialog); fire('click', f.dialog);
+  assert.equal(f.animations.length, 2, 'the backdrop press starts the exit animation');
+  assert.equal(f.dialog.inert, true);
+});

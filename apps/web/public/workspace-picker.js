@@ -1,3 +1,4 @@
+import {bindLightDismiss} from './motion-dialog-controller.js';
 import {WorkspaceDirectory,validWorkspaceDirectoryId} from './workspace-directory.js';
 
 /** Native, mounted popup. Navigation is always delegated to the editor's draft guard. */
@@ -93,7 +94,7 @@ export function mountWorkspacePicker({document=globalThis.document,background,wo
   else if(!event.shiftKey&&(document.activeElement===last||!dialog.contains(document.activeElement))){event.preventDefault();first.focus();}
  }
  dialog.addEventListener('compositionstart',()=>{composing=true;});dialog.addEventListener('compositionend',()=>{composing=false;});
- dialog.addEventListener('cancel',event=>{if(event.target!==dialog)return;event.preventDefault();requestClose();});
+ dialog.addEventListener('cancel',event=>{if(event.target!==dialog)return;event.preventDefault();requestClose();});bindLightDismiss(dialog);
  dialog.addEventListener('click',event=>{if(event.target===dialog)requestClose();});
  document.addEventListener('keydown',keydown,true);view?.addEventListener('beforeunload',beforeUnload);dialog.showModal();close.focus();
  const ready=load();

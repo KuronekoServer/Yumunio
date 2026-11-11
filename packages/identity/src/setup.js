@@ -35,6 +35,10 @@ export async function createInstanceSetup({ env, store, origin, runtime = 'node'
   const token = env.YUMUNIO_INSTANCE_SECRET || env.YUMUNIO_SETUP_TOKEN;
   if (!isValidAccessKey(token) || token !== token.trim()) throw new Error('Instance credentials are unavailable.');
   const authorization = await initialSetupAuthorization(env);
+  // An operator-chosen YUMUNIO_SETUP_TOKEN is known to them, so it still gates
+  // setup. A generated instance secret is not: opening /setup is enough while
+  // the instance is empty, and store.initialize() lets exactly one owner win.
+  const tokenRequired = Boolean(env.YUMUNIO_SETUP_TOKEN);
   const secret = hex(await digest('yumunio/auth/v1\0' + token));
   const access = hex(await digest('yumunio/snapshot/v1\0' + token));
   const key = await crypto.subtle.importKey('raw', await digest('yumunio/settings/v1\0' + token), 'AES-GCM', false, ['encrypt', 'decrypt']);
@@ -91,19 +95,21 @@ export async function createInstanceSetup({ env, store, origin, runtime = 'node'
     try { return JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)); } catch { fail('SETUP_INVALID_REQUEST'); }
   }
   const projection = settings => ({ settings: Object.fromEntries(SETUP_FIELDS.filter(field => !SETUP_SECRET_FIELDS.includes(field)).map(field => [field, settings[field] || ''])), secrets: Object.fromEntries(SETUP_SECRET_FIELDS.map(field => [field, Boolean(settings[field])])), runtime,mailCapabilities:{cloudflare:runtime==='worker'&&typeof env.EMAIL?.send==='function',smtp:true} });
-  return { load, baseEnvironment: base, initialSetupUrl: await initialSetupUrl(env, origin),
+  return { load, baseEnvironment: base, initialSetupUrl: tokenRequired ? await initialSetupUrl(env, origin) : origin + '/setup',
     async handle(request) {
       try {
         const url = new URL(request.url), write = request.method !== 'GET';
         if (url.origin !== origin || url.search || url.hash || request.headers.has('origin') && request.headers.get('origin') !== origin || write && request.headers.get('origin') !== origin || !['same-origin', 'none', null].includes(request.headers.get('sec-fetch-site'))) fail('SETUP_ORIGIN_REJECTED', 403);
         const state = await load();
-        if (url.pathname === '/api/setup' && request.method === 'GET') return json({ enabled: true, required: !state.data, runtime });
+        if (url.pathname === '/api/setup' && request.method === 'GET') return json({ enabled: true, required: !state.data, runtime, tokenRequired });
         if (url.pathname === '/api/setup' && request.method === 'POST') {
           if (state.data) fail('SETUP_COMPLETE', 409);
-          const supplied = request.headers.get('x-yumunio-setup-token') || '';
-          const expectedBytes = new Uint8Array(await digest(authorization)), actualBytes = new Uint8Array(await digest(supplied));
-          let mismatch = 0; for (let i = 0; i < expectedBytes.length; i++) mismatch |= expectedBytes[i] ^ actualBytes[i];
-          if (mismatch) fail('SETUP_TOKEN_REJECTED', 403);
+          if (tokenRequired) {
+            const supplied = request.headers.get('x-yumunio-setup-token') || '';
+            const expectedBytes = new Uint8Array(await digest(authorization)), actualBytes = new Uint8Array(await digest(supplied));
+            let mismatch = 0; for (let i = 0; i < expectedBytes.length; i++) mismatch |= expectedBytes[i] ^ actualBytes[i];
+            if (mismatch) fail('SETUP_TOKEN_REJECTED', 403);
+          }
           await assertReady();
           if (!await store.fresh()) fail('SETUP_EXISTING_INSTANCE', 409);
           const input = await readJson(request);

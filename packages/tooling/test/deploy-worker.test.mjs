@@ -12,7 +12,7 @@ test('first Worker deploy creates private credentials automatically and outputs 
     return { code: 0, stdout: 'Deployed https://yumunio.fixture.workers.dev', stderr: '' };
   } });
   assert.equal(generated.YUMUNIO_INSTANCE_SECRET.length, 64);
-  assert.match(logs[0], /https:\/\/yumunio.fixture.workers.dev\/setup#start=[a-f0-9]{64}$/);
+  assert.match(logs[0], /https:\/\/yumunio.fixture.workers.dev\/setup$/);
   assert.ok(!logs[0].includes(generated.YUMUNIO_INSTANCE_SECRET));
   assert.deepEqual(calls[1], ['d1', 'migrations', 'apply', 'DB', '--remote']);
   await assert.rejects(() => access(temporary));

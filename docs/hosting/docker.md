@@ -14,7 +14,7 @@ docker run -d --name yumunio --restart unless-stopped -p 127.0.0.1:8788:8788 -v 
 docker logs yumunio
 ```
 
-ログに表示されるリンクからWebで初期設定します。DB・添付・内部の認証情報は `yumunio-data` へ保存されます。`docker run` の例は自分のPCで試す構成です。公開URLとHTTPSを使う場合は、下記のCompose構成を使います。`docker run` とComposeでは既定のボリューム名が異なるため、導入後は同じ起動方法・保存先を使ってください。
+http://127.0.0.1:8788/setup を開いてWebで初期設定します。DB・添付・内部の認証情報は `yumunio-data` へ保存されます。`docker run` の例は自分のPCで試す構成です。公開URLとHTTPSを使う場合は、下記のCompose構成を使います。`docker run` とComposeでは既定のボリューム名が異なるため、導入後は同じ起動方法・保存先を使ってください。
 
 Publicリポジトリの取得には公開者の接続情報は不要です。[Docker Hubの公開範囲](https://docs.docker.com/docker-hub/repos/manage/access/)と[取得回数の制限](https://docs.docker.com/docker-hub/usage/)はDocker公式で確認できます。
 
@@ -38,7 +38,7 @@ docker compose up -d
 docker compose logs yumunio
 ```
 
-ログに表示される「初期設定をはじめる / Start setup」のリンクを開きます。アカウントとワークスペースを作成したら、次回からは http://127.0.0.1:8788 を開けます。コンテナーはホストのループバックだけへ公開し、LANやインターネットから直接アクセスする構成にはしていません。
+公開URLの `/setup`（ログの「初期設定をはじめる / Start setup」と同じ）を開きます。アカウントとワークスペースを作成したら、次回からは http://127.0.0.1:8788 を開けます。コンテナーはホストのループバックだけへ公開し、LANやインターネットから直接アクセスする構成にはしていません。
 
 ## ドメインとHTTPSを使う
 

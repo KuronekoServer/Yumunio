@@ -4,7 +4,6 @@ import { mkdtemp, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve, relative, isAbsolute, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { initialSetupUrl } from '../identity/src/setup.js';
 
 const root = fileURLToPath(new URL('../../', import.meta.url));
 const wrangler = join(root, 'node_modules/wrangler/bin/wrangler.js');
@@ -50,7 +49,8 @@ export async function deployWorker({ run = command, log = console.log, env = pro
     if (generated) {
       const origin = env.YUMUNIO_PUBLIC_ORIGIN || deployment.stdout.match(/https:\/\/[a-z0-9.-]+\.workers\.dev\b/i)?.[0];
       if (!origin) throw new Error('Worker deployed. Open the deployment log to locate its URL and complete installation.');
-      log('初期設定をはじめる / Start setup: ' + await initialSetupUrl({ YUMUNIO_INSTANCE_SECRET: generated }, origin));
+      // A generated secret never gates setup: the empty instance is claimed at /setup.
+      log('初期設定をはじめる / Start setup: ' + origin + '/setup');
     }
   } finally {
     if (directory) {

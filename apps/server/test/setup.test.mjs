@@ -36,14 +36,17 @@ async function fixture(t, { automatic = false } = {}) {
   };
   return { env, database, directory, origin, request, owner, login, get initialUrl() { return setup.setup.initialSetupUrl; }, async restart() { await stop(); await start(); }, stop };
 }
-test('ordinary self-host installation generates and persists credentials and a ready-to-open initial link', async t => {
+test('ordinary self-host installation generates and persists credentials and lets the first visitor of /setup create the owner', async t => {
   const f = await fixture(t, { automatic: true });
   const secret = await readFile(join(f.directory, 'instance-secret'), 'utf8');
   assert.equal(secret.length, 64);
-  const initial = new URL(f.initialUrl), authorization = new URLSearchParams(initial.hash.slice(1)).get('start');
-  assert.ok(authorization); assert.ok(!f.initialUrl.includes(secret));
-  assert.equal((await f.request('/api/setup', { method: 'POST', key: secret, body: f.owner() })).status, 403);
-  assert.equal((await f.request('/api/setup', { method: 'POST', key: authorization, body: f.owner() })).status, 201);
+  assert.equal(f.initialUrl, f.origin + '/setup'); assert.ok(!f.initialUrl.includes(secret));
+  const authorization = 'unused-generated-link';
+  // The generated secret is never shown to the operator, so opening /setup is
+  // enough while the instance is empty; the first owner wins atomically.
+  assert.equal((await (await f.request('/api/setup')).json()).tokenRequired, false);
+  assert.equal((await f.request('/api/setup', { method: 'POST', body: f.owner() })).status, 201);
+  assert.equal((await f.request('/api/setup', { method: 'POST', key: authorization, body: f.owner() })).status, 409);
   await f.restart(); assert.equal(await readFile(join(f.directory, 'instance-secret'), 'utf8'), secret);
   await f.login();
   const commandEnvironment = await readNodeInstanceEnvironment(f.env);

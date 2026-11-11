@@ -1,3 +1,4 @@
+import {bindLightDismiss} from './motion-dialog-controller.js';
 const personalSections=['appearance','colors','font','language','sync'];
 const workspaceSections=['general','import','members','teamspaces','groups'];
 export function settingsHrefSection(href,workspaceId,base=globalThis.location?.href??'https://local.invalid/'){
@@ -106,7 +107,7 @@ export function mountSettingsDialog({document=globalThis.document,background,wor
  }
  dialog.addEventListener('compositionstart',()=>{composing=true;});
  dialog.addEventListener('compositionend',()=>{composing=false;});
- dialog.addEventListener('cancel',event=>{if(event.target!==dialog)return;event.preventDefault();if(!composing&&!childDialogOpen())requestClose();});
+ dialog.addEventListener('cancel',event=>{if(event.target!==dialog)return;event.preventDefault();if(!composing&&!childDialogOpen())requestClose();});bindLightDismiss(dialog);
  dialog.addEventListener('click',event=>{
   if(event.target===dialog){requestClose();return;}
   const link=event.target.closest?.('a[href]');if(!link||event.defaultPrevented||event.button!==0||event.metaKey||event.ctrlKey||event.shiftKey||event.altKey)return;

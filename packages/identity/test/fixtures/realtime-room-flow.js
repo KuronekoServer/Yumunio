@@ -35,7 +35,9 @@ export async function exerciseRealtimeRoom({origin,request,owner,member,workspac
   stage='presence';const presence=right.wait('presence');await left.client.publishPresence({cursor:{blockId:'shared',start:0,end:1,direction:'forward'}});await presence;
   await right.client.publishPresence({cursor:{blockId:'shared',start:2,end:2,direction:'none'}});
   const roster=await left.client.readPresence();assert.equal(roster.participants.length,2);assert.equal(roster.participants.filter(row=>row.cursor!==null).length,2);
-  const saved=await ok(await request(path,{account:owner}));assert.deepEqual(saved.document.blocks,left.client.snapshot().blocks);
+  // Direct reads see the room only after its durable checkpoint (immediate on
+  // Node, debounced on Workers), so poll instead of assuming a fixed delay.
+  let saved;for(const started=Date.now();;){saved=await ok(await request(path,{account:owner}));try{assert.deepEqual(saved.document.blocks,left.client.snapshot().blocks);break;}catch(error){if(Date.now()-started>15000)throw error;await new Promise(resolve=>setTimeout(resolve,250));}}
   stage='same-account-push';
   const secondDevice=create(owner),pushedWhileBusy=new Map(),deviceCalls=[];
   await secondDevice.client.open({expectedRevision:saved.revision});

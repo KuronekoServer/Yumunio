@@ -1,5 +1,35 @@
 import {surfaceTransition} from './ui-motion-policy.js';
 
+/**
+ * Light dismiss for a native modal dialog: a primary press that starts and
+ * ends on the backdrop behaves like Escape. It dispatches a cancelable
+ * `cancel` event, so busy/unsaved guards can still veto the close.
+ */
+export function bindLightDismiss(dialog, {active = () => true, fallback = null} = {}) {
+  let pressedOutside = false;
+  const outside = event => {
+    if (event.target !== dialog) return false;
+    const box = dialog.getBoundingClientRect?.();
+    if (!box || !Number.isFinite(event.clientX)) return true;
+    return event.clientX < box.left || event.clientX > box.right || event.clientY < box.top || event.clientY > box.bottom;
+  };
+  const pointerDown = event => { pressedOutside = dialog.open && active() && (event.button ?? 0) === 0 && outside(event); };
+  const click = event => {
+    const dismiss = pressedOutside && outside(event);
+    pressedOutside = false;
+    if (!dismiss || !dialog.open || !active()) return;
+    const request = new Event('cancel', {cancelable: true});
+    if (typeof dialog.dispatchEvent === 'function') dialog.dispatchEvent(request);
+    else fallback?.(request);
+  };
+  dialog.addEventListener('pointerdown', pointerDown);
+  dialog.addEventListener('click', click);
+  return () => {
+    dialog.removeEventListener('pointerdown', pointerDown);
+    dialog.removeEventListener('click', click);
+  };
+}
+
 /** Animate a native dialog without taking ownership of its widget children. */
 export function bindMotionDialog({dialog, animate, isReducedMotion, isComposing, onShade}) {
   const document = dialog.ownerDocument;
@@ -91,6 +121,7 @@ export function bindMotionDialog({dialog, animate, isReducedMotion, isComposing,
   };
   dialog.addEventListener('cancel', cancel);
   dialog.addEventListener('close', nativeClosed);
+  const releaseLightDismiss = bindLightDismiss(dialog, {active: () => !closing, fallback: cancel});
 
   return {
     finish() { controls?.complete(); },
@@ -104,6 +135,7 @@ export function bindMotionDialog({dialog, animate, isReducedMotion, isComposing,
       else dialog.closeImmediately = originalImmediate;
       dialog.removeEventListener('cancel', cancel);
       dialog.removeEventListener('close', nativeClosed);
+      releaseLightDismiss();
     }
   };
 }

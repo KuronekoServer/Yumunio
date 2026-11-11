@@ -503,6 +503,7 @@
   "savePaused": "Autosave paused",
   "saveUnknown": "The save result could not be confirmed. Your latest input remains in this tab and automatic resending has stopped. Copy anything you need before reloading to check the server version.",
   "autoSaveHint": "Titles, body content and properties update automatically. Keep writing while changes are sent. A message appears only if changes need attention.",
+  "emptyPageStarters": "Start with a template",
   "editorHelp": "Writing tips",
   "editorOptions": "Page editing options",
   "collapseSidebar": "Close sidebar",

@@ -86,3 +86,34 @@ body:has(dialog#workspace-modal.slash-popover[open]) .motion-dialog-shade{displa
 @media(forced-colors:active){.slash-popover .block-choice.is-first{outline:2px solid Highlight}}
 /* The off-canvas sidebar's shadow must not bleed onto the page while closed. */
 @media(max-width:760px){.workspace-shell:not(.nav-open) .workspace-sidebar{box-shadow:none}}
+/* Page actions open as a compact menu beside the toolbar "…" button. */
+dialog#workspace-modal.menu-popover{width:min(264px,calc(100vw - 16px));max-height:min(520px,calc(100dvh - 16px));overflow:auto}
+.menu-popover .dialog-body{display:flex;flex-direction:column;gap:1px;padding:6px}
+.menu-popover .operation-page-title{display:none}
+.menu-popover .dialog-body>.button{display:flex;align-items:center;justify-content:flex-start;gap:10px;width:100%;min-height:30px;padding:4px 8px;border:0;border-radius:5px;background:transparent;box-shadow:none;color:var(--text);font-size:14px;font-weight:400;text-align:left;text-decoration:none}
+.menu-popover .dialog-body>.button svg{flex:none;width:16px;height:16px;color:var(--muted)}
+.menu-popover .dialog-body>.button:hover:not(:disabled),.menu-popover .dialog-body>.button:focus-visible{background:var(--soft);outline:none}
+.menu-popover .dialog-body>.button:disabled{opacity:.45}
+.menu-popover .dialog-body>.button:has(+.button+.hint):not(:disabled){color:var(--danger,#c4332b)}
+.menu-popover .dialog-body>.hint{margin:4px 8px 2px;padding-top:6px;border-top:1px solid var(--border);font-size:11px;line-height:1.5;color:var(--muted)}
+/* Input hints stay out of the document: a quiet "?" in the corner on desktop. */
+@media(min-width:761px){
+.workspace-shell .workspace-editor-help{position:fixed;right:18px;bottom:18px;z-index:15;margin:0}
+.workspace-shell .workspace-editor-help summary{list-style:none;display:grid;place-items:center;width:30px;height:30px;padding:0;border-radius:50%;background:var(--surface,var(--bg,#fff));box-shadow:0 0 0 1px #0f0f0f14,0 2px 4px #0f0f0f14;font-size:0;color:var(--muted)}
+.workspace-shell .workspace-editor-help summary::-webkit-details-marker{display:none}
+.workspace-shell .workspace-editor-help summary::before{content:"?";font-size:14px;font-weight:500}
+.workspace-shell .workspace-editor-help summary:hover{background:var(--soft)}
+.workspace-shell .workspace-editor-help .editor-help-panel{position:absolute;right:0;bottom:40px;width:300px;padding:12px 14px;border-radius:8px;background:var(--surface,var(--bg,#fff));box-shadow:0 0 0 1px #0f0f0f0d,0 3px 6px #0f0f0f1a,0 9px 24px #0f0f0f26;line-height:1.55}
+}
+/* Empty page: template suggestions sit quietly under the first line. */
+.empty-page-starters{margin:14px 0 0;color:var(--muted)}
+.empty-page-starters-label{margin:0 0 6px;font-size:12px}
+.empty-page-starters-list{display:flex;flex-direction:column;align-items:flex-start;gap:1px}
+.empty-page-starter{display:inline-flex;align-items:center;gap:8px;min-height:28px;padding:3px 8px 3px 4px;border:0;border-radius:5px;background:transparent;color:var(--muted);font:inherit;font-size:14px;cursor:pointer}
+.empty-page-starter svg{width:16px;height:16px}
+.empty-page-starter:hover,.empty-page-starter:focus-visible{background:var(--soft);color:var(--text);outline:none}
+/* Like Notion: the body hint shows only on the line being written, or on an
+   otherwise empty page. The title keeps its caret without a field outline. */
+.document-blocks .inline-editor:empty:not(:focus)::before{content:none}
+.document-content:has(.empty-page-starters) .document-blocks .inline-editor:empty::before{content:attr(data-placeholder)}
+.workspace-shell .page-title:focus,.workspace-shell .page-title:focus-visible{outline:none;box-shadow:none;border-color:transparent}

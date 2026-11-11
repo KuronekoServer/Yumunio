@@ -7,7 +7,7 @@
 | `pull` で `denied`・`manifest unknown` | 使うイメージのタグとDocker Hubでの公開状態。GHCRを指定した場合はパッケージがPublicかも確認。配布前は[ソースビルド](docker.md#ソースからビルドする)を使用 |
 | Composeが `required` を認識しない | Compose 2.24以上か。旧 `docker-compose` ではなく `docker compose version` で確認 |
 | 起動しない | `docker compose ps` と `docker compose logs yumunio`。HTTPS構成では同じ `-f` を指定 |
-| 初期設定を開けない | 起動ログの最新のリンクと、実際の公開URLが一致しているか。リンクの `#start=...` も含めて開く |
+| 初期設定を開けない | `YUMUNIO_PUBLIC_ORIGIN` と実際の公開URLが一致しているか。`YUMUNIO_SETUP_TOKEN` を自分で設定した場合は `/setup#start=<その値>` で開く |
 | 公開URLでログインできない | `.env` の `YUMUNIO_PUBLIC_ORIGIN`、DNS、プロキシが保持するHost、アクセス中のHTTPS URL |
 | Caddyで証明書を取得できない | DNSの向き先、TCP 80/443の到達、別プロセスとの競合、`logs caddy` |
 | 更新後に初期設定へ戻った | 保存ボリューム・`.env`・DB接続先を変更していないか。元の保存先を確認し、新しい管理者で作り直さない |

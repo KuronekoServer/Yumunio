@@ -2,6 +2,10 @@
 import {useEffect,useRef,useState} from 'react';
 import {createI18n,loadCatalogs} from '../public/i18n.js';
 import {setupRequest,setupSettings} from './setup-client.js';
+import {applyPreferenceAppearance} from '../public/appearance.js';
+
+/** Show a theme the moment it is chosen; nothing is saved until the form is. */
+const previewTheme=themeId=>{try{applyPreferenceAppearance({schemaVersion:1,themeId,customColors:{},fontId:'system',locale:'ja'});}catch{}};
 
 function Field({name,label,value='',type='text',required=false,options,secret=false,wide=false,help,minLength=0,maxLength=4096,autocomplete='off',saved=false,onChange,controlled=false}){
  const inputValue=controlled?{value,onChange}:{defaultValue:secret?'':value,onChange};
@@ -52,12 +56,12 @@ export function SetupPage({initialAuthorization=''}){
  if(loadError)content=<p role="alert">設定を読み込めませんでした。再読み込みしてください。 / Unable to load setup. Please reload.</p>;
  else if(!state||!i18n)content=<p role="status">読み込んでいます… / Loading…</p>;
  else if(!state.enabled)content=<p>{t('setupDisabled')}</p>;
- else if(state.required&&!authorization.current&&stage!==2)content=<p>{t('openInitialLink')}</p>;
+ else if(state.required&&state.tokenRequired===true&&!authorization.current&&stage!==2)content=<p>{t('openInitialLink')}</p>;
  else if(!state.required&&!configuration)content=<><p>{t('loginRequired')}</p><a className="button" href="/account">{t('signIn')}</a></>;
  else if(stage===2)content=<><p className="eyebrow">Yumunio</p><h1>{t('complete')}</h1><p>{t('completeHelp')}</p><a className="button primary" href="/account">{t('signIn')}</a></>;
  else content=<><p className="eyebrow">{t(state.required?'welcome':'admin')}</p><h1>{t(state.required?stage===0?'title':'workspaceTitle':'settingsTitle')}</h1><p className="setup-intro">{t(state.required?stage===0?'intro':'workspaceIntro':'settingsIntro')}</p><form ref={form} onSubmit={submit} key={state.required?stage:'settings'}><fieldset disabled={busy} className="setup-form-fields">
   {state.required&&stage===0&&<Group title={t('owner')} open><Field name="name" label={t('name')} value={draft.current.name} required maxLength={120} autocomplete="name" wide/><Field name="email" label={t('email')} value={draft.current.email} type="email" required maxLength={254} autocomplete="username" wide/><Field name="password" label={t('password')} value={draft.current.password} type="password" required minLength={12} maxLength={128} autocomplete="new-password" help={t('passwordHelp')}/></Group>}
-  {(!state.required||stage===1)&&<Group title={t('appearance')} open>{settingsField('BRAND_NAME',t(state.required?'brand':'siteName'),{value:'Yumunio',required:true,maxLength:80})}{settingsField('BRAND_ORGANIZATION',t('organization'),{maxLength:120})}{settingsField('DEFAULT_LOCALE',t('locale'),{value:locale,options:i18n.availableLocales.map(({code,endonym})=>[code,endonym])})}{settingsField('DEFAULT_THEME',t('theme'),{value:'light',options:['paper','light','ocean','lavender','forest','midnight'].map(value=>[value,t('theme_'+value)])})}</Group>}
+  {(!state.required||stage===1)&&<Group title={t('appearance')} open>{settingsField('BRAND_NAME',t(state.required?'brand':'siteName'),{value:'Yumunio',required:true,maxLength:80})}{settingsField('BRAND_ORGANIZATION',t('organization'),{maxLength:120})}{settingsField('DEFAULT_LOCALE',t('locale'),{value:locale,options:i18n.availableLocales.map(({code,endonym})=>[code,endonym])})}{settingsField('DEFAULT_THEME',t('theme'),{value:'light',onChange:event=>previewTheme(event.target.value),options:['paper','light','ocean','lavender','forest','midnight'].map(value=>[value,t('theme_'+value)])})}</Group>}
   {!state.required&&<>
    <Group title={t('registration')}>{settingsField('REGISTRATION_MODE',t('registrationMode'),{value:'closed',options:choices(['closed','open'],true),help:t('registrationHelp')})}{settingsField('EMAIL_DOMAIN_MODE',t('domainMode'),{value:'unrestricted',options:choices(['unrestricted','allowlist'],true)})}{settingsField('EMAIL_ALLOWED_DOMAINS',t('allowedDomains'))}{settingsField('EMAIL_BLOCKED_DOMAINS',t('blockedDomains'))}{settingsField('EMAIL_ALLOW_SUBDOMAINS',t('allowSubdomains'),{value:'false',options:[['false',t('no')],['true',t('yes')]]})}{settingsField('EMAIL_BLOCK_SUBDOMAINS',t('blockSubdomains'),{value:'true',options:[['true',t('yes')],['false',t('no')]]})}</Group>
    <MailSettings runtime={state.runtime} configuration={configuration} t={t} settingsField={settingsField}/>

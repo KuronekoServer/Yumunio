@@ -29,11 +29,18 @@ function loadCollaboration(){
   return collaboration??=import('@yumunio/collaboration').then(({Y,toBase64,fromBase64})=>({Y,toBase64,fromBase64})).catch(error=>{collaboration=null;throw error;});
 }
 
+/** D1 checkpoint policy. Every update is already durable in this object's
+ * storage before it is acknowledged and is fanned out to peers immediately, so
+ * D1 only needs the coalesced row: once typing pauses (idleMs), at least every
+ * maxMs during continuous typing, and at once when the last editor leaves, an
+ * external writer changes the page, or the journal grows large. */
+export const ROOM_CHECKPOINT={idleMs:2000,maxMs:10000};
+
 /** One hibernating Durable Object per workspace/page. Yjs updates are applied
  * and acknowledged after a durable journal write; the coalesced workspace row
- * is checkpointed to D1 every 250ms (or immediately on conflicts/changes). */
+ * is checkpointed to D1 by ROOM_CHECKPOINT (or immediately on conflicts/changes). */
 export class PageRoom{
- constructor(ctx,env){this.ctx=ctx;this.env=env;this.tail=Promise.resolve();this.states=new Map();this.queued=new Map();this.peerQueue=new PeerRequestQueue();this.contentCache=createContentCache();this.contentCache.setDeferred(true);this.journal=null;this.journalLoaded=false;this.flushTimer=null;this.replaying=false;this.needsReplay=false;this.events=new WorkspaceEvents(ctx,()=>this.services());}
+ constructor(ctx,env){this.ctx=ctx;this.env=env;this.tail=Promise.resolve();this.states=new Map();this.queued=new Map();this.peerQueue=new PeerRequestQueue();this.contentCache=createContentCache();this.contentCache.setDeferred(true);this.journal=null;this.journalLoaded=false;this.flushTimer=null;this.pendingSince=null;this.replaying=false;this.needsReplay=false;this.events=new WorkspaceEvents(ctx,()=>this.services());}
  async services(){
   const {createInstanceSetup,createD1SetupStore,createD1RecoveryStore,assertRecoveryReady,createWorkerAccountServices}=await loadWorkerModules();
   const configured=!!(this.env.YUMUNIO_INSTANCE_SECRET||this.env.YUMUNIO_SETUP_TOKEN);
@@ -59,6 +66,7 @@ export class PageRoom{
  send(socket,message){const text=JSON.stringify(message);if(new TextEncoder().encode(text).length>ROOM_SOCKET_LIMITS.responseBytes){socket.close(1013);return;}try{socket.send(text);}catch{socket.close(1011);}}
  async notify(kind,source,runtime){
   runtime??=await this.services();
+  // Sequential on purpose: peer reads share this object's content cache.
   for(const socket of this.ctx.getWebSockets())if(socket!==source){const peer=await this.state(socket);if(!peer?.state.joined)continue;try{const body=await readRoomSocketPeer(peer.state,request=>runtime.services.content(request));if(body)this.send(socket,kind==='content'&&peer.state.push?{type:'state',body}:{type:'changed',kind});else socket.close(4003);}catch{socket.close(1011);}}
  }
  journalHeaders(source){
@@ -75,7 +83,7 @@ export class PageRoom{
  }
  async persistJournal(){
   if(this.journal?.update)await this.ctx.storage.put('room-journal',this.journal);
-  else await this.ctx.storage.delete('room-journal');
+  else{this.pendingSince=null;await this.ctx.storage.delete('room-journal');}
  }
  /** Commit the previous journal before adding an update that would not fit. */
  async prepareJournalFor(update){
@@ -95,10 +103,16 @@ export class PageRoom{
   await this.persistJournal();
   this.scheduleFlush();
  }
+ /** Debounce the D1 checkpoint: each update pushes it back by idleMs, but
+  * never past maxMs after the first unflushed update. The alarm is the
+  * fallback when the object hibernates and its timer is lost. */
  scheduleFlush(){
-  if(this.flushTimer)return;
-  this.flushTimer=setTimeout(()=>{this.flushTimer=null;void this.enqueue(()=>this.flushJournalLocked()).catch(()=>{if(this.journal?.update)this.scheduleFlush();});},250);
-  void this.ctx.storage.getAlarm().then(alarm=>{if(!alarm||alarm>Date.now()+250)return this.ctx.storage.setAlarm(Date.now()+250);}).catch(()=>{});
+  const now=Date.now();this.pendingSince??=now;
+  const due=Math.min(now+ROOM_CHECKPOINT.idleMs,this.pendingSince+ROOM_CHECKPOINT.maxMs);
+  clearTimeout(this.flushTimer);
+  this.flushTimer=setTimeout(()=>{this.flushTimer=null;void this.enqueue(()=>this.flushJournalLocked()).catch(()=>{if(this.journal?.update)this.scheduleFlush();});},Math.max(0,due-now));
+  const fallback=due+1000;
+  void this.ctx.storage.getAlarm().then(alarm=>{if(!alarm||alarm>fallback)return this.ctx.storage.setAlarm(fallback);}).catch(()=>{});
  }
  async flushJournalLocked(){
   if(!this.journal?.update)return;
@@ -139,7 +153,7 @@ export class PageRoom{
   }
  }
  async failJournal(error){
-  this.journal=null;this.needsReplay=false;
+  this.journal=null;this.needsReplay=false;this.pendingSince=null;
   try{await this.ctx.storage.delete('room-journal');}catch{}
   for(const socket of this.ctx.getWebSockets()){if(socket.deserializeAttachment()?.kind==='workspace')continue;try{socket.close(error?.status===403||error?.code==='ROOM_EPOCH_CHANGED'?4003:1011);}catch{}}
  }
