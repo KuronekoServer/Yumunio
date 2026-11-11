@@ -16,3 +16,34 @@
 dialog[data-motion-dialog]::backdrop{background:transparent}
 @media(min-width:1100px){.workspace-main{transition:margin-inline-end var(--ui-panel-duration) var(--ui-motion-ease)}}
 @media(prefers-reduced-motion:reduce){.workspace-main,.sidebar-size-handle::after{transition:none!important}}
+/* Co-editing presence. Avatars pop in with a short overshoot (staggered) and
+   shrink away on leave; remote carets glide (FLIP in workspace-presence.js),
+   show their name while moving, then rest as a slim caret with a head dot. */
+@keyframes room-person-in{from{opacity:0;transform:scale(.55) translateY(3px)}}
+@keyframes room-person-out{to{opacity:0;transform:scale(.4);width:0;margin-inline-start:0;border-width:0}}
+@keyframes room-label-in{from{opacity:0;transform:translateY(3px) scale(.9)}}
+@keyframes room-label-rest{to{opacity:0;transform:translateY(2px) scale(.9)}}
+@keyframes room-fade-in{from{opacity:0}}
+@keyframes room-caret-in{from{opacity:0;transform:scaleY(.4)}}
+@keyframes connection-pulse{0%{box-shadow:0 0 0 0 color-mix(in srgb,var(--muted) 55%,transparent)}70%,100%{box-shadow:0 0 0 6px transparent}}
+@keyframes connection-settle{0%{transform:scale(1.8)}60%{transform:scale(.85)}}
+.room-person.entering{animation:room-person-in .34s cubic-bezier(.34,1.56,.64,1) both;animation-delay:calc(var(--enter-index,0) * 45ms)}
+.room-person.leaving{animation:room-person-out .22s var(--ui-motion-ease) forwards;pointer-events:none}
+.collaboration-presence .room-person{transition:transform .16s var(--ui-motion-ease),box-shadow .16s var(--ui-motion-ease)}
+.collaboration-presence .room-person:hover{transform:translateY(-2px);z-index:1}
+.collaboration-presence .room-person.self{box-shadow:0 0 0 1.5px var(--accent)}
+.room-remote-caret{border-radius:1px}
+.room-remote-caret::before{content:"";position:absolute;top:-3px;left:-2px;width:6px;height:6px;border-radius:50%;background:var(--participant-color)}
+.room-remote-caret.fresh{transform-origin:top;animation:room-caret-in .18s var(--ui-motion-ease) both}
+.room-remote-label{transform-origin:left bottom;margin-bottom:3px;opacity:0;transform:translateY(2px) scale(.9);transition:opacity .16s,transform .16s;box-shadow:0 2px 6px #0002}
+.room-remote-caret.active .room-remote-label{opacity:1;transform:none;animation:room-label-in .18s var(--ui-motion-ease) both,room-label-rest .32s var(--ui-motion-ease) var(--label-rest,2.6s) forwards}
+.room-cursor-layer[data-repaint] .room-remote-caret.active .room-remote-label{animation:room-label-rest .32s var(--ui-motion-ease) var(--label-rest,2.6s) forwards}
+.room-cursor-layer:not([data-repaint]) .room-remote-selection{animation:room-fade-in .16s var(--ui-motion-ease) both}
+.connection-indicator>span{transition:background-color .3s var(--ui-motion-ease)}
+.connection-indicator:not(.connected)>span{animation:connection-pulse 1.6s ease-out infinite}
+.connection-indicator.connected>span{animation:connection-settle .45s cubic-bezier(.34,1.56,.64,1)}
+@media(prefers-reduced-motion:reduce){
+ .room-person.entering,.room-person.leaving,.room-remote-caret.fresh,.room-remote-label,.room-remote-caret.active .room-remote-label,.room-remote-selection,.connection-indicator>span{animation:none!important;transition:none!important}
+ .room-person.leaving{display:none}.room-remote-label{opacity:1;transform:none}
+ .collaboration-presence .room-person:hover{transform:none}
+}

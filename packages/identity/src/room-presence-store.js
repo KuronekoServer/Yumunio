@@ -36,3 +36,43 @@ export class SqlRoomPresenceStore{
 export function createSqliteRoomPresenceStore(database){return new SqlRoomPresenceStore({dialect:'sqlite',async query(sql,params=[]){const statement=database.prepare(sql);return /^SELECT\b/.test(sql)?{rows:statement.all(...params),affectedRows:0}:{rows:[],affectedRows:Number(statement.run(...params).changes)};}});}
 export function createD1RoomPresenceStore(database){return new SqlRoomPresenceStore({dialect:'sqlite',async query(sql,params=[]){const result=await database.prepare(sql).bind(...params).all();if(result?.success===false)bad();return{rows:result.results,affectedRows:Number(result.meta?.changes??0)};}});}
 export const createPoolRoomPresenceStore=client=>new SqlRoomPresenceStore(client);
+
+const DURABLE_SCHEMA='CREATE TABLE IF NOT EXISTS room_presence (id TEXT NOT NULL PRIMARY KEY, workspace_id TEXT NOT NULL, page_id TEXT NOT NULL, epoch TEXT NOT NULL, account_id TEXT NOT NULL, membership_id TEXT NOT NULL, session_id TEXT NOT NULL, actor_role TEXT NOT NULL CHECK (actor_role IN (\'owner\',\'admin\',\'member\',\'guest\')), client_id TEXT NOT NULL, sequence INTEGER NOT NULL, document_version INTEGER NOT NULL, cursor_json TEXT NOT NULL, expires_at TEXT NOT NULL, slot INTEGER NOT NULL CHECK (slot >= 0 AND slot < 64), account_slot INTEGER NOT NULL CHECK (account_slot >= 0 AND account_slot < 8), UNIQUE (workspace_id,page_id,slot), UNIQUE (workspace_id,page_id,account_id,account_slot))';
+/** Cloudflare: TTL rows live in the page's own Durable Object SQLite database
+ * (one PageRoom per workspace/page), so a 10s heartbeat never writes to D1.
+ * D1 is only read: once to authorize the requester before a write, and once
+ * to re-validate every candidate row's live user, membership and session with
+ * the same predicates as the SQL list query. A revoked session therefore never
+ * becomes visible even though the TTL row itself is not stored in D1. */
+export class DurableRoomPresenceStore{
+ #sql;#database;#ready=false;
+ constructor(sql,database){if(!sql||typeof sql.exec!=='function'||!database||typeof database.prepare!=='function')bad();this.#sql=sql;this.#database=database;}
+ #local(query,...params){try{if(!this.#ready){this.#sql.exec(DURABLE_SCHEMA);this.#ready=true;}return this.#sql.exec(query,...params);}catch(error){if(constraint(error))conflict();bad();}}
+ async #remote(query,params){let result;try{result=await this.#database.prepare(query).bind(...params).all();}catch{bad();}if(result?.success===false||!Array.isArray(result?.results))bad();return result.results;}
+ async #authorized(scope){const s=context('sqlite');return (await this.#remote('SELECT 1 AS ok WHERE '+actor(s,scope,'sqlite'),s.params)).length===1;}
+ #rows(scope,{epoch=true,live=true}={}){return this.#local('SELECT * FROM room_presence WHERE workspace_id = ? AND page_id = ?'+(epoch?' AND epoch = ?':'')+(live?' AND expires_at > ?':'')+' ORDER BY slot LIMIT 65',scope.workspaceId,scope.pageId,...(epoch?[scope.epoch]:[]),...(live?[scope.now]:[])).toArray().map(row);}
+ async checkSchema(){this.#local('SELECT id FROM room_presence WHERE 1 = 0');}
+ /** Removes expired rows; called from the room alarm and before each write. */
+ purgeExpired(now=new Date().toISOString()){timestamp(now);return this.#local('DELETE FROM room_presence WHERE expires_at <= ?',now).rowsWritten??0;}
+ async list(scope){validateScope(scope);const rows=this.#rows(scope);if(rows.length>64)bad();if(!rows.length)return[];
+  const s=context('sqlite'),c=s.column,b=s.bind,item=index=>'json_extract(j.value,\'$['+index+']\')';
+  const sql='SELECT '+item(0)+' AS id FROM json_each('+b(JSON.stringify(rows.map(value=>[value.id,value.accountId,value.membershipId,value.actorRole,value.sessionId])))+') j JOIN yumunio_users pu ON '+c('pu','id')+' = '+item(1)+' JOIN yumunio_memberships pm ON '+c('pm','id')+' = '+item(2)+' AND '+c('pm','organizationId')+' = '+b(scope.workspaceId)+' AND '+c('pm','userId')+' = '+c('pu','id')+' AND '+c('pm','role')+' = '+item(3)+' JOIN yumunio_auth_sessions ps ON '+c('ps','id')+' = '+item(4)+' AND '+c('ps','userId')+' = '+c('pu','id')+' WHERE '+c('pu','emailVerified')+' = TRUE AND '+c('ps','expiresAt')+' > '+b(Date.parse(scope.now))+' AND '+actor(s,scope,'sqlite');
+  const allowed=new Set((await this.#remote(sql,s.params)).map(value=>value.id));return rows.filter(value=>allowed.has(value.id));
+ }
+ async publish(scope,input){validateScope(scope);if(!validPresenceClientId(input.clientId)||!/^[a-f0-9]{32}$/.test(input.id))bad();integer(input.sequence,1);integer(input.documentVersion,1);timestamp(input.expiresAt);if(Date.parse(input.expiresAt)-Date.parse(scope.now)!==PRESENCE_LIMITS.ttlMs)bad();
+  this.purgeExpired(scope.now);
+  if(!await this.#authorized(scope))conflict();
+  // No await from here on: Durable Object SQL runs synchronously, so the
+  // epoch sweep, slot allocation and write commit together under one gate.
+  this.#local('DELETE FROM room_presence WHERE workspace_id = ? AND page_id = ? AND epoch <> ?',scope.workspaceId,scope.pageId,scope.epoch);
+  const existing=this.#rows(scope,{epoch:false,live:false});if(existing.length>64)bad();
+  const prior=existing.find(value=>value.id===input.id);
+  if(prior){if(prior.accountId!==scope.accountId||prior.membershipId!==scope.membershipId||prior.sessionId!==scope.sessionId||prior.clientId!==input.clientId)bad();
+   this.#local('UPDATE room_presence SET sequence = ?, document_version = ?, cursor_json = ?, expires_at = ?, actor_role = ? WHERE id = ?',input.sequence,input.documentVersion,JSON.stringify(input.cursor),input.expiresAt,scope.actorRole,input.id);return;}
+  const own=existing.filter(value=>value.accountId===scope.accountId),free=(used,count)=>Array.from({length:count},(_,index)=>index).find(index=>!used.has(index)),slot=free(new Set(existing.map(value=>value.slot)),64),accountSlot=free(new Set(own.map(value=>value.accountSlot)),8);
+  if(slot===undefined||accountSlot===undefined)throw new RoomPresenceStoreError('ROOM_PRESENCE_CAPACITY',429);
+  this.#local('INSERT INTO room_presence (id,workspace_id,page_id,epoch,account_id,membership_id,session_id,actor_role,client_id,sequence,document_version,cursor_json,expires_at,slot,account_slot) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',input.id,scope.workspaceId,scope.pageId,scope.epoch,scope.accountId,scope.membershipId,scope.sessionId,scope.actorRole,input.clientId,input.sequence,input.documentVersion,JSON.stringify(input.cursor),input.expiresAt,slot,accountSlot);
+ }
+ async leave(scope,id){validateScope(scope);if(!/^[a-f0-9]{32}$/.test(id))bad();this.#local('DELETE FROM room_presence WHERE workspace_id = ? AND page_id = ? AND epoch = ? AND id = ? AND account_id = ? AND session_id = ?',scope.workspaceId,scope.pageId,scope.epoch,id,scope.accountId,scope.sessionId);}
+}
+export const createDurableRoomPresenceStore=({sql,database})=>new DurableRoomPresenceStore(sql,database);

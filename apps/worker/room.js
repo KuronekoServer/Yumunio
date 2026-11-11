@@ -3,6 +3,7 @@ import {contentChangesPath} from '../../packages/identity/src/content-changes.js
 import {WorkspaceEvents} from './content-socket.js';
 import {PeerRequestQueue} from './peer-queue.js';
 import {createContentCache} from './content-cache.js';
+import {createDurableRoomPresenceStore} from '@yumunio/identity/room-presence-store';
 
 /** Account services, instance setup and backup checks are heavy (better-auth,
  * D1 adapters and mail). Keep them out of the Worker's startup graph; the first
@@ -45,9 +46,12 @@ export class PageRoom{
   // Settings and recovery are reread above; content/session APIs still query
   // current membership, ACL, tickets and durable revision on every operation.
   const configuration=JSON.stringify(state.data??null);
-  if(this.serviceCache?.revision!==revision||this.serviceCache.configuration!==configuration){const entry={revision,configuration,promise:null};entry.promise=createWorkerAccountServices(env,undefined,this.ctx,{contentStore:base=>this.contentCache.wrap(base)}).catch(error=>{if(this.serviceCache===entry)this.serviceCache=null;throw error;});this.serviceCache=entry;}
+  if(this.serviceCache?.revision!==revision||this.serviceCache.configuration!==configuration){const entry={revision,configuration,promise:null};entry.promise=createWorkerAccountServices(env,undefined,this.ctx,{contentStore:base=>this.contentCache.wrap(base),roomPresenceStore:this.presenceStore(env)}).catch(error=>{if(this.serviceCache===entry)this.serviceCache=null;throw error;});this.serviceCache=entry;}
   const services=await this.serviceCache.promise;if(!services)throw Error('Accounts required.');return{services,origin:env.YUMUNIO_PUBLIC_ORIGIN};
  }
+ /** Presence TTL rows live in this object's SQLite storage (one object per
+  * workspace/page). D1 is only read to authorize; heartbeats never write D1. */
+ presenceStore(env=this.env){if(this.presence!==undefined)return this.presence??undefined;try{this.presence=this.ctx.storage.sql&&env.DB?createDurableRoomPresenceStore({sql:this.ctx.storage.sql,database:env.DB}):null;}catch{this.presence=null;}return this.presence??undefined;}
  async dispatch(request){return(await this.services()).services.content(request);}
  enqueue(task){const result=this.tail.catch(()=>{}).then(task);this.tail=result.catch(()=>{});return result;}
  enqueuePeer(socket,task){return this.peerQueue.run(socket,task);}
@@ -256,6 +260,7 @@ export class PageRoom{
   await this.enqueue(async()=>{
    await this.restoreJournal();
    if(this.journal?.update){try{await this.flushJournalLocked();}catch(error){await this.failJournal(error);}}
+   try{this.presence?.purgeExpired();}catch{}
    const sockets=this.ctx.getWebSockets();for(const socket of sockets){const peer=await this.state(socket);if(!peer||!peer.state.joined&&Date.now()-peer.state.createdAt>10000)socket.close(1008);else if(Date.now()-peer.state.lastSeen>ROOM_SOCKET_LIMITS.idleMs)socket.close(1001);}if(sockets.length||this.journal?.update)await this.ctx.storage.setAlarm(Date.now()+30000);
   });
  }

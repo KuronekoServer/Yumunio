@@ -40,3 +40,49 @@
 @media(max-width:380px){.detail-editor .record-property{grid-template-columns:1fr;gap:2px}.detail-editor .record-property>span{padding-bottom:0}}
 @media(max-width:760px){.collaboration-presence{max-width:80px}.collaboration-presence .room-person:nth-child(n+4){display:none}.workspace-topbar{padding-inline:8px;gap:6px}.connection-indicator{padding:3px}}
 .collaboration-presence .room-person-color::before { content: attr(data-initial); }
+/* Notion-like sidebar tree: left-aligned menu rows, one full-width
+   hover/selection surface per page, and row actions overlaid at the end. */
+.workspace-sidebar .motion-sidebar-menu:not(.sidebar-page-menu) .sidebar-menu-trigger,.workspace-sidebar .sidebar-create-teamspace{justify-content:flex-start;font-weight:400}
+.workspace-sidebar .sidebar-page-row:has(.page-link.selected){background:var(--soft)}
+.workspace-sidebar .sidebar-page-row>.page-link:hover,.workspace-sidebar .sidebar-page-row>.page-link.selected{background:transparent}
+.workspace-sidebar .sidebar-page-actions{position:absolute;inset-inline-end:3px;top:50%;transform:translateY(-50%)}
+.workspace-sidebar .sidebar-page-row:hover>.page-link,.workspace-sidebar .sidebar-page-row:focus-within>.page-link{padding-inline-end:58px}
+@media(hover:none){.workspace-sidebar .sidebar-page-row>.page-link{padding-inline-end:58px}}
+/* Quiet scrollbars that appear on hover, like a document app. */
+#workspace-app :where(*){scrollbar-width:thin;scrollbar-color:transparent transparent}
+#workspace-app :where(*):hover{scrollbar-color:color-mix(in srgb,var(--muted) 40%,transparent) transparent}
+/* Page header: an "Untitled" placeholder, and secondary controls that stay
+   out of the way until the header is hovered or focused. */
+.page-title::placeholder{color:color-mix(in srgb,var(--muted) 45%,transparent);opacity:1}
+.child-page-directory .child-page-create{opacity:0;transition:opacity .15s var(--ui-motion-ease,ease)}
+.document-content:hover .child-page-create,.child-page-directory .child-page-create:focus-visible{opacity:1}
+@media(hover:none){.child-page-directory .child-page-create{opacity:1}}
+.empty-state-actions{display:flex;flex-wrap:wrap;gap:8px;justify-content:center}
+/* With no child pages, "Add sub-page" behaves like Notion's header hover row:
+   it sits in the top padding above the title instead of pushing the body down. */
+@media(min-width:761px){
+ .workspace-main .document-content{position:relative}
+ .workspace-main .document-content>.child-page-directory:not(:has(a.child-page-link)){position:absolute;top:34px;margin:0}
+ .detail-editor .workspace-main .document-content>.child-page-directory:not(:has(a.child-page-link)){position:static;margin:8px 0 12px}
+}
+@media(min-width:761px){
+ .workspace-main .document-content>.document-tools:not([open]){position:absolute;top:34px;inset-inline-end:0;margin:0}
+ .workspace-main .document-content>.page-title{margin-bottom:10px}
+ .detail-editor .workspace-main .document-content>.document-tools:not([open]){position:static;margin:0 0 12px}
+}
+/* "/" opens the block menu at the caret as a compact popover (Notion-like). */
+.block-picker .block-choice{display:flex;align-items:center;gap:10px}
+.block-picker .block-choice::before{content:attr(data-glyph);display:inline-grid;place-items:center;flex:none;width:28px;height:28px;border:1px solid var(--border);border-radius:5px;background:var(--canvas);color:var(--muted);font-size:12px;font-weight:600;line-height:1}
+dialog#workspace-modal.slash-popover{position:fixed;inset:auto;margin:0;top:var(--popover-y,20vh);left:var(--popover-x,20vw);width:min(330px,calc(100vw - 16px));max-height:min(400px,calc(100dvh - 16px));border-radius:8px;box-shadow:0 0 0 1px #0f0f0f0d,0 3px 6px #0f0f0f1a,0 9px 24px #0f0f0f33}
+body:has(dialog#workspace-modal.slash-popover[open]) .motion-dialog-shade{display:none}
+.slash-popover .dialog-header{display:none}
+.slash-popover .dialog-body{padding:6px}
+.slash-popover input[type=search]{width:100%;min-height:34px;margin:0 0 4px;padding:6px 8px;border:0;border-bottom:1px solid var(--border);border-radius:0;background:transparent;box-shadow:none;outline:none;font-size:13px}
+.slash-popover .block-picker{gap:1px}
+.slash-popover .block-choice{min-height:38px;width:100%;padding:4px 6px;border:0;border-radius:5px;background:transparent;box-shadow:none;font-size:14px;font-weight:400;color:var(--text)}
+.slash-popover .block-choice:hover:not(:disabled),.slash-popover .block-choice:focus-visible,.slash-popover .block-choice.is-first{background:var(--soft);outline:none}
+.slash-popover .block-choice:disabled{opacity:.45}
+.slash-popover .hint{margin:6px 6px 2px;font-size:11px;color:var(--muted)}
+@media(forced-colors:active){.slash-popover .block-choice.is-first{outline:2px solid Highlight}}
+/* The off-canvas sidebar's shadow must not bleed onto the page while closed. */
+@media(max-width:760px){.workspace-shell:not(.nav-open) .workspace-sidebar{box-shadow:none}}

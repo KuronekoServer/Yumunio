@@ -20,7 +20,9 @@ import { createD1AdminStore } from '@yumunio/identity/admin-store';
 import { createPreferencesApi } from '@yumunio/identity/preferences';
 import { createD1PreferencesStore } from '@yumunio/identity/preferences-store';
 
-/** Request-scoped services; durable state and leases reside in D1. */
+/** Request-scoped services; durable state and leases reside in D1. A PageRoom
+ * Durable Object passes its own SQLite-backed `roomPresenceStore` so presence
+ * heartbeats stay inside the room instead of writing to D1. */
 export async function createWorkerAccountServices(env, identityConfig = readIdentityConfig(env), context, options = {}) {
   const apiTokenConfig=readApiTokenConfig(env);
   const mcpConfig=readMcpConfig(env);
@@ -53,7 +55,7 @@ export async function createWorkerAccountServices(env, identityConfig = readIden
   const actions=createExternalPageActions({store:apiTokenStore,contentStore,origin:identityConfig.origin,enabled:apiTokenConfig.enabled});
   const apiTokens=createApiTokenApi({store:apiTokenStore,contentStore,actions,origin:identityConfig.origin,enabled:apiTokenConfig.enabled,resolveSession});
   const mcp=createMcpApi({actions,origin:identityConfig.origin,enabled:mcpConfig.enabled,resolveSession});
-  const content = createAccountContentApi({ instanceEnvironment:env, store: contentStore, origin: identityConfig.origin, blobStore: await createWorkerBlobStore(env), roomSecret: identityConfig.secret, roomPresenceStore:createD1RoomPresenceStore(env.DB), resolveSession });
+  const content = createAccountContentApi({ instanceEnvironment:env, store: contentStore, origin: identityConfig.origin, blobStore: await createWorkerBlobStore(env), roomSecret: identityConfig.secret, roomPresenceStore:options.roomPresenceStore??createD1RoomPresenceStore(env.DB), resolveSession });
   const preferences = createPreferencesApi({ store: createD1PreferencesStore(env.DB), origin: identityConfig.origin, resolveSession });
   const webhooks=createWebhookApi({config:webhookConfig,store:webhookStore,contentStore,origin:identityConfig.origin,adminIds,resolveSession});
   const webhookJobs=createWebhookRunner({config:webhookConfig,store:webhookStore,contentStore,adminIds});

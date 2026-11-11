@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {inlineDomFixture} from './fixtures/inline-dom.js';
 import {createInlineEditor} from '../public/inline-editor.js';
-import {participantRoster,participantColor,remoteCursorLayer} from '../public/room-presence-ui.js';
+import {participantRoster,participantColor,remoteCursorLayer,glideRemoteCarets,caretPositions} from '../public/room-presence-ui.js';
 
 // Extend fixture instances here: production geometry still comes from DOM Ranges.
 // This does not simulate layout, actual browser selection or real pointer input.
@@ -86,4 +86,22 @@ test('empty read-only paragraphs use a bounded fallback caret while offscreen ra
 test('scroll bounds outside the screen normalize to the visible viewport instead of creating negative overlay insets',t=>{
  const dom=presenceDom(t,{clip:{left:-30,right:340,top:-10,bottom:230},caret:{left:0,right:0,top:190,bottom:210,width:0,height:20}});dom.editor('body');
  const layer=remoteCursorLayer(dom.document,dom.root,[person()],{pageId:'page'});assert.deepEqual(insets(layer),[0,0,0,0]);assert.deepEqual(geometry(byClass(layer,'room-remote-caret')[0]),{left:0,top:190,height:10});
+});
+
+test('roster marks only new people as entering, staggers them, and leaves hidden ghosts that remove themselves after their exit animation',t=>{
+ const dom=presenceDom(t),roster=participantRoster(dom.document,[person({id:'a',displayName:'Ann'}),person({id:'b',displayName:'Ben',self:true}),person({id:'c',displayName:'Cy'})],{entering:new Set(['a','c']),leaving:[person({id:'gone',displayName:'Gone'})]});
+ const [ann,ben,cy,ghost]=roster.childNodes;
+ assert.equal(ann.className,'room-person entering');assert.equal(ann.style['--enter-index'],'0');assert.equal(ben.className,'room-person self');assert.equal(ben.style['--enter-index'],undefined);assert.equal(cy.style['--enter-index'],'1');
+ assert.equal(ghost.className,'room-person leaving');assert.equal(ghost.getAttribute('aria-hidden'),'true');assert.equal(ghost.getAttribute('role'),null);assert.equal(roster.textContent.includes('Gone'),false);
+ let removed=false;ghost.remove=()=>{removed=true;};for(const listener of ghost.listeners.get('animationend'))listener();assert.equal(removed,true);
+});
+
+test('remote carets glide from their previous position, keep labels only while moving, and never animate on scroll repaints',t=>{
+ let left=120;const dom=presenceDom(t,{caret:()=>({left,right:left,top:100,bottom:120,width:0,height:20})});dom.editor('body');
+ const paint=()=>{const layer=remoteCursorLayer(dom.document,dom.root,[person()],{pageId:'page'}),caret=byClass(layer,'room-remote-caret')[0];caret.calls=[];caret.animate=(...args)=>caret.calls.push(args);return{layer,caret};};
+ const first=paint();assert.equal(glideRemoteCarets(first.layer,new Map(),{now:1000}),0);assert.equal(first.caret.className,'room-remote-caret fresh active');assert.equal(first.caret.style['--label-rest'],'2600ms');assert.equal(first.caret.dataset.participant,'ephemeral-person');
+ const memory=caretPositions(first.layer);assert.deepEqual(memory.get('ephemeral-person'),{left:120,top:100,activeUntil:3600});
+ left=140;const moved=paint();assert.equal(glideRemoteCarets(moved.layer,memory,{now:5000}),1);assert.deepEqual(moved.caret.calls[0][0],[{transform:'translate(-20px,0px)'},{transform:'translate(0,0)'}]);assert.equal(moved.caret.className,'room-remote-caret active');
+ const heartbeat=paint();glideRemoteCarets(heartbeat.layer,caretPositions(moved.layer),{now:9000});assert.equal(heartbeat.caret.className,'room-remote-caret');assert.equal(heartbeat.caret.calls.length,0);
+ left=60;const scrolled=paint();glideRemoteCarets(scrolled.layer,caretPositions(moved.layer),{now:6000,animate:false});assert.equal(scrolled.caret.calls.length,0);assert.equal(scrolled.caret.className,'room-remote-caret active');assert.equal(scrolled.caret.style['--label-rest'],'1600ms');
 });

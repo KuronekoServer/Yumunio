@@ -49,7 +49,7 @@ export function WorkspaceChooser(){
   const lifetime=new AbortController();
   (async()=>{
    try{
-    const[catalogs,instance]=await Promise.all([loadCatalogs({namespace:'account'}),loadInstanceConfig()]);
+    const[catalogs,instance]=await Promise.all([loadCatalogs({namespace:'account',baseUrl:new URL('/i18n.js',location.href)}),loadInstanceConfig()]);
     if(lifetime.signal.aborted)return;
     applyInstanceDefaults(preferences,instance);
     const next=createI18n(catalogs,preferences.snapshot().locale);

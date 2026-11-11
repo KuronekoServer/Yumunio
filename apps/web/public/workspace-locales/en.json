@@ -61,6 +61,7 @@
   "deviceNotes": "Notes on this device",
   "pages": "Pages",
   "createPage": "Create page",
+  "createFromTemplate": "Start from a template",
   "pageTemplates.destination": "Add to",
   "pageTemplates.private": "Private",
   "pageTemplates.teamDestination": "Teamspace · {name}",
