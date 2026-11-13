@@ -12,6 +12,6 @@
     "@yumunio/backup": "0.1.0",
     "@yumunio/identity": "0.1.0",
     "@yumunio/prototype": "0.1.0",
-    "ws": "8.22.0"
+    "ws": "8.22.2"
   }
 }
