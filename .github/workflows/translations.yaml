@@ -54,7 +54,7 @@ jobs:
           npm run l10n:export
       - name: Send source updates and download approved translations
         if: steps.connection.outputs.ready == 'true'
-        uses: crowdin/github-action@72955432d4aa4f6dd64cf17eeb88dd34d6ba064c # v3, CLI 5.4.0
+        uses: crowdin/github-action@d651c77756acbe11a31d77a6fb79d8a239e1e05a # v3, CLI 5.4.0
         with:
           config: crowdin.yml
           upload_sources: true
@@ -76,7 +76,7 @@ jobs:
           npm run build
       - name: Open a translation review
         if: steps.connection.outputs.ready == 'true'
-        uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8
+        uses: peter-evans/create-pull-request@3ffccacd46053766916f087ce41d627c0b8cf2d1 # v8
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           base: master
